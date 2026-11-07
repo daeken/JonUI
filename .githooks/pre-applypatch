@@ -1,0 +1,4 @@
+#!/bin/sh
+set -eu
+# git am and the apply-based rebase backend create commits outside git commit.
+exec python3 scripts/swiftui_coverage.py --staged --verify-stamp

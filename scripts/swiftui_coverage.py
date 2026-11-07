@@ -45,8 +45,8 @@ def validate(catalog, api):
 
 
 def stamp(catalog):
-    parent = git('rev-parse', '--verify', 'HEAD', check=False)
-    parent = parent.stdout.decode().strip() if parent.returncode == 0 else 'unborn'
+    baseline = git('rev-parse', '--verify', 'HEAD', check=False)
+    baseline = baseline.stdout.decode().strip() if baseline.returncode == 0 else 'unborn'
     digest = hashlib.sha256()
     for entry in sorted(git('ls-files', '--stage', '-z').stdout.split(b'\0')):
         if not entry:
@@ -58,7 +58,7 @@ def stamp(catalog):
             raise ValueError('Resolve index conflicts before recording coverage review.')
         digest.update(entry + b'\0')
     block = (f'{START}\n'
-             f'Reviewed against parent commit: `{parent}`.\n\n'
+             f'Review baseline (checkout HEAD before commit): `{baseline}`.\n\n'
              f'Staged source-tree SHA-256 (excluding this catalog): `{digest.hexdigest()}`.\n'
              f'{END}')
     pattern = re.escape(START) + r'.*?' + re.escape(END)
@@ -70,11 +70,13 @@ def stamp(catalog):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--staged', action='store_true', help='Check the index, never unstaged content.')
-    parser.add_argument('--stamp', action='store_true', help='Require a staged human review, then update its index-only review stamp.')
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument('--stamp', action='store_true', help='Require a staged human review, then update its index-only review stamp before Git caches a commit tree.')
+    mode.add_argument('--verify-stamp', action='store_true', help='Require a current review stamp without mutating an index Git may already have cached.')
     args = parser.parse_args()
     root = Path(git('rev-parse', '--show-toplevel').stdout.decode().strip())
-    if args.stamp and not args.staged:
-        raise ValueError('--stamp requires --staged')
+    if (args.stamp or args.verify_stamp) and not args.staged:
+        raise ValueError('--stamp/--verify-stamp requires --staged')
     if args.staged:
         catalog = git('show', ':' + CATALOG).stdout.decode()
         api = git('show', ':' + API).stdout.decode()
@@ -82,11 +84,13 @@ def main():
         catalog = (root / CATALOG).read_text()
         api = (root / API).read_text()
     validate(catalog, api)
-    if args.stamp:
+    if args.stamp or args.verify_stamp:
         changed = git('diff', '--cached', '--name-only', '-z', '--', CATALOG).stdout.split(b'\0')
         if CATALOG.encode() not in changed:
             raise ValueError('Every commit needs a reviewed change to ' + CATALOG + '. Update status/state rows or its Current review notes, then stage it.')
         updated = stamp(catalog)
+        if args.verify_stamp and updated != catalog:
+            raise ValueError('Coverage review stamp is stale. Run python3 scripts/swiftui_coverage.py --staged --stamp, then retry/continue the commit. This hook leaves the index unchanged because Git may already have cached its commit tree.')
         if updated != catalog:
             blob = git('hash-object', '-w', '--stdin', input=updated.encode()).stdout.decode().strip()
             git('update-index', '--cacheinfo', '100644,' + blob + ',' + CATALOG)
@@ -94,7 +98,8 @@ def main():
             path = root / CATALOG
             if path.exists() and path.read_text() == catalog:
                 path.write_text(updated)
-    print('SwiftUI coverage: all public exports/members classified' + ('; staged review stamped.' if args.stamp else '.'))
+    suffix = '; staged review stamped.' if args.stamp else '; staged review verified.' if args.verify_stamp else '.'
+    print('SwiftUI coverage: all public exports/members classified' + suffix)
 
 
 if __name__ == '__main__':

@@ -661,12 +661,31 @@ remain open. Keep the broad focus/navigation item unchecked.
 
 ## 4. Developer workflow
 
+- [x] Require a reviewed widget/state ledger in normal commit, amend, merge, cherry-pick, patch-import and rebase workflows.
 - [ ] Add full module reload with explicit state-preservation and effect-cleanup rules.
 - [ ] Add typed TSX authoring with compiler-assisted tracked state reads/writes and automatic native binding props; see SWIFTUI_TODO.md for design and validation milestones.
 - [ ] Add live TypeScript type diagnostics in the playground; it currently strips types without checking edited code.
 - [ ] Save and reopen playground source edits, which are currently session-only.
 - [ ] Add a component/state inspector and useful source locations for runtime errors.
 - [ ] Add browser inspection and stronger diagnostics for native and WebKit failures.
+
+Coverage commit workflow completed (2026-11-07), continuing the user's standing
+request that the widget/state ledger be updated in every commit. The original
+pre-commit-only guard missed other commit paths. Versioned prepare-commit-msg,
+pre-merge-commit and pre-applypatch hooks now require reviewed/classified ledger
+changes and a current source stamp. They verify without modifying Git's already-
+cached tree; only the early pre-commit hook or explicit stamp command mutates the
+index. An initial real-Git test exposed that late index writes were omitted from
+the resulting commit, so the final design rejects a stale stamp with recovery
+instructions instead. Review metadata names checkout HEAD as a baseline, avoiding
+an incorrect parent claim on amend. Eleven isolated real-Git tests pass, covering
+ordinary review/classification, unstaged edits, idempotence, no-verify/amend,
+merge/cherry-pick, patch-import recovery, rebase and non-mutating verification.
+No widget/state implementation status changed; the coverage ledger and repository
+instructions document this review. Native/runtime/type source is unchanged, so
+the existing 110 unit/67 offscreen native/type validation remains applicable.
+Local hooks remain bypassable by replacing hooks or plumbing/external clients;
+no server-side protection or remote settings change is claimed.
 
 ## 5. Distribution and performance
 

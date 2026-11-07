@@ -29,11 +29,15 @@ Status meanings:
 
 ## Current review
 
+- Maintenance review (2026-11-07): widget/state status rows are unchanged.
+  Commit-review enforcement now covers ordinary/amended commits, merges,
+  cherry-picks, patch imports, rebases, and `commit --no-verify`. Eleven real-Git
+  tests verify rejection/recovery, cached-tree safety, baseline metadata,
+  classification, idempotence and preservation of unstaged edits. No native,
+  runtime or TypeScript declaration changes in this increment.
 - Initial comprehensive inventory of the current TypeScript API, native bridge,
   examples and tests, including known limitations. All public exported symbols
   and View/Focus/ComponentScope members have explicit classification markers.
-- Coverage maintenance: four real-index tests verify mandatory review, public API
-  classification, idempotent source stamping, and preservation of unstaged edits.
 - Current validation: native build; 110 runtime/compiler unit tests; 67 offscreen
   native scenarios; Deno/TypeScript checks. Mixed-sheet automatic window animation
   suppression also passed three additional 20-owner stress runs. The original
@@ -332,23 +336,33 @@ not implemented by merely stripping TypeScript types.
 
 Run `python3 scripts/setup-hooks.py` once per clone. Before each commit, review
 changed widget/state contracts, update the relevant rows and Current review, and
-stage this file. The pre-commit hook rejects an omitted review or unclassified
-public API, then stamps the exact staged source-tree fingerprint and parent
-commit. Stamping preserves unstaged edits and never stages arbitrary worktree
-hunks. A commit with no coverage change still needs an explicit reviewed note.
+stage this file. Pre-commit rejects omitted reviews/unclassified public API and
+stamps the staged source-tree fingerprint plus the checkout HEAD used as a review
+baseline. A baseline is not necessarily the new commit's parent (for example,
+when amending). Stamping preserves unstaged edits and never stages arbitrary
+worktree hunks. A commit with no coverage change still needs a reviewed note.
+
+Git may cache its tree before later hooks run. The prepare-commit-msg,
+pre-merge-commit and pre-applypatch hooks therefore **only verify**, never mutate
+the index. They catch flows that bypass pre-commit, including `commit --no-verify`.
+Older-history replay/import may pause for review or a stale stamp. Review/stage
+the ledger, run the stamp command below, then retry/continue the operation. This
+keeps the recorded fingerprint in the actual commit, rather than merely in an
+index Git has already copied.
 
 ```sh
 python3 scripts/swiftui_coverage.py
+python3 scripts/swiftui_coverage.py --staged --stamp
 python3 -m unittest discover -s tests -p 'test_swiftui_coverage.py'
 ```
 
-The local hook is versioned and installed in this checkout; new clones must run
-the setup command. Git's `--no-verify`/external clients can bypass local hooks,
-so this is not a server-side branch-protection guarantee. Repository instructions
-require the same review for all contributors and automated work.
+The local hooks are versioned and installed in this checkout; new clones must run
+the setup command. Replacing/disabling hooks, Git plumbing, or external clients
+can still bypass local enforcement; this is not server-side branch protection.
+Repository instructions require the same review for contributors and automation.
 
 <!-- coverage-review:generated -->
-Reviewed against parent commit: `b99cac58460903cdc5e0e5accacdc5dd6db6a54b`.
+Review baseline (checkout HEAD before commit): `8a3a63b07e725ff0ccc9c2aec5144a3ab82cb58b`.
 
-Staged source-tree SHA-256 (excluding this catalog): `50af6ffa42c99e54b192bf053adbe9575e5d32db3db1db8959c3d0ef8cc007c0`.
+Staged source-tree SHA-256 (excluding this catalog): `10af9e0a46c3777e08de155fac67e2ae40e6468facd01a4abb99e9a4ec658657`.
 <!-- /coverage-review:generated -->

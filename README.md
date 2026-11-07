@@ -15,6 +15,11 @@ review/update the coverage ledger; install the local enforcement hook once per c
 python3 scripts/setup-hooks.py
 ```
 
+The hooks cover ordinary commits, amendments, merges, cherry-picks, patch imports
+and rebases. If a replay/import pauses for coverage review, update/stage the
+ledger, run `python3 scripts/swiftui_coverage.py --staged --stamp`, then retry or
+continue. Later hooks verify without changing a tree Git may already have cached.
+
 ## Build and run
 
 Requires macOS 14+, Xcode's Swift 6 toolchain, Python 3.12+, and Ninja on `PATH`.

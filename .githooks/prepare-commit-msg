@@ -1,0 +1,5 @@
+#!/bin/sh
+set -eu
+# Covers merge/cherry-pick commits and still runs with `git commit --no-verify`.
+# The pre-commit invocation remains a fast early failure for ordinary commits.
+exec python3 scripts/swiftui_coverage.py --staged --verify-stamp

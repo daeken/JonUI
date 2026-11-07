@@ -1,0 +1,4 @@
+#!/bin/sh
+set -eu
+# Merge may already have cached its tree. Verify, never mutate the index here.
+exec python3 scripts/swiftui_coverage.py --staged --verify-stamp
