@@ -100,7 +100,7 @@ private func validateLayout(_ kind: String, _ props: [String: Any]) throws {
         }
     case "modifier":
         switch props["name"] as? String {
-        case "onTapGesture":
+        case "onTapGesture", "onSpatialTapGesture":
             try keys(["name", "count", "priority", "tap"])
             guard let priority = props["priority"] as? String, ["normal", "high", "simultaneous"].contains(priority),
                   let count = props["count"].flatMap(layoutNumber), [1.0, 2.0].contains(count),
@@ -310,6 +310,21 @@ private struct NativeTapGesture: View {
         // Keep one structural type across priority changes so native controls
         // retain identity. Inactive wrappers preserve their subview gestures.
         let tap = TapGesture(count: count).onEnded { if enabled { tapped() } }
+        return content
+            .gesture(tap, including: enabled && priority == "normal" ? .all : .subviews)
+            .highPriorityGesture(tap, including: enabled && priority == "high" ? .all : .subviews)
+            .simultaneousGesture(tap, including: enabled && priority == "simultaneous" ? .all : .subviews)
+    }
+}
+
+private struct NativeSpatialTapGesture: View {
+    let content: AnyView
+    let count: Int
+    let priority: String
+    let tapped: (CGPoint) -> Void
+    @Environment(\.isEnabled) private var enabled
+    var body: some View {
+        let tap = SpatialTapGesture(count: count, coordinateSpace: .local).onEnded { if enabled { tapped($0.location) } }
         return content
             .gesture(tap, including: enabled && priority == "normal" ? .all : .subviews)
             .highPriorityGesture(tap, including: enabled && priority == "high" ? .all : .subviews)
@@ -716,6 +731,9 @@ private struct NativeView: View {
             case "sheet":
                 let surfaceID = box.children.count > 1 ? box.children[1].id : 0
                 return AnyView(child().sheet(isPresented: boolBinding()) { host.testLayoutRoot(child(1), id: surfaceID) })
+            case "onSpatialTapGesture":
+                let id = box.id, count = box.props["count"] as? Int ?? 1, token = box.props["tap"] as? Int ?? 0
+                return AnyView(NativeSpatialTapGesture(content: child(), count: count, priority: box.string("priority"), tapped: { [weak host] point in host?.tap(id, token: token, count: count, location: point) }))
             case "onTapGesture":
                 let id = box.id, count = box.props["count"] as? Int ?? 1, token = box.props["tap"] as? Int ?? 0
                 return AnyView(NativeTapGesture(content: child(), count: count, priority: box.string("priority"), tapped: { [weak host] in host?.tap(id, token: token, count: count) }))
@@ -1076,10 +1094,16 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
               box.props["appearance"] as? Int == token, ["onAppear", "onDisappear"].contains(phase) else { return }
         emit(["type": "appearance", "id": id, "token": token, "phase": phase])
     }
-    func tap(_ id: Int, token: Int, count: Int) {
-        guard !stopping, let box = liveNode(id), box.kind == "modifier", box.string("name") == "onTapGesture",
+    func tap(_ id: Int, token: Int, count: Int, location: CGPoint? = nil) {
+        let mode = location == nil ? "onTapGesture" : "onSpatialTapGesture"
+        guard !stopping, let box = liveNode(id), box.kind == "modifier", box.string("name") == mode,
               box.props["tap"] as? Int == token, box.props["count"] as? Int == count else { return }
-        emit(["type": "tap", "id": id, "token": token, "count": count])
+        var event: [String: Any] = ["type": "tap", "id": id, "token": token, "count": count]
+        if let point = location {
+            guard point.x.isFinite, point.y.isFinite else { return }
+            event["location"] = ["x": point.x, "y": point.y]
+        }
+        emit(event)
     }
     func textSubmit(_ id: Int, token: Int) {
         guard !stopping, let box = liveNode(id), ["textfield", "securefield"].contains(box.kind),
@@ -1726,7 +1750,7 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 let kind = value?["kind"] as? String ?? nodes[id]!.kind
                 let children = value?["children"] as? [Int] ?? nodes[id]!.children.map(\.id)
                 let modifier = props["name"] as? String ?? ""
-                let modifiers: Set<String> = ["font", "foregroundStyle", "padding", "frame", "fixedSize", "layoutPriority", "navigationTitle", "accessibilityIdentifier", "contentShape", "disabled", "focusSection", "onAppear", "onDisappear", "onTapGesture", "tag", "sheet", "window"]
+                let modifiers: Set<String> = ["font", "foregroundStyle", "padding", "frame", "fixedSize", "layoutPriority", "navigationTitle", "accessibilityIdentifier", "contentShape", "disabled", "focusSection", "onAppear", "onDisappear", "onTapGesture", "onSpatialTapGesture", "tag", "sheet", "window"]
                 if kind == "modifier" && !modifiers.contains(modifier) { throw BridgeError("Unknown view modifier") }
                 try validateLayout(kind, props)
                 try validateInput(kind, props)

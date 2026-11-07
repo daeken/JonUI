@@ -1,9 +1,10 @@
 import { Component, Text, runApp, __testing as test } from 'jonui';
 const mode = process.env.JONUI_CASE ?? '';
-const priority = mode.startsWith('high') ? 'high' : mode.startsWith('simultaneous') ? 'simultaneous' : 'normal';
+const priority = mode.includes('high') ? 'high' : mode.includes('simultaneous') ? 'simultaneous' : 'normal';
+const gesture = mode.startsWith('spatial') ? 'onSpatialTapGesture' : 'onTapGesture';
 const Owner = Component(scope => {
   scope.state('owned'); scope.onDispose(() => console.log('TAP_DISPOSE'));
-  return () => Text('Fail').onTapGesture(() => {
+  return () => Text('Fail')[gesture](() => {
     if (mode.includes('promise')) return Promise.reject(new Error('consumed tap rejection'));
     throw new Error('intentional tap failure');
   }, { priority });

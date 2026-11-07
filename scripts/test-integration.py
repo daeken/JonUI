@@ -187,3 +187,9 @@ run('tests/integration/tap-priority.mjs', timeout=90, layout=True)
 run('tests/integration/taps-error.mjs', case='high-throw', failure='intentional tap failure', layout=True)
 run('tests/integration/taps-error.mjs', case='simultaneous-promise', failure='must be synchronous', layout=True)
 run('tests/integration/content-shape.mjs', timeout=90, layout=True)
+run('tests/integration/spatial-tap.mjs', timeout=90, layout=True)
+run('tests/integration/tap-priority.mjs', case='spatial', timeout=90, layout=True)
+for mode in ['vertical-stack', 'horizontal-stack', 'vertical-grid', 'horizontal-grid']:
+    run('tests/integration/tap-lazy.mjs', case='spatial-' + mode, timeout=90, layout=True)
+for mode, message in [('spatial-throw', 'intentional tap failure'), ('spatial-high-throw', 'intentional tap failure'), ('spatial-simultaneous-promise', 'must be synchronous')]:
+    run('tests/integration/taps-error.mjs', case=mode, failure=message, layout=True)

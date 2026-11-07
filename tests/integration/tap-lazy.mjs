@@ -1,13 +1,13 @@
 import assert from 'node:assert/strict';
 import { Component, ForEach, LazyHGrid, LazyHStack, LazyVGrid, LazyVStack, ScrollView, State, Text, View, runApp, __testing as test } from 'jonui';
-const mode = process.env.JONUI_CASE || 'vertical-stack', horizontal = mode.startsWith('horizontal'), grid = mode.endsWith('grid');
+const rawMode = process.env.JONUI_CASE || 'vertical-stack', spatial = rawMode.startsWith('spatial-'), mode = rawMode.replace(/^spatial-/, ''), gesture = spatial ? 'onSpatialTapGesture' : 'onTapGesture', horizontal = mode.startsWith('horizontal'), grid = mode.endsWith('grid');
 const shown = State(false), ids = State(Array.from({ length: 60 }, (_, id) => id)), revision = State(0), double = State(false);
 const models = new Map(), events = []; let setups = 0, disposals = 0;
 const Row = Component((scope, id) => {
   const value = scope.state(0); models.set(id, value); setups++; let retired = false;
   scope.onDispose(() => { retired = true; disposals++; });
   return () => { const version = revision.value; return Text(`Row ${id}: ${value.value}`).frame({ width: grid || horizontal ? 110 : 220, height: horizontal ? 60 : 44 }).contentShape('rectangle')
-    .onTapGesture(() => { assert.equal(retired, false); value.value++; events.push([id, version, value.value]); }, { count: double.value ? 2 : 1 }); };
+    [gesture](point => { if (spatial) { assert.ok(Object.isFrozen(point)); assert.ok(Math.abs(point.x - (grid || horizontal ? 110 : 220) * 0.1) < 0.75); assert.ok(Math.abs(point.y - (horizontal ? 60 : 44) * 0.5) < 0.75); } assert.equal(retired, false); value.value++; events.push([id, version, value.value]); }, { count: double.value ? 2 : 1 }); };
 });
 const Rows = Component(() => () => {
   const children = [ForEach(ids.value, { id: id => id }, id => Row(id))];
@@ -78,4 +78,4 @@ for (let i = 0; i < 20; i++) {
 }
 assert.equal(setups, 460); assert.equal(disposals, setups); test.request('debug.close'); await app;
 assert.deepEqual(test.stats(), { actions: 0, cells: 0, dependencies: 0 }); assert.equal(snapshot().liveCells, 0); assert.equal(snapshot().liveViews, 0); assert.equal(snapshot().layoutSurfaceCount, 0);
-console.log(`PASS lazy taps ${mode}: real rectangular-margin single/double Command-click recognition after scroll, partial native realization, viewport rejection, current keyed handlers/local State, offscreen removal and 20 owner lifetimes without activation`);
+console.log(`PASS lazy ${gesture} ${mode}: real rectangular-margin single/double Command-click recognition after scroll, partial native realization, viewport rejection, current keyed handlers/local State, offscreen removal and 20 owner lifetimes without activation`);

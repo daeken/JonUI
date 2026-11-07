@@ -32,7 +32,8 @@ offscreen lazy rows; use `scope.onDispose` for guaranteed cleanup. See
 [tap semantics and current limits](docs/gestures.md) and
 `bin/jonui examples/gestures/app.ts`. Use `.contentShape("rectangle")` after sizing
 and before a gesture to include transparent margins; circle, ellipse and capsule
-interaction paths are supported too.
+interaction paths are supported too. `.onSpatialTapGesture(point => …)` supplies a
+frozen local `{ x, y }` snapshot with the same count and priority options.
 
 ## Build and run
 

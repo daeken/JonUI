@@ -156,6 +156,9 @@ export interface EdgeInsets { top?: number; leading?: number; bottom?: number; t
 export type Font = "title" | "headline" | "body" | "caption";
 export type ForegroundStyle = "primary" | "secondary" | "yellow";
 
+/** Immutable native tap snapshot in local SwiftUI points: origin top-left, x rightward, y downward. */
+export interface TapLocation { readonly x: number; readonly y: number }
+
 type SynchronousCallbackValidation<Result> = [Extract<Result, PromiseLike<unknown>>] extends [never] ? [] : [never];
 export interface View {
   readonly [viewBrand]: true;
@@ -181,6 +184,8 @@ export interface View {
   onDisappear<Result>(callback: () => Result, ...validation: SynchronousCallbackValidation<Result>): View;
   /** Native single/double tap with normal/high/simultaneous priority. Count/priority changes retire the owned synchronous callback token. */
   onTapGesture<Result>(callback: () => Result, options?: { count?: 1 | 2; priority?: "normal" | "high" | "simultaneous" }, ...validation: SynchronousCallbackValidation<Result>): View;
+  /** Native spatial tap; local coordinates belong to the content at this modifier, including prior sizing/padding. */
+  onSpatialTapGesture<Result>(callback: (location: TapLocation) => Result, options?: { count?: 1 | 2; priority?: "normal" | "high" | "simultaneous" }, ...validation: SynchronousCallbackValidation<Result>): View;
   /** Attach an owned focus projection to a supported control through single-child modifiers; native availability/eligibility still apply. */
   focused(binding: FocusBinding): View;
   /** Button-only native Command shortcut; key is one lowercase ASCII letter/digit. Explicit modifier combinations are not supported yet. */

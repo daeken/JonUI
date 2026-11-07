@@ -19,6 +19,38 @@ the latest handler. Changing count or priority retires the token. Removal, windo
 close and app disposal retire the owner. Events for old tokens/counts/owners are
 discarded.
 
+`view.onSpatialTapGesture(point => …, options)` recognizes native spatial taps
+and delivers a `TapLocation`: a frozen `{ x, y }` snapshot in local SwiftUI logical
+points. It supports the same single/double count and priority options. Coordinates
+start at the top-left of the content at the gesture modifier; x increases to the
+right and y downward. Sizing and padding applied before the gesture belong to
+that coordinate space; padding added outside the gesture does not.
+
+```ts
+const point = scope.state({ x: 0, y: 0 });
+Text('Pick a point')
+  .frame({ width: 200, height: 80 })
+  .padding({ top: 12, leading: 20, bottom: 8, trailing: 10 })
+  .contentShape('rectangle')
+  .onSpatialTapGesture(location => { point.value = location; });
+```
+
+The example's gesture bounds are 230 × 100 points. A click at 20% across and 30%
+down yields `{ x: 46, y: 30 }`. Coordinates are captured by native recognition,
+then queued to Node; later resizing, scrolling or pointer motion does not change
+the snapshot. Node validates finite numeric coordinates and freezes a fresh
+object. It does not clamp coordinates or add a State cell. Callbacks run
+synchronously outside reactive/task tracking, can replace State with the point,
+and use the normal error/Promise cleanup path.
+
+`onTapGesture` continues calling its handler without arguments. Switching between
+ordinary and spatial modifiers retires the old token, as do count/priority
+changes. Property updates retain current handlers; native/Node mode, owner,
+count and token checks reject stale events, and malformed location payloads are
+discarded. Named/global coordinate spaces, input-kind filtering, event phases,
+3D spatial events and general coordinate conversions remain open. The installed
+SDK declares SpatialTapGesture available since macOS 13; JonUI targets macOS 14+.
+
 A disabled environment at the gesture modifier suppresses recognition. Disable
 an ancestor or apply `.disabled(true)` outside the tap modifier to disable it;
 modifier order follows native SwiftUI environment semantics. Priority maps to
@@ -68,7 +100,7 @@ still suppresses taps. The demo changes shape at runtime.
 Only interaction regions and these four primitive paths are supported. General
 Shape drawing/fill/stroke, custom paths, rounded-rectangle parameters, even-odd
 fill, preview/hover kinds, browser/AppKit hit-test interop, gesture masks and
-sequential/exclusive composition, different-count competition, location payloads,
+sequential/exclusive composition, different-count competition, global/named coordinates,
 long press/drag/magnification and animation/transition APIs remain open. Content
 shapes do not promise occlusion detection or that an arbitrary NSView/WebView
 will adopt SwiftUI's hit region.
@@ -97,8 +129,8 @@ tests neither activate the app nor override framework descendants' eligibility.
 
 The driver checks the requested point (center by default) against native window
 content bounds and every ancestor ScrollView viewport. Internal `at: { x, y }`
-fractions select test points within the target frame; this is not a public tap
-location API. A clipped center or edge is rejected even when that coordinate is
+fractions select test points within the target frame. They are separate from
+the public local-point snapshots delivered by onSpatialTapGesture. A clipped center or edge is rejected even when that coordinate is
 still inside the window. Rectangular-margin Command-clicks pass in all four
 lazy variants, including rejection of a clipped edge while the center is visible.
 The driver does not detect occlusion or pixel-level visibility. Each lazy variant
@@ -110,5 +142,13 @@ Ordinary unmodified first-mouse delivery to inactive scroll descendants and
 SwiftUI-owned sheets remains unverified: the unmodified lazy probe produced no
 callback, while Command-clicks passed. Active-window/hardware checks are still
 needed for that path. Broader control/browser/scroll gesture interoperability,
-tap location, general shape/gesture-mask contracts and the separately recorded AppKit sheet-close SIGSEGV
-also remain open.
+broader coordinate spaces, general shape/gesture-mask contracts and the recorded
+AppKit sheet-close SIGSEGV also remain open.
+
+Spatial snapshots are verified with actual Command-clicks in main, owned and sheet
+windows and after scrolling all four lazy layouts. Tests cover asymmetric
+padding/order, resize, count/priority/mode token retirement, stable field focus,
+current callbacks/State, invalid payloads, native close, callback failures and 20
+owner lifetimes. Spatial priority tests also cover Button/Toggle/nested gesture
+competition. These results retain the inactive unmodified-pointer and hardware
+limits described above.

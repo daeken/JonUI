@@ -29,6 +29,20 @@ Status meanings:
 
 ## Current review
 
+- Spatial tap review (2026-11-07): View.onSpatialTapGesture/TapLocation deliver
+  frozen finite local x/y snapshots with native single/double count and normal/
+  high/simultaneous priority. Mode/count/priority epochs and native/Node guards
+  reject stale/malformed events; ordinary taps retain zero-argument callbacks.
+  No new callback table/cell/observer is added. SDK audit: SpatialTapGesture macOS
+  13+, coordinate-space overload macOS 14+, matching the deployment target.
+  Real native Command-clicks verify asymmetric sizing/padding/order, resize,
+  immutable snapshots/current State, native field identity, sheet/root and all
+  four lazy layouts, composition, failures and 20 owner lifetimes. Build, 186
+  unit/compiler cases, 11 coverage workflow tests, both type checkers and 25
+  focused native gates pass. No full-suite pass or sheet-close crash fix is
+  claimed. Global/named coordinates, input kinds, 3D/phase events, long press,
+  other composition and hardware/unmodified inactive delivery remain open.
+
 - Interaction shape review (2026-11-07): View.contentShape adds native rectangle/
   circle/ellipse/capsule interaction paths. Immutable descriptors and stable Shape
   type preserve layout, keyed local State, tap tokens/current callbacks and native
@@ -39,8 +53,8 @@ Status meanings:
   visible center. The demo selects shapes live. Build, 184 unit/compiler cases,
   11 coverage workflow tests, both type checkers and 16 focused native gates pass.
   No full-suite pass or sheet-close crash fix is claimed. General shapes/drawing,
-  custom/even-odd paths, other region kinds, broad native/browser interop, tap
-  location, gesture masks and hardware/unmodified inactive delivery remain open.
+  custom/even-odd paths, other region kinds, broad native/browser interop, general coordinate spaces, gesture masks and
+  hardware/unmodified inactive delivery remain open; see the spatial review above.
 
 - Tap priority review (2026-11-07): View.onTapGesture adds validated native normal/
   high/simultaneous priority. Count or priority changes retire its owned callback
@@ -598,13 +612,14 @@ Status meanings:
 | onChange / onReceive | Partial analog | State.subscribe and component effects on Node. | Native value/event adapters and delivery/cancellation policy remain. |
 | task / refreshable | Partial analog | Scoped task cancellation exists. | Native view-appearance task, ID-triggered task and refresh UI integration remain. |
 | onSubmit / onEditingChanged | Partial | Native text revision snapshot before Node callback. | Supported text controls verified; richer submit scopes/triggers remain. |
-| onTapGesture / double tap | Partial | Native count 1/2 and normal/high/simultaneous priority; synchronous current Node handler, owned modifier token, disabled ancestors and cleanup. | Actual main/owned-window recognition, keyed/count changes, local State, failures, cross-root/sheet-parent rejection, native-close retirement/reopen and 20 lifetimes verified. Native lazy stack/grid and sheet Command-taps verified; unmodified inactive scroll/sheet delivery remains unverified. Ordinary Button/Toggle/nested priority composition and stable field focus verified; primitive interaction regions and modifier order verified; location payloads, general shapes, different-count conflicts and broader control/browser/scroll composition remain. <!-- api: View.onTapGesture --> |
+| onTapGesture / double tap | Partial | Native count 1/2 and normal/high/simultaneous priority; synchronous current Node handler, owned modifier token, disabled ancestors and cleanup. | Actual main/owned-window recognition, keyed/count changes, local State, failures, cross-root/sheet-parent rejection, native-close retirement/reopen and 20 lifetimes verified. Native lazy stack/grid and sheet Command-taps verified; unmodified inactive scroll/sheet delivery remains unverified. Ordinary Button/Toggle/nested priority composition and stable field focus verified; primitive interaction regions and modifier order verified; separate SpatialTapGesture supplies local snapshots. General coordinates/shapes, different-count conflicts and broader control/browser/scroll composition remain. <!-- api: View.onTapGesture --> |
 | highPriorityGesture / simultaneousGesture | Partial (tap only) | onTapGesture priority selects native precedence; changes retire its token while preserving control identity. | Ordinary Button/Toggle/nested Command-click outcomes, disabled behavior and cleanup verified. General Gesture values, explicit masks, sequential/exclusive composition and broader native/browser/scroll interop remain. |
 | contentShape / interaction regions | Partial | Native rectangle/circle/ellipse/capsule paths for interaction only; immutable descriptor, no drawing/clipping/layout change. | Native margin/corner/order tests, stable keyed State/tokens/field focus, disabled owners, lazy rectangular-margin taps and cleanup verified. Custom/even-odd paths, preview/hover kinds, broad AppKit/browser interop and general Shape drawing remain. <!-- api: View.contentShape --> |
 | LongPressGesture | Missing | Press phase, duration/distance and cancellation. | Native/Node event phases and transient state. |
 | DragGesture | Missing | Translation, location, prediction and coordinate space. | High-rate event coalescing, GestureState and cleanup. |
 | MagnifyGesture / RotationGesture | Missing | Scale/angle phase and anchor. | Trackpad/touch availability and cancellation. |
-| SpatialTapGesture / SpatialEventGesture | Platform gate | Location/phase, spatial input identity. | Availability and hardware-specific input codecs. |
+| SpatialTapGesture | Partial (macOS) | Readonly TapLocation local x/y snapshot via onSpatialTapGesture; count/priority/owner tokens, same synchronous cleanup as ordinary taps. | SDK macOS 13/14 overload audit; real points in resized/padded/main/sheet/owned/lazy layouts, control composition, stale/malformed payloads and 20 lifetimes verified. Named/global spaces, input-kind filters, other platforms and hardware remain. <!-- api: View.onSpatialTapGesture, TapLocation --> |
+| SpatialEventGesture | Platform gate | Phase and spatial input identity, including 3D/hardware-specific data. | Availability audit, event codecs, transient state and cancellation remain; 2D tap snapshots do not implement this API. |
 | Hover / continuous hover | Missing | Hover phase/location. | Native event ownership and pointer tracking cleanup. |
 | Key input / keyboardShortcut | Partial (JonUI) | Button-only native Command shortcut for one lowercase ASCII letter/digit; immutable descriptor/current Node action. | Queued native key-equivalent recognition, handled/disabled/removal, text focus, named hosts, sheet/root isolation and cleanup verified. Explicit modifiers, special/unmodified keys, menu scopes/conflicts, repeat/localization/IME/hardware validation remain. <!-- api: View.keyboardShortcut --> |
 | Focus arrow-key routing | Missing | Optional non-editing event routing. | Explicit Focus.move exists; do not steal native caret/IME/browser keys. |
@@ -700,7 +715,7 @@ can still bypass local enforcement; this is not server-side branch protection.
 Repository instructions require the same review for contributors and automation.
 
 <!-- coverage-review:generated -->
-Review baseline (checkout HEAD before commit): `d161ac80bd41d7162ba32b5bab1356bef965e199`.
+Review baseline (checkout HEAD before commit): `cedb5791bd531b7e28dda257ff198371fef8bf76`.
 
-Staged source-tree SHA-256 (excluding this catalog): `d3d618cf0ab2832a5d9fb9940dfdde117940919672f14d7e62c42e8a3f5a5aa9`.
+Staged source-tree SHA-256 (excluding this catalog): `813003bd16c698bdd7493252048c8b3e814a394904b686878cf6624b00cac029`.
 <!-- /coverage-review:generated -->

@@ -1,8 +1,10 @@
+import type { TapLocation } from 'jonui';
 import { Button, Component, Picker, Text, Toggle, VStack, runApp } from 'jonui';
 
 const Demo = Component(scope => {
   const singles = scope.state(0), doubles = scope.state(0), actions = scope.state(0), taps = scope.state(0), disabled = scope.state(false);
   const priority = scope.state<'normal' | 'high' | 'simultaneous'>('normal');
+  const point = scope.state<TapLocation>({ x: 0, y: 0 });
   const shape = scope.state<'rectangle' | 'circle' | 'ellipse' | 'capsule'>('rectangle');
   return () => VStack([
     Text('Native SwiftUI taps').font('headline'),
@@ -18,8 +20,11 @@ const Demo = Component(scope => {
     ], style: 'segmented' }),
     Text(`Single taps: ${singles.value}`).padding(20).contentShape(shape.value).onTapGesture(() => { singles.value++; }),
     Text(`Double taps: ${doubles.value}`).padding(20).contentShape(shape.value).onTapGesture(() => { doubles.value++; }, { count: 2 }),
+    Text(`Local tap: ${point.value.x.toFixed(1)}, ${point.value.y.toFixed(1)}`)
+      .frame({ width: 360, height: 80 }).contentShape(shape.value)
+      .onSpatialTapGesture(location => { point.value = location; }, { priority: priority.value }),
     Text('Hit shapes change the padded labels’ interaction area without drawing or clipping.').font('caption'),
   ], { spacing: 20 })
     .padding(20);
 });
-await runApp({ title: 'JonUI native taps', width: 600, height: 480, content: Demo() });
+await runApp({ title: 'JonUI native taps', width: 640, height: 620, content: Demo() });

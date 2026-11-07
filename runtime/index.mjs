@@ -365,6 +365,13 @@ function disposeComputed(observer) {
   detachComputation(observer); observer.dependents.clear();
   observer.callback = null; observer.value = undefined; observer.error = undefined;
 }
+function tapModifier(view, name, callback, options) {
+  if (typeof callback !== 'function') throw new TypeError(`${name} expects a function`);
+  const { count = 1, priority = 'normal' } = layoutOptions(options, ['count', 'priority'], name);
+  if (count !== 1 && count !== 2) throw new TypeError('Tap count must be 1 or 2');
+  if (!['normal', 'high', 'simultaneous'].includes(priority)) throw new TypeError('Invalid tap priority');
+  return view.modifier(name, { count, priority, onTap: callback });
+}
 class ViewValue {
   constructor(kind, props = {}, children = []) {
     this[viewMarker] = true; this.kind = kind; this.props = props; this.children = children;
@@ -408,13 +415,8 @@ class ViewValue {
     if (typeof callback !== 'function') throw new TypeError('onDisappear expects a function');
     return this.modifier('onDisappear', { onAppearance: callback });
   }
-  onTapGesture(callback, options = {}) {
-    if (typeof callback !== 'function') throw new TypeError('onTapGesture expects a function');
-    const { count = 1, priority = 'normal' } = layoutOptions(options, ['count', 'priority'], 'onTapGesture');
-    if (count !== 1 && count !== 2) throw new TypeError('Tap count must be 1 or 2');
-    if (!['normal', 'high', 'simultaneous'].includes(priority)) throw new TypeError('Invalid tap priority');
-    return this.modifier('onTapGesture', { count, priority, onTap: callback });
-  }
+  onTapGesture(callback, options = {}) { return tapModifier(this, 'onTapGesture', callback, options); }
+  onSpatialTapGesture(callback, options = {}) { return tapModifier(this, 'onSpatialTapGesture', callback, options); }
   focused(binding) {
     const projection = focusProjection(binding);
     if (this.kind === 'modifier' && this.children.length === 1) return new ViewValue(this.kind, this.props, [this.children[0].focused(binding)]);
@@ -1407,12 +1409,12 @@ function finishEvaluation(mounted, children) {
   unmountAll(old.values());
   if (value.kind === 'modifier' && value.props.name === 'window') windowViews.set(mounted.id, mounted);
   const { body, fallback, rows, row, action, onMessage, onError, api, onSubmit, onEditingChanged, onAppearance, onTap, focusBinding, definition, setup, componentProps, ...props } = value.props;
-  if (mounted.tapCount !== props.count || mounted.tapPriority !== props.priority || props.name !== 'onTapGesture' || !onTap) {
+  if (mounted.tapCount !== props.count || mounted.tapPriority !== props.priority || mounted.tapMode !== props.name || !onTap) {
     taps.delete(mounted.tapToken); mounted.tapToken = undefined;
   }
-  if (value.kind === 'modifier' && props.name === 'onTapGesture') {
-    mounted.tapToken ??= nextTap++; mounted.tapCount = props.count; mounted.tapPriority = props.priority;
-    taps.set(mounted.tapToken, { id: mounted.id, count: props.count, callback: onTap }); props.tap = mounted.tapToken;
+  if (value.kind === 'modifier' && ['onTapGesture', 'onSpatialTapGesture'].includes(props.name)) {
+    mounted.tapToken ??= nextTap++; mounted.tapCount = props.count; mounted.tapPriority = props.priority; mounted.tapMode = props.name;
+    taps.set(mounted.tapToken, { id: mounted.id, count: props.count, spatial: props.name === 'onSpatialTapGesture', callback: onTap }); props.tap = mounted.tapToken;
   }
   if (mounted.appearancePhase !== props.name || !onAppearance) {
     appearances.delete(mounted.appearanceToken); mounted.appearanceToken = undefined;
@@ -1567,7 +1569,17 @@ bridge.listen(json => {
     else if (event.type === 'tap') {
       const entry = taps.get(event.token);
       if (!entry || entry.id !== event.id || entry.count !== event.count) return;
-      const result = taskStorage.run(undefined, () => untracked(entry.callback));
+      let point;
+      if (entry.spatial) {
+        const location = event.location;
+        if (!location || typeof location !== 'object' || Array.isArray(location) || Object.keys(location).length !== 2
+          || !Object.hasOwn(location, 'x') || !Object.hasOwn(location, 'y')
+          || typeof location.x !== 'number' || typeof location.y !== 'number'
+          || !Number.isFinite(location.x) || !Number.isFinite(location.y)) return;
+        point = Object.freeze({ x: location.x, y: location.y });
+      } else if (event.location !== undefined) return;
+      const callback = entry.callback;
+      const result = taskStorage.run(undefined, () => untracked(() => entry.spatial ? callback(point) : callback()));
       if (result && typeof result.then === 'function') {
         Promise.resolve(result).catch(() => {});
         throw new TypeError('Tap callbacks must be synchronous; use scope.task for asynchronous work');

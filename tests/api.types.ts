@@ -531,3 +531,17 @@ Text('Invalid').contentShape('path');
 Text('Invalid').contentShape('rectangle', { kind: 'dragPreview' });
 // @ts-expect-error A native shape name is required.
 Text('Invalid').contentShape({ shape: 'circle' });
+
+Text('Point').onSpatialTapGesture(point => {
+  const coordinates: number[] = [point.x, point.y];
+  State(point);
+  // @ts-expect-error Native location snapshots are immutable.
+  point.x = 1;
+});
+Text('Double location').onSpatialTapGesture(() => {}, { count: 2, priority: 'simultaneous' });
+// @ts-expect-error Spatial callbacks are synchronous too.
+Text('Invalid').onSpatialTapGesture(async point => point.x);
+// @ts-expect-error Named/global coordinate spaces are not implemented.
+Text('Invalid').onSpatialTapGesture(() => {}, { coordinateSpace: 'global' });
+// @ts-expect-error Spatial tap count is still single/double.
+Text('Invalid').onSpatialTapGesture(() => {}, { count: 3 });

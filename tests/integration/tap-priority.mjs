@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { Button, Component, Focus, ForEach, State, Text, TextField, Toggle, View, VStack, runApp, __testing as test } from 'jonui';
+const gesture = process.env.JONUI_CASE === 'spatial' ? 'onSpatialTapGesture' : 'onTapGesture';
 const shown = State(false), priority = State('normal'), revision = State(0), reversed = State(false), blocked = State(false);
 const events = []; let model, setups = 0, disposals = 0;
 const Owner = Component(scope => {
@@ -8,11 +9,11 @@ const Owner = Component(scope => {
   return () => {
     const current = revision.value, options = { priority: priority.value }, record = kind => { total.value++; events.push([kind, current]); };
     const rows = {
-      field: () => TextField('Field', { text: text.binding, focusName: 'field' }).frame({ width: 260, height: 40 }).onTapGesture(() => record('field'), options),
-      button: () => Button('Button', () => record('button')).frame({ width: 260, height: 40 }).onTapGesture(() => record('button-tap'), options),
-      toggle: () => Toggle('Toggle', { isOn: on.binding }).frame({ width: 260, height: 40 }).onTapGesture(() => record('toggle-tap'), options),
-      nested: () => Text('Nested').frame({ width: 260, height: 40 }).onTapGesture(() => record('child')).onTapGesture(() => record('parent'), options),
-      double: () => Text('Double').frame({ width: 260, height: 40 }).onTapGesture(() => record('double'), { ...options, count: 2 }),
+      field: () => TextField('Field', { text: text.binding, focusName: 'field' }).frame({ width: 260, height: 40 })[gesture](() => record('field'), options),
+      button: () => Button('Button', () => record('button')).frame({ width: 260, height: 40 })[gesture](() => record('button-tap'), options),
+      toggle: () => Toggle('Toggle', { isOn: on.binding }).frame({ width: 260, height: 40 })[gesture](() => record('toggle-tap'), options),
+      nested: () => Text('Nested').frame({ width: 260, height: 40 })[gesture](() => record('child'))[gesture](() => record('parent'), options),
+      double: () => Text('Double').frame({ width: 260, height: 40 })[gesture](() => record('double'), { ...options, count: 2 }),
     };
     const order = Object.keys(rows); if (reversed.value) order.reverse();
     return VStack([ForEach(order, { id: id => id }, id => rows[id]()), Text(`Total: ${total.value}`)], { spacing: 12 }).disabled(blocked.value);
@@ -67,4 +68,4 @@ for (let i = 0; i < 20; i++) {
   shown.value = false; test.flush(); await until(() => snapshot().hostedControlCount === 0 && snapshot().liveViews === snapshot().nodes.length, `remove ${i}`); assert.deepEqual(test.stats(), baseline);
 }
 assert.equal(setups, 21); assert.equal(disposals, setups); test.request('debug.close'); await app; assert.equal(snapshot().liveCells, 0); assert.equal(snapshot().liveViews, 0); assert.deepEqual(test.stats(), { actions: 0, cells: 0, dependencies: 0 });
-console.log('PASS tap priorities: real native normal/high/simultaneous Button/Toggle/nested competition, double taps, current keyed handlers, stable native field focus, disabled ancestors, atomic validation and 20 owner lifetimes without activation');
+console.log('PASS ' + gesture + ' priorities: real native normal/high/simultaneous Button/Toggle/nested competition, double taps, current keyed handlers, stable native field focus, disabled ancestors, atomic validation and 20 owner lifetimes without activation');

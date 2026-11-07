@@ -1372,6 +1372,41 @@ location payloads with explicit local-coordinate semantics and stale-owner/count
 priority guards; then long-press phases and cancellation. Internal test-position
 fractions do not constitute a public location API.
 
+Native local tap snapshots completed (2026-11-07):
+`view.onSpatialTapGesture(point => …, { count, priority })` uses native
+SpatialTapGesture in its local coordinate space. Exported readonly TapLocation
+contains finite x/y in SwiftUI logical points, with top-left origin and right/
+down positive axes. Native recognition captures values before queueing to Node;
+Node validates and freezes a fresh snapshot. Sizing/padding before the modifier
+belongs to that space; outer padding does not. The SDK availability audit confirms
+macOS 13 for SpatialTapGesture and macOS 14 for the coordinate-space overload,
+matching JonUI's macOS 14+ target; actual minimum-OS hardware remains unverified.
+
+Ordinary onTapGesture still invokes callbacks without arguments. Both variants
+share the existing owned token table and synchronous/untracked/task-isolated
+callback path; changing mode, count or priority retires the token. Native and
+Node owner/mode/count/token guards reject retired events, and malformed/nonfinite
+coordinate payloads are ignored. Snapshot delivery adds no observer/cell/native
+window resource. Property/current-handler updates retain identity. The demo now
+stores/displays a typed local point. Global/named spaces, input-kind filtering,
+3D events and gesture phase state are outside this first spatial contract.
+
+Validation: native build, 186 unit/compiler cases, 11 coverage workflow tests,
+both type checkers and API classification pass. Twenty-five focused offscreen
+native gates pass, including ordinary/spatial priority competition and all four
+lazy variants for each kind; seven failure modes, shapes/taps/windows/layout/
+appearance/shortcuts/contracts also pass. Real Command-click snapshots verify
+asymmetric padding/order, resize, retained immutable values/current callbacks,
+count/priority/mode epochs, stable native field focus, sheet/independent-root
+coordinates, native close and 20 owner lifetimes. Lazy snapshots stay local after
+native scrolling. Failure paths stop/dispose once; unit tests reject forged,
+malformed and stale payloads and cover cleanup for both kinds/all priorities.
+No full-suite pass or fix for the recorded focus-mixed-sheet AppKit close SIGSEGV
+is claimed. Unmodified inactive pointer/hardware checks remain open. Keep broad
+gestures/animation unchecked. Next actionable increment: native long-press
+recognition, pressing/end/cancel semantics and owner/countdown cleanup. General
+coordinate conversions and remaining gesture composition are later work.
+
 ## 3. Application and operating-system integration
 
 Button Command shortcuts completed (2026-11-07), continuing keyboard navigation:

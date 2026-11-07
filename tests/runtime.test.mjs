@@ -396,6 +396,33 @@ test('owned availability applies per-controller task leases before validation an
   h.emit({ type: 'stop' }); await done;
 });
 
+test('spatial tap snapshots validate finite coordinates, freeze copied data, stay untracked and write State', async () => {
+  const h = await setup(), { ui } = h, value = ui.State({ x: 0, y: 0 }), unrelated = ui.State(0); const points = []; let bodies = 0;
+  for (const callback of [null, true, 1, {}, []]) assert.throws(() => ui.Text('bad').onSpatialTapGesture(callback), /expects a function/);
+  for (const options of [null, [], { count: 3 }, { priority: 'exclusive' }, { coordinateSpace: 'global' }, { location: true }]) assert.throws(() => ui.Text('bad').onSpatialTapGesture(() => {}, options));
+  const done = launch(ui, ui.View(() => { bodies++; return ui.Text('point').onSpatialTapGesture(point => { unrelated.value; points.push(point); assert.ok(Object.isFrozen(point)); assert.throws(() => { point.x = 99; }, TypeError); value.value = point; }); })); await tick();
+  const node = [...h.nodes.values()].find(n => n.props.tap), event = { type: 'tap', id: node.id, token: node.props.tap, count: 1 };
+  assert.equal(node.props.name, 'onSpatialTapGesture'); assert.equal(node.props.count, 1); assert.equal(node.props.priority, 'normal'); assert.equal(node.props.onTap, undefined);
+  for (const location of [undefined, null, true, 1, [], {}, { x: 1 }, { x: '1', y: 2 }, { x: 1, y: true }, { x: NaN, y: 2 }, { x: 1, y: Infinity }, { x: 1, y: 2, z: 3 }]) h.emit({ ...event, location });
+  assert.deepEqual(points, []); h.emit({ ...event, location: { x: 12.5, y: -3.25 } }); await tick(); assert.deepEqual(value.value, { x: 12.5, y: -3.25 });
+  unrelated.value = 1; await tick(); assert.equal(bodies, 1); h.emit({ ...event, location: { x: 0, y: 0 } }); await tick(); assert.deepEqual(points, [{ x: 12.5, y: -3.25 }, { x: 0, y: 0 }]); assert.notEqual(points[0], points[1]);
+  h.emit({ type: 'stop' }); await done; assert.deepEqual(ui.__testing.stats(), { actions: 0, cells: 0, dependencies: 0 });
+});
+
+test('spatial/ordinary tap mode, count and priority changes retire tokens while current handlers retain them', async () => {
+  const h = await setup(), { ui } = h, spatial = ui.State(true), count = ui.State(1), priority = ui.State('normal'), revision = ui.State(0), shown = ui.State(true); const calls = [];
+  const done = launch(ui, ui.View(() => { const current = revision.value; if (!shown.value) return ui.Text('removed'); return spatial.value ? ui.Text('target').onSpatialTapGesture(point => calls.push([current, point]), { count: count.value, priority: priority.value }) : ui.Text('target').onTapGesture(function () { assert.equal(this, undefined); calls.push([current, arguments.length]); }, { count: count.value, priority: priority.value }); })); await tick();
+  const node = () => [...h.nodes.values()].find(n => n.props.tap), event = n => ({ type: 'tap', id: n.id, token: n.props.tap, count: n.props.count, ...(n.props.name === 'onSpatialTapGesture' ? { location: { x: 1, y: 2 } } : {}) });
+  const first = node(); revision.value = 1; await tick(); assert.equal(node().props.tap, first.props.tap); h.emit(event(first)); assert.deepEqual(calls, [[1, { x: 1, y: 2 }]]);
+  for (const change of [() => { count.value = 2; }, () => { priority.value = 'high'; }, () => { spatial.value = false; }, () => { spatial.value = true; }]) {
+    const old = node(); change(); await tick(); const next = node(); assert.equal(next.id, old.id); assert.notEqual(next.props.tap, old.props.tap); const before = calls.length;
+    h.emit(event(old)); h.emit({ ...event(next), id: -1 }); h.emit({ ...event(next), count: 3 }); assert.equal(calls.length, before);
+    h.emit(event(next)); assert.equal(calls.length, before + 1); assert.deepEqual(calls.at(-1), [1, spatial.value ? { x: 1, y: 2 } : 0]); assert.equal(ui.__testing.stats().actions, 1);
+    h.emit({ ...event(next), location: spatial.value ? undefined : { x: 1, y: 2 } }); assert.equal(calls.length, before + 1);
+  }
+  const old = node(); shown.value = false; await tick(); h.emit(event(old)); assert.equal(ui.__testing.stats().actions, 0); h.emit({ type: 'stop' }); await done; assert.deepEqual(ui.__testing.stats(), { actions: 0, cells: 0, dependencies: 0 });
+});
+
 test('content shapes validate interaction primitives and preserve keyed State/tap tokens without new registrations', async () => {
   const h = await setup(), { ui } = h, shape = ui.State('rectangle'), reversed = ui.State(false), shown = ui.State(true); const calls = [], models = new Map(); let disposed = 0;
   for (const value of [undefined, null, true, 1, '', 'path', {}, [], new String('circle')]) assert.throws(() => ui.Text('bad').contentShape(value), /native interaction shape/);
@@ -475,14 +502,14 @@ test('tap State reads are untracked and writes render without replacing the call
 });
 
 test('tap failures and Promise returns dispose owners and release registrations', async () => {
-  for (const priority of ['normal', 'high', 'simultaneous']) for (const mode of ['throw', 'promise', 'setup']) {
+  for (const gesture of ['onTapGesture', 'onSpatialTapGesture']) for (const priority of ['normal', 'high', 'simultaneous']) for (const mode of ['throw', 'promise', 'setup']) {
     const h = await setup(), { ui } = h; let disposed = 0, stopped = 0;
     const Owner = ui.Component(scope => { scope.state('owned'); scope.onDispose(() => disposed++); return () => ui.VStack([
-      ui.Text('tap').onTapGesture(() => { if (mode === 'promise') return Promise.reject(new Error('consumed')); throw new Error('tap failure'); }, { priority }),
+      ui.Text('tap')[gesture](() => { if (mode === 'promise') return Promise.reject(new Error('consumed')); throw new Error('tap failure'); }, { priority }),
       ui.View(() => { if (mode === 'setup') throw new Error('tap setup failure'); return ui.Text('ok'); }),
     ]); });
     const done = launch(ui, Owner(), () => stopped++);
-    if (mode !== 'setup') { await tick(); const node = [...h.nodes.values()].find(n => n.props.tap); h.emit({ type: 'tap', id: node.id, token: node.props.tap, count: 1 }); }
+    if (mode !== 'setup') { await tick(); const node = [...h.nodes.values()].find(n => n.props.tap); h.emit({ type: 'tap', id: node.id, token: node.props.tap, count: 1, ...(gesture === 'onSpatialTapGesture' ? { location: { x: 1, y: 2 } } : {}) }); }
     await assert.rejects(done, mode === 'promise' ? /must be synchronous/ : /tap.*failure/);
     assert.equal(disposed, 1); assert.equal(stopped, 1); assert.deepEqual(ui.__testing.stats(), { actions: 0, cells: 0, dependencies: 0 });
   }
