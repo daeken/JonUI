@@ -350,6 +350,14 @@ ScrollView(HStack([Text('Wide')], { alignment: 'firstTextBaseline' }), { axes: '
 ScrollView(Text('Both'), { axes: 'both' }).frame({ width: 400, height: 300, alignment: 'topLeading' });
 Text('Flexible').frame({ minWidth: 20, idealWidth: 100, maxWidth: 'infinity', minHeight: 10, idealHeight: 40, maxHeight: 80, alignment: 'bottomTrailing' });
 Text('Insets').padding({ top: 4, leading: 8, bottom: 12, trailing: 16 }).fixedSize({ vertical: true }).layoutPriority(1);
+Text('Appearance').onAppear(() => {}).onDisappear(() => { enabled.value = false; });
+Text('Ignored synchronous return').onAppear(() => 1);
+// @ts-expect-error Appearance handlers must be functions.
+Text('Invalid').onAppear(true);
+// @ts-expect-error Async appearance work belongs in a cancellable scoped task.
+Text('Invalid').onAppear(async () => {});
+// @ts-expect-error Disappearance callbacks are synchronous too.
+Text('Invalid').onDisappear(() => Promise.resolve());
 Text('Ideal').fixedSize().frame({ height: 0 });
 // @ts-expect-error Fixed/flexible frame options use separate calls.
 Text('Invalid').frame({ width: 100, minHeight: 20 });

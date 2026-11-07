@@ -29,6 +29,19 @@ Status meanings:
 
 ## Current review
 
+- Appearance review (2026-11-07): onAppear/onDisappear now queue native SwiftUI
+  signals through owned modifier ID/phase/tokens, using latest handlers and
+  discarding retired events. Synchronous callbacks may update State; inferred
+  Promise callbacks reject in types/runtime. Scope disposal remains guaranteed
+  cleanup; appearance is not attachment/eligibility/viewport readiness. Failure
+  tests also exposed/fixed startup partial-mount cleanup, including child-before-
+  parent order. Three unit cases bring the total to 150; native build, types and
+  focused lazy/sheet/validation/current-handler/20-owner checks pass. All 85
+  offscreen native scenarios, 150 unit tests, native build, Deno/TypeScript and
+  API classification pass, including callback State writes/failure cleanup and
+  partial startup child-before-parent disposal. The recorded AppKit sheet-close
+  crash did not recur; no fix is claimed.
+  Availability-specific subscriptions/automatic focus retry remain open.
 - Owned availability review (2026-11-07): named/boolean/typed controllers expose
   guarded `availability` snapshots using names, no argument or declared IDs.
   Generated names stay private. Current retired owners may inspect without
@@ -360,7 +373,7 @@ Status meanings:
 | Binding | Partial | Branded scalar native-cell reference. | Shared/rebound bindings verified; projections, collection/optional bindings and transactions remain. <!-- api: Binding --> |
 | Computed / scope.computed | Available (JonUI) | Cached pure JSON derivation; tracked dependencies. | Owner cleanup and purity verified; this is JonUI's computation API. <!-- api: Computed, ComponentScope.computed --> |
 | View body / Component | Available (JonUI) | Tracked body, current shallow props, keyed setup/disposal. | Render recovery and component ownership verified; not arbitrary native View conformance. <!-- api: View, Component, ComponentScope, ComponentScope.props --> |
-| Effects / disposal | Available (JonUI) | Tracked synchronous effects; dependency/unmount cleanup. | Explicit stop, errors, 150 effects and teardown verified. <!-- api: ComponentScope.effect, ComponentScope.onDispose --> |
+| Effects / disposal | Available (JonUI) | Tracked synchronous effects; dependency/unmount cleanup. | Explicit stop, errors, 150 effects, partial startup child/parent cleanup and teardown verified. <!-- api: ComponentScope.effect, ComponentScope.onDispose --> |
 | Tasks | Available (JonUI) | Async task context, AbortSignal, cleanup and guarded commit. | Latest-run semantics, stale writes/publication/focus and cleanup verified. <!-- api: ComponentScope.task, TaskContext --> |
 | ObservedObject / StateObject | Missing | JS observable model ownership/reference identity. | Current immutable JSON State is not a Swift ObservableObject bridge. |
 | Observable / Bindable | Missing | Observable model properties and projected bindings. | Define JS model/proxy identity, mutation and disposal semantics. |
@@ -403,7 +416,7 @@ Status meanings:
 | clipShape / mask / corner radius | Missing | Shape/path and clipping behavior. | Requires shape schema and hit-testing policy. |
 | scale / rotation / offset / transform | Missing | Finite geometry and optional anchors. | Coordinate/focus/AX effects and animation. |
 | alignmentGuide / coordinateSpace | Missing | Alignment/coordinate identity and geometry callbacks. | Avoid synchronous Node calls during native layout. |
-| onAppear / onDisappear | Missing | Native realization/visibility events. | Component setup/disposal is logical ownership, not native appearance. |
+| onAppear / onDisappear | Partial | Queued SwiftUI signals; owned modifier token, latest synchronous Node handler. | Actual lazy/sheet events, state updates, keyed identity, retirement and cleanup verified; optional no-handler overload and synchronous Swift timing are not mirrored. Appearance does not prove target/viewport readiness or guarantee final cleanup. <!-- api: View.onAppear, View.onDisappear --> |
 | onChange / onReceive | Partial analog | State.subscribe and component effects on Node. | Native value/event adapters and delivery/cancellation policy remain. |
 | task / refreshable | Partial analog | Scoped task cancellation exists. | Native view-appearance task, ID-triggered task and refresh UI integration remain. |
 | onSubmit / onEditingChanged | Partial | Native text revision snapshot before Node callback. | Supported text controls verified; richer submit scopes/triggers remain. |
@@ -507,7 +520,7 @@ can still bypass local enforcement; this is not server-side branch protection.
 Repository instructions require the same review for contributors and automation.
 
 <!-- coverage-review:generated -->
-Review baseline (checkout HEAD before commit): `8ca7991a2a34c48abf29810eabfc0768d5b39881`.
+Review baseline (checkout HEAD before commit): `77bbb0cd605c86950e8ceaa203b1ab495114fedb`.
 
-Staged source-tree SHA-256 (excluding this catalog): `63b1a8b742bf6b2915068e398af71c21d2520cd424bfc5e5673b6ee58d90cbf8`.
+Staged source-tree SHA-256 (excluding this catalog): `3a94b47d4054ef64f0f93ff1418b95bb2e501260d33f72cc63a3d198de89e3f3`.
 <!-- /coverage-review:generated -->

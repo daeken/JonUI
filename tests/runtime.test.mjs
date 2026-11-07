@@ -392,6 +392,52 @@ test('owned availability applies per-controller task leases before validation an
   h.emit({ type: 'stop' }); await done;
 });
 
+test('appearance handlers retain tokens across replacement and keyed reorder, use latest callbacks and retire stale events', async () => {
+  const h = await setup(), { ui } = h, order = ui.State(['a', 'b']), revision = ui.State(0), shown = ui.State(true); const calls = [];
+  const Row = ui.Component((scope, id) => { const local = scope.state(id); return () => { const version = revision.value; return ui.Text(local.value).onAppear(() => calls.push(`appear:${id}:${version}`)).onDisappear(() => calls.push(`disappear:${id}:${version}`)); }; });
+  const done = launch(ui, ui.View(() => shown.value ? ui.ForEach(order.value, { id: id => id }, id => Row(id)) : ui.Text('removed'))); await tick();
+  const modifiers = () => [...h.nodes.values()].filter(n => n.kind === 'modifier' && n.props.appearance);
+  const original = modifiers().map(n => ({ id: n.id, token: n.props.appearance, phase: n.props.name })); assert.equal(original.length, 4);
+  assert.equal(ui.__testing.stats().actions, 4); assert.ok(modifiers().every(n => !('onAppearance' in n.props)));
+  const event = entry => h.emit({ type: 'appearance', ...entry });
+  event({ ...original[0], token: 0 }); event({ ...original[0], id: -1 }); event({ ...original[0], phase: 'forged' }); assert.deepEqual(calls, []);
+  for (const entry of original) event(entry); assert.equal(calls.length, 4);
+  revision.value = 1; order.value = ['b', 'a']; await tick();
+  assert.deepEqual(modifiers().map(n => ({ id: n.id, token: n.props.appearance, phase: n.props.name })), original);
+  for (const entry of original) event(entry); assert.ok(calls.slice(-4).every(value => value.endsWith(':1')));
+  shown.value = false; await tick(); const before = calls.length;
+  for (const entry of original) event(entry); assert.equal(calls.length, before); assert.equal(ui.__testing.stats().actions, 0);
+  h.emit({ type: 'stop' }); await done; assert.deepEqual(ui.__testing.stats(), { actions: 0, cells: 0, dependencies: 0 });
+});
+
+test('appearance phase changes replace registrations and callbacks validate before transport', async () => {
+  const h = await setup(), { ui } = h, disappearing = ui.State(false); const calls = [];
+  for (const callback of [null, 1, true, {}, []]) { assert.throws(() => ui.Text('bad').onAppear(callback), /expects a function/); assert.throws(() => ui.Text('bad').onDisappear(callback), /expects a function/); }
+  const done = launch(ui, ui.View(() => disappearing.value ? ui.Text('phase').onDisappear(() => calls.push('disappear')) : ui.Text('phase').onAppear(() => calls.push('appear')))); await tick();
+  const old = [...h.nodes.values()].find(n => n.props.appearance); disappearing.value = true; await tick();
+  const next = h.nodes.get(old.id); assert.notEqual(next.props.appearance, old.props.appearance);
+  h.emit({ type: 'appearance', id: old.id, token: old.props.appearance, phase: 'onAppear' }); assert.deepEqual(calls, []);
+  h.emit({ type: 'appearance', id: next.id, token: next.props.appearance, phase: 'onDisappear' }); assert.deepEqual(calls, ['disappear']);
+  h.emit({ type: 'stop' }); await done;
+});
+
+test('appearance failures and Promise returns dispose owners and release all callback registrations', async () => {
+  for (const mode of ['throw', 'promise', 'setup']) {
+    const h = await setup(), { ui } = h; let disposed = 0, stopped = 0; const cleanup = [];
+    const Child = ui.Component(scope => { scope.state('child'); scope.onDispose(() => cleanup.push('child')); return () => ui.Text('child').onAppear(() => {}).onDisappear(() => {}); });
+    const Owner = ui.Component(scope => {
+      scope.state('owned'); scope.onDispose(() => { disposed++; cleanup.push('parent'); });
+      if (mode === 'setup') return () => ui.VStack([Child(), ui.View(() => { throw new Error('failed startup'); })]);
+      return () => ui.Text('appearance').onAppear(() => { if (mode === 'promise') return Promise.reject(new Error('consumed async rejection')); throw new Error('appearance failure'); });
+    });
+    const done = launch(ui, Owner(), () => { stopped++; });
+    if (mode !== 'setup') { await tick(); const node = [...h.nodes.values()].find(n => n.props.appearance); h.emit({ type: 'appearance', id: node.id, token: node.props.appearance, phase: 'onAppear' }); }
+    await assert.rejects(done, mode === 'promise' ? /must be synchronous/ : mode === 'setup' ? /failed startup/ : /appearance failure/);
+    assert.equal(disposed, 1); assert.equal(stopped, 1); assert.deepEqual(ui.__testing.stats(), { actions: 0, cells: 0, dependencies: 0 });
+    assert.deepEqual(cleanup, mode === 'setup' ? ['child', 'parent'] : ['parent']);
+  }
+});
+
 test('focus subscription failure rolls back resources and listeners can remove siblings or add listeners during delivery', async () => {
   const h = await setup(), { ui } = h; h.focus.watchError = 'no mounted window';
   assert.throws(() => ui.Focus.subscribe(() => {}), /no mounted window/);

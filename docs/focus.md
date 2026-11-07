@@ -624,6 +624,17 @@ operations beyond the existing availability query. They do not subscribe to
 realization, scroll, retry focus or change generations. See the boolean and typed
 selection examples' **Check Notes** actions for displaying an owned snapshot.
 
+## Appearance and focus readiness
+
+`view.onAppear`/`onDisappear` provide owned native appearance signals; see
+[component appearance](components.md#native-appearance-signals). A callback may
+inspect `focus.availability(...)`, but appearance can precede attachment of an
+eligible target. Disappearance also does not guarantee that a cached target was
+detached. These events do not resume a controller, replay intent, scroll or
+automatically retry focus. Use scoped tasks for cancellable work and onDispose
+for guaranteed cleanup, since disappearance after logical retirement is discarded.
+Availability-specific subscriptions and automatic retry policy remain open.
+
 ## Command traversal cycles
 
 `Focus.setTraversal(targets)` configures an explicit cycle of captured responders

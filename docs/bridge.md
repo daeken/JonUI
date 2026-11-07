@@ -941,6 +941,35 @@ part of the public API or native graph validation. SwiftUI accessibility identif
 were also absent from the underlying NSViews in the offscreen probe, so identifier
 matching is not used for targeting.
 
+## Appearance callback registrations
+
+onAppear/onDisappear are single-child modifiers with positive integer appearance
+tokens. Native commit validation checks exact props/child count. Node stores the
+current callback by token and logical modifier ID/phase; functions stay outside
+the native descriptor. Tokens survive callback replacement and keyed reorder,
+while phase changes allocate a new token. Native SwiftUI hooks emit appearance
+events only when the logical box still has that ID/phase/token. Node checks the
+same tuple, clears inherited task/dependency context, and invokes the latest
+handler. No new native view, state cell, observer or timer is added by the hook.
+
+Logical unmount immediately removes callback registrations, so native disappear
+events from cached/removed views cannot invoke obsolete handlers. Shutdown clears
+the map and counts it among action registrations. Promise/thenable returns are
+consumed and diagnosed; throws trigger normal failure teardown. Native callback
+failure exits the embedded runtime immediately, so integration error fixtures
+verify synchronous stop/disposal markers; unit tests verify zero retained cells,
+dependencies and callbacks. Startup failures also verify native zero counts.
+
+Startup reconciliation now records partial mounts as a transaction. On failure,
+shutdown runs onStop first and retires partial mounts in reverse order, preserving
+child-before-parent disposal even when a failed sibling prevented the root/child
+array assignment. Successful startup releases the temporary tracking set.
+Focused tests cover actual lazy/sheet events, callback-driven State updates,
+current handlers/phase retirement, Unicode keyed identity, native validation,
+discarded post-removal events, 20 owner lifetimes and four native failure paths.
+Appearance does not guarantee target eligibility, viewport visibility or WebKit
+document readiness; availability subscriptions/automatic focus retry are separate.
+
 ## Text callback registrations
 
 Plain and secure single-line inputs use string cells. Their weak native setters

@@ -20,6 +20,12 @@ and rebases. If a replay/import pauses for coverage review, update/stage the
 ledger, run `python3 scripts/swiftui_coverage.py --staged --stamp`, then retry or
 continue. Later hooks verify without changing a tree Git may already have cached.
 
+`view.onAppear(callback)` and `view.onDisappear(callback)` deliver native SwiftUI
+appearance signals to synchronous Node callbacks. Component state survives
+offscreen lazy rows; use `scope.onDispose` for guaranteed cleanup. See
+[appearance semantics](docs/components.md#native-appearance-signals) and
+`bin/jonui examples/appearance/app.ts`.
+
 ## Build and run
 
 Requires macOS 14+, Xcode's Swift 6 toolchain, Python 3.12+, and Ninja on `PATH`.

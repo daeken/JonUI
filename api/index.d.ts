@@ -139,6 +139,7 @@ export interface EdgeInsets { top?: number; leading?: number; bottom?: number; t
 export type Font = "title" | "headline" | "body" | "caption";
 export type ForegroundStyle = "primary" | "secondary" | "yellow";
 
+type AppearanceValidation<Result> = [Extract<Result, PromiseLike<unknown>>] extends [never] ? [] : [never];
 export interface View {
   readonly [viewBrand]: true;
   /** Modifiers return new values; they do not mutate the receiver. */
@@ -155,7 +156,11 @@ export interface View {
   disabled(disabled?: boolean): View;
   /** Group native focusable descendants for SwiftUI sequential/directional movement. */
   focusSection(): View;
-  /** Attach an owned focus projection to a text input, DatePicker or WebView, through single-child modifiers. */
+  /** Native SwiftUI appearance signal; synchronous, not an eligibility or component-setup guarantee. */
+  onAppear<Result>(callback: () => Result, ...validation: AppearanceValidation<Result>): View;
+  /** Native disappearance while logically mounted. Use scope.onDispose for guaranteed teardown. */
+  onDisappear<Result>(callback: () => Result, ...validation: AppearanceValidation<Result>): View;
+  /** Attach an owned focus projection to a text input, DatePicker, Stepper, Picker or WebView, through single-child modifiers. */
   focused(binding: FocusBinding): View;
   tag(id: ItemID): View;
   sheet(options: { isPresented: Binding<boolean>; content: View }): View;

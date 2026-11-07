@@ -998,6 +998,39 @@ retry. Button/Toggle/Slider public targeting, physical-window policy, full keybo
 access verification, dynamic/object IDs/general overloads, IME/AX/nested sheets
 and the recorded intermittent AppKit sheet-close crash remain open.
 
+Native appearance signals completed (2026-11-07): `.onAppear(callback)` and
+`.onDisappear(callback)` bridge SwiftUI events to synchronous Node callbacks.
+Modifiers retain ID/phase/token identity through handler replacement and keyed
+reorder; queued events use the latest callback, while phase changes and logical
+removal retire tokens. Native/Node checks reject stale source/phase/token events.
+Functions never enter native descriptors. Callbacks run untracked without an
+inherited task context, can update State/query availability, and add no native
+observer/timer/cell or wrapper. Promise/thenable returns are consumed/diagnosed;
+types reject inferred Promise callbacks. The demo shows editable lazy rows and
+an event history. Component setup/disposal remains logical ownership; final
+disappearance after removal/close may be dropped, so guaranteed cleanup stays
+in scope.onDispose. Appearance is not viewport/focus/document readiness.
+
+Failure tests exposed a startup gap: if a later child/sibling threw before root
+reconciliation completed, earlier scopes could miss disposal. Startup now tracks
+partial mounts, calls onStop once before teardown and retires partial children
+before parents; successful startup releases the temporary tracking set.
+
+Validation: native build, 150 unit/compiler cases and Deno/TypeScript pass.
+Focused offscreen native checks pass lazy/sheet appearance and disappearance,
+eager logical versus lazy native lifetime, latest callbacks/stable tokens,
+Unicode keyed state, atomic native validation, discarded post-removal events and
+20 owner lifetimes at baseline resources. All 85 offscreen native scenarios pass,
+including callback State writes, four native error paths and partial-startup cleanup. Callback failures
+stop the embedded runtime immediately, so their fixtures use synchronous stop/
+disposal markers; unit tests check zero callbacks/cells/dependencies, and startup
+failure checks native zero counts too. API classification passes. The recorded
+AppKit sheet-close crash did not recur; no framework fix is claimed.
+Keep the broad focus item unchecked. Next: availability-specific subscriptions
+with cancellation/context policy; appearance hooks alone must not automatically
+retry focus. Public Button/Toggle/Slider targeting, physical windows, keyboard
+access/IME/AX/nested-sheet and the recorded AppKit sheet-close gaps remain open.
+
 ## 3. Application and operating-system integration
 
 - [ ] Support multiple windows with independent roots and explicit window ownership.

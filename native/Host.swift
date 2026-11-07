@@ -96,6 +96,9 @@ private func validateLayout(_ kind: String, _ props: [String: Any]) throws {
         }
     case "modifier":
         switch props["name"] as? String {
+        case "onAppear", "onDisappear":
+            try keys(["name", "appearance"])
+            guard let token = props["appearance"].flatMap(layoutNumber), token > 0, token.rounded() == token, token < Double(Int.max) else { throw BridgeError("Invalid appearance token") }
         case "focusSection": try keys(["name"])
         case "disabled":
             try keys(["name", "value"])
@@ -596,6 +599,10 @@ private struct NativeView: View {
             case "accessibilityIdentifier": return AnyView(child().accessibilityIdentifier(box.string("value")))
             case "disabled": return AnyView(child().disabled(box.props["value"] as? Bool ?? false))
             case "focusSection": return AnyView(child().focusSection())
+            case "onAppear", "onDisappear":
+                let id = box.id, phase = box.string("name"), token = box.props["appearance"] as? Int ?? 0
+                if phase == "onAppear" { return AnyView(child().onAppear { [weak host] in host?.appearance(id, token: token, phase: phase) }) }
+                return AnyView(child().onDisappear { [weak host] in host?.appearance(id, token: token, phase: phase) })
             case "sheet": return AnyView(child().sheet(isPresented: boolBinding()) { child(1) })
             case "tag": return child()
             default: return AnyView(EmptyView())
@@ -881,6 +888,11 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
     func action(_ id: Int) {
         guard !stopping, nodes[id]?.kind == "button" else { return }
         emit(["type": "action", "id": id])
+    }
+    func appearance(_ id: Int, token: Int, phase: String) {
+        guard !stopping, let box = nodes[id], box.kind == "modifier", box.string("name") == phase,
+              box.props["appearance"] as? Int == token, ["onAppear", "onDisappear"].contains(phase) else { return }
+        emit(["type": "appearance", "id": id, "token": token, "phase": phase])
     }
     func textSubmit(_ id: Int, token: Int) {
         guard !stopping, let box = nodes[id], ["textfield", "securefield"].contains(box.kind),
@@ -1390,7 +1402,7 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 let kind = value?["kind"] as? String ?? nodes[id]!.kind
                 let children = value?["children"] as? [Int] ?? nodes[id]!.children.map(\.id)
                 let modifier = props["name"] as? String ?? ""
-                let modifiers: Set<String> = ["font", "foregroundStyle", "padding", "frame", "fixedSize", "layoutPriority", "navigationTitle", "accessibilityIdentifier", "disabled", "focusSection", "tag", "sheet"]
+                let modifiers: Set<String> = ["font", "foregroundStyle", "padding", "frame", "fixedSize", "layoutPriority", "navigationTitle", "accessibilityIdentifier", "disabled", "focusSection", "onAppear", "onDisappear", "tag", "sheet"]
                 if kind == "modifier" && !modifiers.contains(modifier) { throw BridgeError("Unknown view modifier") }
                 try validateLayout(kind, props)
                 try validateInput(kind, props)

@@ -9,7 +9,7 @@ function request(op, args = {}) {
   if (result.error) throw new Error(result.error);
   return result;
 }
-let nextState = 1, nextView = 1, nextSubmit = 1, nextEditing = 1, active = null, root = null, stop = null;
+let nextState = 1, nextView = 1, nextSubmit = 1, nextEditing = 1, nextAppearance = 1, active = null, root = null, stop = null;
 let stopped = false, scheduled = false, mounting = false, flushing = false;
 const cells = new Map(), actions = new Map(), dirty = new Set(), updates = new Map();
 const recoveryScopes = [];
@@ -23,6 +23,7 @@ const webErrors = new Map(), webAPIs = new Map();
 let nextWebEpoch = 1;
 const textSubmits = new Map();
 const textEditings = new Map();
+const appearances = new Map();
 const viewMarker = Symbol('JonUI.View');
 const bindingMarker = Symbol('JonUI.Binding');
 const focusBindings = new WeakMap();
@@ -392,6 +393,14 @@ class ViewValue {
   focusSection(...args) {
     if (args.length) throw new TypeError('focusSection accepts no arguments');
     return this.modifier('focusSection', {});
+  }
+  onAppear(callback) {
+    if (typeof callback !== 'function') throw new TypeError('onAppear expects a function');
+    return this.modifier('onAppear', { onAppearance: callback });
+  }
+  onDisappear(callback) {
+    if (typeof callback !== 'function') throw new TypeError('onDisappear expects a function');
+    return this.modifier('onDisappear', { onAppearance: callback });
   }
   focused(binding) {
     const projection = focusProjection(binding);
@@ -1079,6 +1088,7 @@ function unmount(mounted) {
   try { disposeWebAPI(mounted.id); } catch (error) { failures.push(error); }
   textSubmits.delete(mounted.submitToken);
   textEditings.delete(mounted.editingToken);
+  appearances.delete(mounted.appearanceToken);
   for (const cell of mounted.dependencies) cell.dependents.delete(mounted);
   try { unmountAll(mounted.children); } catch (error) { failures.push(error); }
   try { disposeComponent(mounted.component); } catch (error) { failures.push(error); }
@@ -1173,7 +1183,16 @@ function finishEvaluation(mounted, children) {
     old.delete(child.key); return result;
   });
   unmountAll(old.values());
-  const { body, fallback, rows, row, action, onMessage, onError, api, onSubmit, onEditingChanged, focusBinding, definition, setup, componentProps, ...props } = value.props;
+  const { body, fallback, rows, row, action, onMessage, onError, api, onSubmit, onEditingChanged, onAppearance, focusBinding, definition, setup, componentProps, ...props } = value.props;
+  if (mounted.appearancePhase !== props.name || !onAppearance) {
+    appearances.delete(mounted.appearanceToken); mounted.appearanceToken = undefined;
+  }
+  if (value.kind === 'modifier' && ['onAppear', 'onDisappear'].includes(props.name)) {
+    if (typeof onAppearance !== 'function') throw new TypeError('Appearance modifier expects a function');
+    mounted.appearanceToken ??= nextAppearance++; mounted.appearancePhase = props.name;
+    appearances.set(mounted.appearanceToken, { id: mounted.id, phase: props.name, callback: onAppearance });
+    props.appearance = mounted.appearanceToken;
+  }
   if (value.kind === 'textfield' || value.kind === 'securefield') {
     if (!onSubmit || mounted.submitState !== props.state) {
       textSubmits.delete(mounted.submitToken); mounted.submitToken = undefined;
@@ -1273,16 +1292,16 @@ function schedule() {
   if (scheduled || mounting || flushing || !root || stopped) return;
   scheduled = true; queueMicrotask(() => { try { flush(); } catch (error) { fail(error); } });
 }
-function shutdown(error) {
+function shutdown(error, partialMounts = []) {
   if (stopped) return;
   stopped = true;
   let failure = error;
   try { stop?.onStop?.(); } catch (caught) { failure ??= caught; }
-  try { if (root) unmount(root); } catch (caught) { failure ??= caught; } finally { root = null; }
+  try { unmountAll([...(root ? [root] : []), ...partialMounts]); } catch (caught) { failure ??= caught; } finally { root = null; }
   focusListeners.clear(); focusWatch = null;
   for (const observer of [...computations]) disposeComputed(observer);
   for (const id of [...webAPIs.keys()]) disposeWebAPI(id);
-  dirty.clear(); updates.clear(); actions.clear(); webErrors.clear(); textSubmits.clear(); textEditings.clear();
+  dirty.clear(); updates.clear(); actions.clear(); webErrors.clear(); textSubmits.clear(); textEditings.clear(); appearances.clear();
   for (const { listeners, cell } of cells.values()) { listeners.clear(); cell.dependents.clear(); }
   cells.clear();
   try { request('dispose'); } catch (caught) { failure ??= caught; }
@@ -1298,6 +1317,15 @@ bridge.listen(json => {
     if (event.type === 'state') cells.get(event.id)?.accept(event);
     else if (event.type === 'action') actions.get(event.id)?.();
     else if (event.type === 'focusChanged') receiveFocusChange(event);
+    else if (event.type === 'appearance') {
+      const entry = appearances.get(event.token);
+      if (!entry || entry.id !== event.id || entry.phase !== event.phase) return;
+      const result = taskStorage.run(undefined, () => untracked(() => entry.callback()));
+      if (result && typeof result.then === 'function') {
+        Promise.resolve(result).catch(() => {});
+        throw new TypeError('Appearance callbacks must be synchronous; use scope.task for asynchronous work');
+      }
+    }
     else if (event.type === 'textSubmit') {
       const submit = textSubmits.get(event.token);
       if (!submit || submit.id !== event.id || submit.state !== event.state?.id) return;
@@ -1332,11 +1360,12 @@ export function runApp(options) {
   if (root || stop || stopped) throw new Error('runApp can only be called once');
   return new Promise((resolve, reject) => {
     stop = { resolve, reject, onStop: options.onStop };
+    const initialMounts = new Set(); recoveryScopes.push(initialMounts);
     try {
       mounting = true;
       root = reconcile(null, options.content, 'root');
       commit(true, { title: options.title, width: options.width, height: options.height });
-    } catch (error) { shutdown(error); } finally { mounting = false; }
+    } catch (error) { shutdown(error, [...initialMounts].reverse()); } finally { recoveryScopes.pop(); mounting = false; }
     schedule();
   });
 }
@@ -1349,5 +1378,5 @@ export const __testing = process.env.JONUI_TEST === '1' ? Object.freeze({
   effectStats: () => ({ active: effects.size, pending: pendingEffects.size }),
   computedStats: () => ({ active: computations.size, dependencies: [...computations].reduce((n, observer) => n + observer.dependencies.size, 0) }),
   focusStats: () => ({ listeners: focusListeners.size, watching: focusWatch !== null }),
-  stats: () => ({ actions: actions.size + focusListeners.size + textSubmits.size + textEditings.size + [...webErrors.values()].filter(Boolean).length + [...webAPIs.values()].reduce((n, entry) => n + Object.keys(entry.api).length, 0), cells: cells.size, dependencies: [...cells.values()].reduce((n, v) => n + v.cell.dependents.size, 0) }),
+  stats: () => ({ actions: actions.size + focusListeners.size + textSubmits.size + textEditings.size + appearances.size + [...webErrors.values()].filter(Boolean).length + [...webAPIs.values()].reduce((n, entry) => n + Object.keys(entry.api).length, 0), cells: cells.size, dependencies: [...cells.values()].reduce((n, v) => n + v.cell.dependents.size, 0) }),
 }) : undefined;

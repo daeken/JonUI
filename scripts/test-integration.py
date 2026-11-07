@@ -40,6 +40,10 @@ def run(entry, case='', failure=None, driver=None, timeout=30, layout=False):
         assert all(result.stdout.count(marker) == 1 for marker in ['FOCUS_SCOPE_DISPOSE', 'FOCUS_STOP']), (result.stdout, result.stderr)
     if entry.endswith('focus-selection-error.mjs'):
         assert result.stdout.count('SELECTION_FAILURE_CLEANUP') == 1, (result.stdout, result.stderr)
+    if entry.endswith('appearance-error.mjs'):
+        markers = ['APPEARANCE_DISPOSE', 'APPEARANCE_STOP']
+        if case == 'startup': markers += ['APPEARANCE_CHILD_DISPOSE', 'APPEARANCE_FAILURE_CLEANUP']
+        assert all(result.stdout.count(marker) == 1 for marker in markers), (result.stdout, result.stderr)
     if failure:
         assert result.returncode != 0 and failure in result.stderr, (entry, result.returncode, result.stdout, result.stderr)
         print(f'PASS expected failure: {failure}', flush=True)
@@ -143,3 +147,6 @@ run('tests/integration/focus-selection-error.mjs', failure='Duplicate focus name
 run('tests/integration/focus-choices.mjs', timeout=60, layout=True)
 run('tests/integration/focus-availability.mjs', timeout=60, layout=True)
 run('tests/integration/focus-owned-availability.mjs', timeout=60, layout=True)
+run('tests/integration/appearance.mjs', timeout=60, layout=True)
+for mode, message in [('throw', 'intentional appearance failure'), ('disappear', 'intentional appearance failure'), ('promise', 'must be synchronous'), ('startup', 'appearance startup failure')]:
+    run('tests/integration/appearance-error.mjs', case=mode, failure=message)

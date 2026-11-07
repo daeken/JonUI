@@ -61,6 +61,11 @@ callbacks cannot resurrect an instance. Reads outside a render retain the last
 value; reading disposed state from a new render or requesting its binding throws.
 State and bindings must not outlive their owning component.
 
+Startup also tracks partially reconciled views. If a later descendant/sibling
+throws before the root is assigned, earlier scopes and callback registrations
+still retire, with child cleanup before parent cleanup. `onStop` runs once before
+teardown, including this failed-startup path.
+
 Native cells are released after the view transaction removes their bindings.
 The host rejects release while a committed native view still uses a cell, rather
 than leaving a dangling binding. Native bindings weakly reference registered
@@ -163,6 +168,54 @@ result can be inspected without reevaluating already detached inputs. Never-read
 or failed computations cannot be evaluated during unmount, and all reads after
 final disposal throw. Allocate shared computations outside reactive callbacks;
 allocate local ones once during component setup.
+
+## Native appearance signals
+
+`view.onAppear(callback)` and `view.onDisappear(callback)` queue SwiftUI appearance
+signals back to Node. They work on controls, containers, dynamic boundaries and
+lazy rows, including through ordinary modifiers:
+
+```ts
+const Row = Component<{ id: number }>((scope, initial) => {
+  const text = scope.state(`Row ${initial.id}`);
+  return props => TextField('Row', { text: text.binding })
+    .onAppear(() => { console.log('appeared', props.id); })
+    .onDisappear(() => { console.log('disappeared', props.id); });
+});
+```
+
+Logical component setup remains eager; native appearance follows SwiftUI's lazy
+realization and presentation behavior. Scrolling can generate repeated appear/
+disappear pairs without disposing a scope or resetting its state. A sheet can
+disappear while its content stays in the logical graph. An appearance modifier
+on a dynamic boundary observes that boundary, not every child render.
+
+Callbacks execute later on Node, never synchronously inside native layout. They
+may read/write State or inspect focus availability. Reads are untracked, and
+delivery does not inherit the task context that triggered a view update. Replacing
+a handler at the same logical modifier keeps its token and uses the latest
+callback for queued events. Keyed reorder retains registrations; changing the
+phase or removing the modifier retires them. Events with old source/token/phase
+or events after logical removal are ignored. Native events are not deduplicated
+or coalesced into a current visibility flag.
+
+**Use `scope.onDispose` for guaranteed cleanup.** A final disappearance after
+logical removal, window close or shutdown may be discarded because the handler
+is already retired. An appearance is not a component setup event, a clipping/
+viewport visibility guarantee, focus eligibility, or WebView document readiness.
+Cached lazy native views can remain attached after a disappearance. Inspect
+availability explicitly when needed; a ready snapshot still does not guarantee
+that a focus request will be accepted.
+
+Handlers must be synchronous; return values are ignored and Promise/thenable
+returns fail the app with a diagnostic (rejections are consumed). TypeScript
+rejects inferred Promise-returning callbacks. For async work, let callbacks
+update scoped State consumed by a cancellable `scope.task`; disappearance can
+set that state false, and owner disposal cancels work even when no final
+disappearance is delivered. Throwing callbacks follow normal orderly failure
+cleanup. Returned functions are not cleanup registrations.
+
+Try `bin/jonui examples/appearance/app.ts` to edit lazy rows and observe signals.
 
 ## Reactive effects
 
