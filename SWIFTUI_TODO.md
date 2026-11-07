@@ -29,6 +29,20 @@ Status meanings:
 
 ## Current review
 
+- Tap priority review (2026-11-07): View.onTapGesture adds validated native normal/
+  high/simultaneous priority. Count or priority changes retire its owned callback
+  token; current handlers/keyed updates retain it. Stable native modifier types
+  preserve a captured TextField focus target through priority/reorder changes.
+  Real Command-clicks verify ordinary Button/Toggle/nested competition, all-mode
+  double taps, disabled ancestors, atomic wire validation and 20 owner lifetimes.
+  Unit failure cleanup covers all priorities; new native high-throw/simultaneous-
+  Promise gates stop/dispose once. The demo selects priority at runtime. Build,
+  183 unit/compiler cases, 11 coverage workflow tests, both type checkers and 15
+  focused native gates pass. No full-suite pass or sheet-close crash fix is
+  claimed. General masks/sequential/exclusive composition, different-count
+  conflicts, broader AppKit/browser/scroll interop, location/content shapes and
+  hardware/unmodified inactive-delivery checks remain open.
+
 - Lazy tap/Command-click review (2026-11-07): no public widget/state API added.
   Real single/double Command-clicks verify taps after scrolling in all four lazy
   stack/grid variants, eager logical versus partial native lifetime, current
@@ -40,8 +54,8 @@ Status meanings:
   unverified. No activation or framework eligibility override is added. Build,
   182 unit/compiler cases, 11 coverage workflow tests, both type checkers and
   eleven unique focused native gates pass; no full-suite or sheet-close crash
-  fix is claimed. Competing controls, location/shape/priority/composition,
-  foreground/hardware checks and other gestures/animation remain open.
+  fix is claimed. The priority review above adds ordinary control composition;
+  broader interop, location/shapes, foreground/hardware and other gestures remain open.
 
 - Tap window follow-up (2026-11-07): no new public widget/state API. Physical
   main/owned/sheet layout records now drive hidden-window pointer tests; weak,
@@ -371,15 +385,15 @@ Status meanings:
 | Image | Partial | System-symbol name; no image-loading state. | SF Symbols verified; asset/file/data images, rendering modes and resizable images remain. <!-- api: Image --> |
 | Label | Missing | Title/icon content; usually stateless. | Add title/icon composition and label styles. |
 | AsyncImage | Missing | URL plus loading/success/failure phase. | Cancellation, cache policy, errors, placeholder and owner cleanup. |
-| Button | Partial | Node action/current handler, optional named/projected bounded hosting and native Command shortcut descriptor. | Actions, shortcut recognition/disabled/removal/sheet/root cleanup verified; no public focus target on current SDK, so focus/capture/Tab remain gated. Roles/styles/explicit shortcut modifiers/physical pointer interaction remain. <!-- api: Button --> |
-| Toggle | Partial | Scalar boolean Binding; optional focusName/owned projection and public NSButton/NSSwitch lookup. | Binding/naming/session cleanup verified; current custom-drawn surface absent, positive focus/capture/Tab unverified. Styles/labels/physical keyboard/pointer coverage remain. <!-- api: Toggle --> |
+| Button | Partial | Node action/current handler, optional named/projected bounded hosting and native Command shortcut descriptor. | Actions, native Command-click tap priority composition, shortcut recognition/disabled/removal/sheet/root cleanup verified; no public focus target on current SDK, so focus/capture/Tab remain gated. Roles/styles/explicit shortcut modifiers/physical pointer interaction remain. <!-- api: Button --> |
+| Toggle | Partial | Scalar boolean Binding; optional focusName/owned projection and public NSButton/NSSwitch lookup. | Binding/naming/session cleanup and native Command-click tap priority composition verified; current custom-drawn surface absent, positive focus/capture/Tab unverified. Styles/labels/physical keyboard/pointer coverage remain. <!-- api: Toggle --> |
 | Slider | Partial | Scalar number Binding, bounds/step; optional focusName/owned projection and public NSSlider lookup. | Rendering/native binding, naming/session cleanup verified; current custom-drawn surface absent. Positive focus/capture/Tab, physical action/accessibility remain open. <!-- api: Slider, NumericInputOptions --> |
 | Stepper | Partial | Scalar number Binding, bounds/step; named/projected focus registration. | Real NSStepper actions, name/disabled gates and cleanup verified; successful full-keyboard-access focus, formatter and styles remain. <!-- api: Stepper --> |
 | Picker | Partial | String/number/null selection Binding; detached keyed options and named/projected focus registration. | Segmented actions, menu binding/rendering, names/style/disabled gates and cleanup verified; successful eligible focus and menu opening/absent public surfaces remain. <!-- api: Picker, PickerOption --> |
 | DatePicker | Partial | Unix-millisecond number Binding, bounds, components and zone. | Native actions/styles/DST/rebinding/named focus and sheet isolation verified; richer formatting/popover interaction remain. <!-- api: DatePicker --> |
 | MultiDatePicker | Platform gate | Set of date components; selection/range. | Availability audit and immutable set representation before implementation. |
 | ColorPicker | Missing | Color/opacity Binding. | Define JSON color schema; native picker, editing lifecycle and color spaces. |
-| TextField | Partial | String Binding; submit/editing callbacks; optional focus name. | Native Unicode/Return/rebinding/lifetimes verified; formatters, prompts/styles and selection remain. <!-- api: TextField, TextInputOptions --> |
+| TextField | Partial | String Binding; submit/editing callbacks; optional focus name. | Native Unicode/Return/rebinding/lifetimes and captured focus preservation across tap priority/keyed updates verified; formatters, prompts/styles and selection remain. <!-- api: TextField, TextInputOptions --> |
 | SecureField | Partial | String Binding with masked native rendering. | Native edits/focus verified; formatting/styles and secure-entry policy remain. <!-- api: SecureField --> |
 | TextEditor | Partial | String Binding, monospaced flag, editing callback, focus name. | Native multiline/Unicode/newline/lifetime verified; rich text, selection, writing tools and find remain. <!-- api: TextEditor --> |
 | TextFieldLink | Platform gate | Entry/presentation state and text result. | Audit supported Apple platforms and define lifecycle. |
@@ -570,7 +584,9 @@ Status meanings:
 | onChange / onReceive | Partial analog | State.subscribe and component effects on Node. | Native value/event adapters and delivery/cancellation policy remain. |
 | task / refreshable | Partial analog | Scoped task cancellation exists. | Native view-appearance task, ID-triggered task and refresh UI integration remain. |
 | onSubmit / onEditingChanged | Partial | Native text revision snapshot before Node callback. | Supported text controls verified; richer submit scopes/triggers remain. |
-| onTapGesture / double tap | Partial | Native count 1/2; synchronous current Node handler, owned modifier token, disabled ancestors and cleanup. | Actual main/owned-window recognition, keyed/count changes, local State, failures, cross-root/sheet-parent rejection, native-close retirement/reopen and 20 lifetimes verified. Native lazy stack/grid and sheet Command-taps verified; unmodified inactive scroll/sheet delivery remains unverified. Location/content shapes, priority/composition and competing-control pointer coverage remain. <!-- api: View.onTapGesture --> |
+| onTapGesture / double tap | Partial | Native count 1/2 and normal/high/simultaneous priority; synchronous current Node handler, owned modifier token, disabled ancestors and cleanup. | Actual main/owned-window recognition, keyed/count changes, local State, failures, cross-root/sheet-parent rejection, native-close retirement/reopen and 20 lifetimes verified. Native lazy stack/grid and sheet Command-taps verified; unmodified inactive scroll/sheet delivery remains unverified. Ordinary Button/Toggle/nested priority composition and stable field focus verified; location/content shapes, different-count conflicts and broader control/browser/scroll composition remain. <!-- api: View.onTapGesture --> |
+| highPriorityGesture / simultaneousGesture | Partial (tap only) | onTapGesture priority selects native precedence; changes retire its token while preserving control identity. | Ordinary Button/Toggle/nested Command-click outcomes, disabled behavior and cleanup verified. General Gesture values, explicit masks, sequential/exclusive composition and broader native/browser/scroll interop remain. |
+| contentShape / interaction regions | Missing | Native interaction shape separate from layout/clipping. | Define supported shapes/kinds and hit-test behavior for transparent space, nesting, scrolling and disabled owners. |
 | LongPressGesture | Missing | Press phase, duration/distance and cancellation. | Native/Node event phases and transient state. |
 | DragGesture | Missing | Translation, location, prediction and coordinate space. | High-rate event coalescing, GestureState and cleanup. |
 | MagnifyGesture / RotationGesture | Missing | Scale/angle phase and anchor. | Trackpad/touch availability and cancellation. |
@@ -670,7 +686,7 @@ can still bypass local enforcement; this is not server-side branch protection.
 Repository instructions require the same review for contributors and automation.
 
 <!-- coverage-review:generated -->
-Review baseline (checkout HEAD before commit): `2f2a5a7419cd9e1e68acb2d7afe58dc18f308bc4`.
+Review baseline (checkout HEAD before commit): `d3f0a40887bf35817d299bbb6293b9da81114196`.
 
-Staged source-tree SHA-256 (excluding this catalog): `72e38c221a9cd1888948a7ba6a8a4d72eb76faa2ab27cc263ccd1925a548a03b`.
+Staged source-tree SHA-256 (excluding this catalog): `558561c1d74f32a0140c49699a76900be2faf9901286f4fcca44e78241507185`.
 <!-- /coverage-review:generated -->

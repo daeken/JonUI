@@ -515,3 +515,10 @@ Text('Invalid').onTapGesture(async () => {});
 Text('Invalid').onTapGesture(() => Promise.resolve(), { count: 2 });
 // @ts-expect-error Location callbacks are not implemented.
 Text('Invalid').onTapGesture(() => {}, { location: true });
+
+Text('High').onTapGesture(() => {}, { priority: 'high', count: 2 });
+Button('Together', () => {}).onTapGesture(() => {}, { priority: 'simultaneous' });
+// @ts-expect-error Only native normal/high/simultaneous priorities are supported.
+Text('Invalid').onTapGesture(() => {}, { priority: 'exclusive' });
+// @ts-expect-error A priority does not permit Promise callbacks.
+Text('Invalid').onTapGesture(async () => {}, { priority: 'high' });

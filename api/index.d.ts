@@ -177,8 +177,8 @@ export interface View {
   onAppear<Result>(callback: () => Result, ...validation: SynchronousCallbackValidation<Result>): View;
   /** Native disappearance while logically mounted. Use scope.onDispose for guaranteed teardown. */
   onDisappear<Result>(callback: () => Result, ...validation: SynchronousCallbackValidation<Result>): View;
-  /** Native single/double tap; callback is synchronous and owned by this modifier. */
-  onTapGesture<Result>(callback: () => Result, options?: { count?: 1 | 2 }, ...validation: SynchronousCallbackValidation<Result>): View;
+  /** Native single/double tap with normal/high/simultaneous priority. Count/priority changes retire the owned synchronous callback token. */
+  onTapGesture<Result>(callback: () => Result, options?: { count?: 1 | 2; priority?: "normal" | "high" | "simultaneous" }, ...validation: SynchronousCallbackValidation<Result>): View;
   /** Attach an owned focus projection to a supported control through single-child modifiers; native availability/eligibility still apply. */
   focused(binding: FocusBinding): View;
   /** Button-only native Command shortcut; key is one lowercase ASCII letter/digit. Explicit modifier combinations are not supported yet. */

@@ -101,8 +101,9 @@ private func validateLayout(_ kind: String, _ props: [String: Any]) throws {
     case "modifier":
         switch props["name"] as? String {
         case "onTapGesture":
-            try keys(["name", "count", "tap"])
-            guard let count = props["count"].flatMap(layoutNumber), [1.0, 2.0].contains(count),
+            try keys(["name", "count", "priority", "tap"])
+            guard let priority = props["priority"] as? String, ["normal", "high", "simultaneous"].contains(priority),
+                  let count = props["count"].flatMap(layoutNumber), [1.0, 2.0].contains(count),
                   let token = props["tap"].flatMap(layoutNumber), token > 0, token.rounded() == token, token < Double(Int.max) else { throw BridgeError("Invalid tap gesture") }
         case "window":
             try keys(["name", "state", "title", "width", "height"])
@@ -287,10 +288,17 @@ private struct TestLayoutSurfaceProbe: NSViewRepresentable {
 private struct NativeTapGesture: View {
     let content: AnyView
     let count: Int
+    let priority: String
     let tapped: () -> Void
     @Environment(\.isEnabled) private var enabled
     var body: some View {
-        content.gesture(TapGesture(count: count).onEnded { if enabled { tapped() } }, including: enabled ? .all : .none)
+        // Keep one structural type across priority changes so native controls
+        // retain identity. Inactive wrappers preserve their subview gestures.
+        let tap = TapGesture(count: count).onEnded { if enabled { tapped() } }
+        return content
+            .gesture(tap, including: enabled && priority == "normal" ? .all : .subviews)
+            .highPriorityGesture(tap, including: enabled && priority == "high" ? .all : .subviews)
+            .simultaneousGesture(tap, including: enabled && priority == "simultaneous" ? .all : .subviews)
     }
 }
 
@@ -694,7 +702,7 @@ private struct NativeView: View {
                 return AnyView(child().sheet(isPresented: boolBinding()) { host.testLayoutRoot(child(1), id: surfaceID) })
             case "onTapGesture":
                 let id = box.id, count = box.props["count"] as? Int ?? 1, token = box.props["tap"] as? Int ?? 0
-                return AnyView(NativeTapGesture(content: child(), count: count, tapped: { [weak host] in host?.tap(id, token: token, count: count) }))
+                return AnyView(NativeTapGesture(content: child(), count: count, priority: box.string("priority"), tapped: { [weak host] in host?.tap(id, token: token, count: count) }))
             case "window": return child()
             case "tag": return child()
             default: return AnyView(EmptyView())

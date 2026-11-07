@@ -1304,6 +1304,40 @@ shape contracts and long-press phases. Unmodified inactive pointer delivery and
 foreground/hardware checks remain open; do not repeatedly rerun that probe
 without a new delivery approach or claim the modified-click subset proves it.
 
+Native tap priorities completed (2026-11-07), continuing composition work:
+`onTapGesture` accepts `priority: "normal" | "high" | "simultaneous"` (default
+normal), mapping to SwiftUI gesture/highPriorityGesture/simultaneousGesture.
+Only validated immutable count/priority/token data crosses the bridge; callbacks
+stay in Node. Changing count or priority retires the token; ordinary current
+handler/keyed updates retain it. Old queued callbacks are dropped at both native
+and Node ownership guards. No additional callback table, state cell or observer
+is introduced. Native wrappers keep a stable structural type across priority
+changes, enabling only the selected gesture while preserving child gestures in
+inactive wrappers. Disabled ancestors suppress all tap callbacks.
+
+A real native Command-click fixture verifies ordinary Button/Toggle and nested
+single-tap competition: normal lets the control/inner tap win, high makes the
+outer tap win, simultaneous runs both. Relative order of simultaneous callbacks
+is unspecified. Standalone double taps work in all three modes. Captured native
+TextField focus targets survive priority changes/keyed reorder; local State and
+current handlers remain intact. Native validation rejects malformed/missing
+priorities atomically. Twenty owner lifetimes return to baseline resources;
+throw/Promise failure paths dispose once for the new modes. The editable gesture
+demo now selects priority and displays separate Button action/tap counters.
+
+Validation: native build, 183 unit/compiler cases, 11 coverage workflow tests,
+both type checkers and API classification pass. Fifteen focused offscreen native
+gates pass: priority composition, four tap failure modes, existing taps/windows,
+four lazy variants, layout, appearance, shortcuts and contracts. Regression
+coverage includes existing default recognition and sheet/lazy Command-clicks.
+No full-suite pass or fix for the recorded focus-mixed-sheet AppKit close SIGSEGV
+is claimed. Unmodified inactive scroll/sheet delivery and hardware checks remain
+open. Keep gestures/animation unchecked. Remaining composition work includes
+explicit masks, general sequential/exclusive gestures, different-count conflicts,
+bounded/AppKit/browser/scroll recognizer interoperability and platform coverage.
+Next actionable increment: native interaction content-shape semantics and tap
+location/coordinate contracts, followed by long-press phases and cancellation.
+
 ## 3. Application and operating-system integration
 
 Button Command shortcuts completed (2026-11-07), continuing keyboard navigation:

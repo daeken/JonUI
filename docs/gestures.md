@@ -1,7 +1,7 @@
 # Native taps
 
-`view.onTapGesture(callback, { count: 1 | 2 })` attaches SwiftUI's native
-`TapGesture`. Count defaults to 1. Use it for native content, for example:
+`view.onTapGesture(callback, { count: 1 | 2, priority: "normal" | "high" | "simultaneous" })`
+attaches SwiftUI's native `TapGesture`. Count defaults to 1 and priority to "normal". Use it for native content, for example:
 
 ```ts
 Text(`Selected ${selected.value} times`)
@@ -12,17 +12,42 @@ Text(`Selected ${selected.value} times`)
 Callbacks run synchronously in Node, outside reactive tracking and cancellable
 task context. They can write State; start asynchronous work with `scope.task`.
 A thrown error or returned Promise stops the app through normal owner cleanup.
-Handlers and functions stay in Node; only count and an owned token cross the
-bridge. Ordinary property updates and keyed reorder retain the token and call
-the latest handler. Changing count retires the token; removal, window close and
-app disposal retire the owner. Events for old tokens/counts/owners are discarded.
+Handlers and functions stay in Node; only count, priority and an owned token cross
+the bridge. Ordinary property updates and keyed reorder retain the token and call
+the latest handler. Changing count or priority retires the token. Removal, window
+close and app disposal retire the owner. Events for old tokens/counts/owners are discarded.
 
-Disabled content and disabled ancestors suppress recognition. The modifier uses
-SwiftUI's ordinary gesture mask/priority and content hit-testing; padding or a
-frame alone does not promise an opaque rectangular hit region. Single and double
-taps on the same content, interactions with Button/ScrollView/WebView, location
-payloads, explicit gesture composition/priority, long press/drag/magnification and
-animation/transition APIs are not part of this initial contract.
+A disabled environment at the gesture modifier suppresses recognition. Disable
+an ancestor or apply `.disabled(true)` outside the tap modifier to disable it;
+modifier order follows native SwiftUI environment semantics. Priority maps to
+SwiftUI's gesture APIs:
+
+| Priority | Native behavior | Verified Button / Toggle / nested tap result |
+| --- | --- | --- |
+| `normal` | `gesture` | Button action or Toggle binding update; inner tap wins over outer tap. |
+| `high` | `highPriorityGesture` | Outer tap wins; Button action, Toggle update or inner tap is suppressed. |
+| `simultaneous` | `simultaneousGesture` | Both outer tap and Button action, Toggle update or inner tap run. |
+
+These outcomes are verified for ordinary Button/Toggle controls and nested taps
+with real native Command-clicks in the current SDK. They are not a universal
+priority guarantee for AppKit-backed controls, browser documents, scrolling/drag
+recognizers or every gesture combination. Simultaneous callbacks have no promised
+relative order. One stable native modifier structure preserves control identity
+when priority changes; inactive wrappers pass subview gestures through. A native
+text field's captured focus target survives priority changes and keyed reorder.
+
+For example, observe a Button while allowing its action to run:
+
+```ts
+Button('Apply', apply)
+  .onTapGesture(() => { observations.value++; }, { priority: 'simultaneous' });
+```
+
+Content hit-testing remains native; padding or a frame alone does not promise an
+opaque rectangular region. Gesture masks and general sequential/exclusive
+composition, different-count competition on the same content, browser/scroll
+interoperability, location payloads, long press/drag/magnification and animation/
+transition APIs remain open.
 
 Run `bin/jonui examples/gestures/app.ts` to try single and double taps. Automated
 recognition checks post real AppKit mouse-down/up events to the main and owned
@@ -57,6 +82,6 @@ scrolling, count changes, offscreen logical removal and 20 owner lifetimes.
 Ordinary unmodified first-mouse delivery to inactive scroll descendants and
 SwiftUI-owned sheets remains unverified: the unmodified lazy probe produced no
 callback, while Command-clicks passed. Active-window/hardware checks are still
-needed for that path. Competing-control pointer behavior, location/content-shape/
-priority contracts and the separately recorded AppKit sheet-close SIGSEGV also
-remain open.
+needed for that path. Broader control/browser/scroll gesture interoperability, location/content-shape/
+gesture-mask contracts and the separately recorded AppKit sheet-close SIGSEGV
+also remain open.

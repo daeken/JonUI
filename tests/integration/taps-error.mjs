@@ -1,11 +1,12 @@
 import { Component, Text, runApp, __testing as test } from 'jonui';
-const mode = process.env.JONUI_CASE;
+const mode = process.env.JONUI_CASE ?? '';
+const priority = mode.startsWith('high') ? 'high' : mode.startsWith('simultaneous') ? 'simultaneous' : 'normal';
 const Owner = Component(scope => {
   scope.state('owned'); scope.onDispose(() => console.log('TAP_DISPOSE'));
   return () => Text('Fail').onTapGesture(() => {
-    if (mode === 'promise') return Promise.reject(new Error('consumed tap rejection'));
+    if (mode.includes('promise')) return Promise.reject(new Error('consumed tap rejection'));
     throw new Error('intentional tap failure');
-  });
+  }, { priority });
 });
 const app = runApp({ title: 'Tap failure', width: 400, height: 220, content: Owner(), onStop: () => console.log('TAP_STOP') });
 await new Promise(r => setTimeout(r, 100));

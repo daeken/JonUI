@@ -406,9 +406,10 @@ class ViewValue {
   }
   onTapGesture(callback, options = {}) {
     if (typeof callback !== 'function') throw new TypeError('onTapGesture expects a function');
-    const { count = 1 } = layoutOptions(options, ['count'], 'onTapGesture');
+    const { count = 1, priority = 'normal' } = layoutOptions(options, ['count', 'priority'], 'onTapGesture');
     if (count !== 1 && count !== 2) throw new TypeError('Tap count must be 1 or 2');
-    return this.modifier('onTapGesture', { count, onTap: callback });
+    if (!['normal', 'high', 'simultaneous'].includes(priority)) throw new TypeError('Invalid tap priority');
+    return this.modifier('onTapGesture', { count, priority, onTap: callback });
   }
   focused(binding) {
     const projection = focusProjection(binding);
@@ -1402,11 +1403,11 @@ function finishEvaluation(mounted, children) {
   unmountAll(old.values());
   if (value.kind === 'modifier' && value.props.name === 'window') windowViews.set(mounted.id, mounted);
   const { body, fallback, rows, row, action, onMessage, onError, api, onSubmit, onEditingChanged, onAppearance, onTap, focusBinding, definition, setup, componentProps, ...props } = value.props;
-  if (mounted.tapCount !== props.count || props.name !== 'onTapGesture' || !onTap) {
+  if (mounted.tapCount !== props.count || mounted.tapPriority !== props.priority || props.name !== 'onTapGesture' || !onTap) {
     taps.delete(mounted.tapToken); mounted.tapToken = undefined;
   }
   if (value.kind === 'modifier' && props.name === 'onTapGesture') {
-    mounted.tapToken ??= nextTap++; mounted.tapCount = props.count;
+    mounted.tapToken ??= nextTap++; mounted.tapCount = props.count; mounted.tapPriority = props.priority;
     taps.set(mounted.tapToken, { id: mounted.id, count: props.count, callback: onTap }); props.tap = mounted.tapToken;
   }
   if (mounted.appearancePhase !== props.name || !onAppearance) {

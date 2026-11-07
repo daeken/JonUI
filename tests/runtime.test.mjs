@@ -424,6 +424,21 @@ test('taps preserve keyed tokens/current handlers, replace count tokens and disc
   h.emit({ type: 'stop' }); await done; assert.deepEqual(ui.__testing.stats(), { actions: 0, cells: 0, dependencies: 0 });
 });
 
+test('tap priorities copy/validate options, replace tokens on change and retain current handlers otherwise', async () => {
+  const h = await setup(), { ui } = h, priority = ui.State('normal'), revision = ui.State(0); const calls = [];
+  for (const value of [null, true, 1, '', 'exclusive', [], {}]) assert.throws(() => ui.Text('bad').onTapGesture(() => {}, { priority: value }), /tap priority/);
+  const options = { priority: 'simultaneous' }, original = ui.Text('copy').onTapGesture(() => {}, options); options.priority = 'high';
+  assert.equal(original.props.priority, 'simultaneous'); assert.equal(ui.Text('default').onTapGesture(() => {}).props.priority, 'normal');
+  const done = launch(ui, ui.View(() => { const current = revision.value; return ui.Text('tap').onTapGesture(() => calls.push(current), { priority: priority.value }); })); await tick();
+  const node = () => [...h.nodes.values()].find(n => n.props.tap), old = node(), send = n => h.emit({ type: 'tap', id: n.id, token: n.props.tap, count: n.props.count });
+  revision.value = 1; await tick(); assert.equal(node().props.tap, old.props.tap); send(old); assert.deepEqual(calls, [1]);
+  for (const value of ['high', 'simultaneous', 'normal']) {
+    const before = node(); priority.value = value; await tick(); const next = node(); assert.equal(next.id, old.id); assert.notEqual(next.props.tap, before.props.tap); assert.equal(next.props.priority, value);
+    const count = calls.length; send(before); assert.equal(calls.length, count); send(next); assert.equal(calls.length, count + 1); assert.equal(ui.__testing.stats().actions, 1);
+  }
+  h.emit({ type: 'stop' }); await done; assert.deepEqual(ui.__testing.stats(), { actions: 0, cells: 0, dependencies: 0 });
+});
+
 test('reusing a modifier as padding retires its tap handler and returning creates a fresh token', async () => {
   const h = await setup(), { ui } = h, attached = ui.State(true); let calls = 0;
   const done = launch(ui, ui.View(() => attached.value ? ui.Text('tap').onTapGesture(() => calls++) : ui.Text('tap').padding(2))); await tick();
@@ -444,10 +459,10 @@ test('tap State reads are untracked and writes render without replacing the call
 });
 
 test('tap failures and Promise returns dispose owners and release registrations', async () => {
-  for (const mode of ['throw', 'promise', 'setup']) {
+  for (const priority of ['normal', 'high', 'simultaneous']) for (const mode of ['throw', 'promise', 'setup']) {
     const h = await setup(), { ui } = h; let disposed = 0, stopped = 0;
     const Owner = ui.Component(scope => { scope.state('owned'); scope.onDispose(() => disposed++); return () => ui.VStack([
-      ui.Text('tap').onTapGesture(() => { if (mode === 'promise') return Promise.reject(new Error('consumed')); throw new Error('tap failure'); }),
+      ui.Text('tap').onTapGesture(() => { if (mode === 'promise') return Promise.reject(new Error('consumed')); throw new Error('tap failure'); }, { priority }),
       ui.View(() => { if (mode === 'setup') throw new Error('tap setup failure'); return ui.Text('ok'); }),
     ]); });
     const done = launch(ui, Owner(), () => stopped++);

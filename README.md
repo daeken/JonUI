@@ -27,7 +27,8 @@ offscreen lazy rows; use `scope.onDispose` for guaranteed cleanup. See
 `bin/jonui examples/appearance/app.ts`.
 
 `view.onTapGesture(callback, { count: 2 })` adds native single/double taps
-(default count: 1), with synchronous callbacks and owned event tokens. See
+(default count: 1), with synchronous callbacks and owned event tokens. Add
+`priority: "high"` or `priority: "simultaneous"` to control competition with child gestures. See
 [tap semantics and current limits](docs/gestures.md) and
 `bin/jonui examples/gestures/app.ts`.
 
