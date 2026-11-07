@@ -22,6 +22,9 @@ const enabled = State<boolean>(true);
 const title = State<string>("Hello");
 const selected = State<string | null>(null);
 Button('Next', Focus.next); Button('Previous', Focus.previous); Button('Clear focus', Focus.clear);
+Text('Main').window({ isPresented: enabled.binding, title: 'Owned', width: 400, height: 300, content: Text('Other root') });
+// @ts-expect-error Presentation requires a boolean binding.
+Text('Main').window({ isPresented: title.binding, title: 'Owned', width: 400, height: 300, content: Text('Other root') });
 const directionalMoved: boolean = Focus.move('left'); void directionalMoved;
 Focus.move('right'); Focus.move('up'); Focus.move('down');
 // @ts-expect-error Spatial directions are distinct from native next/previous traversal.

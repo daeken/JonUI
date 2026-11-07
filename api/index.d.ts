@@ -71,7 +71,7 @@ export interface FocusController {
   request(name: string | null): void;
   /** One-shot cancellable retry of current non-null intent. Waiting does not scroll; session/responder changes cancel it. */
   retryWhenReady(): () => void;
-  /** Snapshot in the current native context; does not request focus or resume this owner. */
+  /** Snapshot of this controller's root against the current native context; does not focus or resume. */
   availability(name: string): FocusAvailability | null;
   /** Session-owned initial/coalesced status. Stops on retirement/resume/disposal; subscribe again after resume. */
   subscribeAvailability<Result>(name: string, listener: (availability: FocusAvailability) => Result, ...validation: SynchronousCallbackValidation<Result>): () => void;
@@ -181,6 +181,8 @@ export interface View {
   focused(binding: FocusBinding): View;
   tag(id: ItemID): View;
   sheet(options: { isPresented: Binding<boolean>; content: View }): View;
+  /** Owned independent root; closing disposes its content scopes and sets isPresented false. Dimensions apply on creation. */
+  window(options: WindowOptions): View;
 }
 
 /**
@@ -232,7 +234,7 @@ export function Stepper(title: string, options: NumericInputOptions & { focusNam
 /** Unix milliseconds; display components and time zones never change the stored unit. */
 export function DatePicker(title: string, options: {
   selection: Binding<number>;
-  /** App-wide unique name for a realized eligible native date component. */
+  /** Root-wide unique name for a realized eligible native date component. */
   focusName?: string;
   min?: number;
   max?: number;
@@ -281,7 +283,7 @@ export const Focus: {
 export function Toggle(title: string, options: { isOn: Binding<boolean>; focusName?: string }): View;
 export interface TextInputOptions {
   text: Binding<string>;
-  /** App-wide unique native focus name; resolves before first focus. */
+  /** Root-wide unique native focus name; resolves before first focus. */
   focusName?: string;
   /** Focus/editing session transitions; value changes are observed through State. */
   onEditingChanged?: (editing: boolean) => void;
@@ -312,7 +314,7 @@ export function WebView<API extends object = {}>(options: {
   html: string;
   /** Exposed Node methods with JSON arguments/results (or void); browser calls are async. */
   api?: API & WebAPIValidation<API>;
-  /** App-wide unique native focus name; resolves the browser before first focus. */
+  /** Root-wide unique native focus name; resolves the browser before first focus. */
   focusName?: string;
   /** Participate in native Tab/key-view focus. Defaults true; pointer interaction is independent. */
   tabFocusable?: boolean;
@@ -340,6 +342,13 @@ export interface AppOptions {
   content: View;
   /** Called once on Node for normal window-close or Quit shutdown, before teardown. */
   onStop?: () => void;
+}
+export interface WindowOptions {
+  isPresented: Binding<boolean>;
+  title: string;
+  width: number;
+  height: number;
+  content: View;
 }
 
 /** Invoked under `jonui entry.ts`; resolves after orderly app shutdown. */

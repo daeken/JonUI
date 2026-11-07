@@ -575,7 +575,7 @@ and 20 owner removals during an asynchronous boundary handoff.
 
 TextField, SecureField, TextEditor, DatePicker, Stepper, Picker and WebView `focusName` options supply
 declarative registration before first focus, sharing the same namespace.
-Commit validation builds an app-wide map from UTF-8 Data keys to logical node IDs,
+Commit validation builds an per-root maps from UTF-8 Data keys to logical node IDs,
 checking nonempty names and duplicates across the reachable graph before mutating
 anything. Byte keys preserve exact JS Unicode identity. Successful commits replace
 the map; invalid transactions leave it intact. The map stores no native views or
@@ -860,7 +860,7 @@ the owned named projection subset is described below.
 Focus-mutating operations (`focus.move`, `focus.direction`, `focus.named`,
 `focus.target`, `focus.blurNamed`) accept an internal `focusRequest` stamp: session `token`, strictly
 increasing positive safe-integer `generation`, optional positive `context` and
-optional physical `window` ID.
+optional physical `window` ID, and a nonnegative logical `root` ID.
 Unknown stamp fields and invalid counters throw without consuming the generation.
 An operation that reaches its validator also throws without consuming a generation
 when its arguments are invalid. A stale token is rejected without disturbing the newer
@@ -869,7 +869,7 @@ the current observation acknowledgement; a context rejection consumes its new
 generation so an old request cannot be replayed after another window switch.
 
 An accepted operation returns its ordinary result plus `focusAccepted: true` and
-`observation: { token, generation, sequence, context, window, responderRevision, name }`. `focusAccepted`
+`observation: { token, generation, sequence, context, root, window, responderRevision, name }`. `focusAccepted`
 describes protocol acceptance; an unavailable/refusing target can still return
 `focused: false` or `moved: false`. The acknowledgement resolves actual focus,
 updates the watch baseline and advances sequence even if the name is unchanged.
@@ -954,6 +954,44 @@ document replacement. Native coverage keeps one controller/model through sheet
 and parent resumption, rejects an earlier task's writes, repeats 20 observer
 resumes and disposes 20 owners with queued resume/request work at baseline resources.
 
+Owned windows are modifier nodes with a boolean cell, copied title/initial size,
+base child and an optional content child. Node tracks the presentation cell on the
+modifier itself and reconciles content only while true. Native validation permits
+one/two children during queued native state transitions but rejects other counts,
+malformed dimensions/options and shared handles across root domains. A full graph
+walk assigns root zero to the launcher and each window-content branch its modifier
+ID. Names validate in per-root UTF-8 maps; sheets keep their enclosing root domain.
+
+After a valid graph commit the host synchronizes an OwnedWindow registry. Each
+coordinator owns an independent LauncherWindow/hosting root and weakly refers to
+the host. Property updates change title; initial dimensions do not override user
+geometry. Closing/removing a root clears native content and retires its descendant
+WebView/adapters, including nested roots, while siblings remain. Main close/Quit
+disposes the registry. Auxiliary delegates forward key changes and suppress sheet
+alpha/animations in offscreen mode; global focus chooses an owned key root or its
+deepest sheet. No external app window can become a JonUI focus namespace.
+
+Native user close writes the binding and emits windowClosed with its content ID
+and state snapshot. Node matches that opening before unmounting, then accepts the snapshot,
+before State subscribers can reopen it. This prevents same-turn reopening from
+preserving old scopes. A queued event follows old content across a presentation
+binding replacement but cannot unmount a newer opening. Native retired-node IDs block cached body/representable,
+action, appearance, scalar and browser callbacks during the close-to-commit gap;
+the next graph commit prunes them. Retirement never deletes graph nodes outside
+the transaction, preserving queued state/commit validation. Ordinary coalesced
+false/true writes need not close a window.
+
+Components capture their logical root from the mounted ancestor chain. Projection
+validation rejects a different root. Controller activation, metadata, availability
+delivery and request stamps enforce that root; stamps accept a nonnegative root
+ID in addition to optional physical window/context constraints. Owned availability
+queries pass the owner root explicitly, while global watches follow the active
+namespace. Internal metadata includes root IDs without duplicate public same-name
+callbacks. Captures/traversal remain context-scoped and reset on root switches.
+Tests cover native roots/state/names, bindings, Tab dispatch, sheets/nesting,
+atomic validation, task/RPC cancellation, 20 closes, immediate subscriber reopen,
+shutdown with an open root and four setup/projection/duplicate/cleanup failures.
+
 Physical-window guards add `Focus.captureWindow()` and a last `{ window }` options
 argument to all three scope focus constructors. Node wraps a validated positive
 native ID in a frozen object branded by a private WeakMap; constructors copy the
@@ -977,11 +1015,11 @@ one. Ordinary unguarded/global calls keep their existing active-context behavior
 An ID describes a physical object, not one sheet presentation. A framework-cached
 NSWindow can retain its ID across presentations, but its controller still requires
 explicit session resume. Capabilities do not retain/activate/open windows, and
-availability queries retain their existing active-target snapshot meaning. Native
+availability queries inspect the owner's logical namespace against the active context. Native
 tests cover main and sheet guards, all controller variants, native stamp rejection,
 passive return, immutable options, canceled captures, stable identity across watch
-sessions and 20 pending owners. Independent window roots/name domains/close and
-event routing are still unimplemented.
+sessions and 20 pending owners. Owned logical roots and their name domains, close
+lifetime and event routing are described in [owned windows](windows.md).
 
 `retryWhenReady()` uses one private waiter and the existing owned availability
 subscription, adding no cells/effects/native registry. It snapshots the current

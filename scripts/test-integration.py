@@ -46,6 +46,12 @@ def run(entry, case='', failure=None, driver=None, timeout=30, layout=False):
         assert all(result.stdout.count(marker) == 1 for marker in markers), (result.stdout, result.stderr)
     if entry.endswith('availability-subscribe-error.mjs'):
         assert all(result.stdout.count(marker) == 1 for marker in ['AVAILABILITY_DISPOSE', 'AVAILABILITY_STOP']), (result.stdout, result.stderr)
+    if entry.endswith('windows-error.mjs'):
+        assert result.stdout.count('WINDOW_APP_STOP') == 1, (case, result.stdout, result.stderr)
+        if case != 'cross':
+            assert result.stdout.count('WINDOW_OWNER_DISPOSE') == 1, (case, result.stdout, result.stderr)
+        if case != 'cleanup':
+            assert result.stdout.count('WINDOW_FAILURE_CLEANUP') == 1, (case, result.stdout, result.stderr)
     if failure:
         assert result.returncode != 0 and failure in result.stderr, (entry, result.returncode, result.stdout, result.stderr)
         print(f'PASS expected failure: {failure}', flush=True)
@@ -161,3 +167,6 @@ for mode, message in [('owned-throw', 'intentional availability listener failure
 run('tests/integration/focus-retry.mjs', timeout=90, layout=True)
 run('tests/integration/focus-actions.mjs', timeout=90, layout=True)
 run('tests/integration/focus-window.mjs', timeout=90)
+run('tests/integration/windows.mjs', timeout=90)
+for mode, message in [('duplicate', 'Duplicate focus name'), ('cross', 'share their controller window root'), ('setup', 'intentional window setup'), ('cleanup', 'intentional window cleanup')]:
+    run('tests/integration/windows-error.mjs', case=mode, failure=message)

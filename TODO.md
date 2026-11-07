@@ -1210,11 +1210,56 @@ recorded AppKit sheet-close gaps remain open.
 
 ## 3. Application and operating-system integration
 
-- [ ] Support multiple windows with independent roots and explicit window ownership.
+- [x] Support multiple windows with independent roots and explicit window ownership.
 - [ ] Add richer menus, commands, and keyboard shortcuts.
 - [ ] Add native open/save dialogs and document lifecycle support.
 - [ ] Add drag-and-drop and clipboard APIs.
 - [ ] Define activation, reopen, and last-window-close policies and test their teardown paths.
+
+Owned independent windows completed (2026-11-07) for the binding-driven v0 API:
+`view.window({ isPresented, title, width, height, content })` owns one native root
+per modifier. Child scopes mount only while presented and dispose on false/native
+close/removal; reopening creates fresh locals. Title updates preserve root identity
+and dimensions apply only at creation. Shared app State remains explicit. Native
+close publishes false without stopping the app, retires adapters/documents before
+Node cleanup, and closes nested owned roots. Siblings survive; main close/Quit
+ends all roots with one onStop. Independent hosting does not inherit the original
+view's surrounding SwiftUI environment; apply environment modifiers in content.
+
+Focus names validate per logical root, including sheets in that root. Transactions
+reject shared native handles across roots, and projected bindings cannot cross
+their controller's root. Controllers automatically capture logical ownership;
+activation/subscription delivery/native root stamps reject sibling/main contexts,
+in addition to optional physical guards. Owned availability snapshots inspect their
+own namespace; global queries/subscriptions follow the active owned root. Key-window
+delegates and existing sheet notifications drive focus context changes. Offscreen
+tests select a root without keying/activating windows, including transparent sheets
+through auxiliary delegates. Captures/traversal remain context-scoped; explicit
+resume is required after switching roots.
+
+Validation: native build, 175 runtime/compiler cases and Deno/TypeScript pass.
+Focused native independent state/name domains, native edits, application-dispatched
+Tab, title/initial dimensions, atomic/shared-root rejection, auxiliary sheets,
+nested close, pending task/WebView RPC cancellation, fresh reopen state, 20 owner
+lifetimes and shutdown with an open root pass. Four native startup/projection/
+duplicate/cleanup failure cases pass; synchronous failures assert zero resources,
+asynchronous cleanup uses synchronous stop/disposal markers. The new window counter
+exposed a Swift diagnostics-expression type-checking limit; snapshot construction
+now uses explicit typed intermediates. A focused check also caught/fixed auxiliary
+sheet offscreen delegate handling before proceeding. Final review added a native
+close event barrier: content unmounts before presentation subscribers can reopen,
+and retired-node guards block cached adapters/callbacks until graph retirement.
+The new unit/native immediate-reopen regression passes with fresh local state;
+content IDs guard delayed closes across presentation binding replacement and
+prevent a stale event from disposing a newer opening. Replacing the window
+modifier with another modifier is a structural boundary, covered by unit/native
+regressions so root ownership cannot silently carry into a different domain.
+Native build, all 102 offscreen scenarios on the frozen final source, 175 unit/
+compiler cases, both type checkers and API classification pass. The recorded
+AppKit sheet-close crash did not recur; no framework fix is claimed.
+Native scene IDs/WindowGroup, restoration, activation/order APIs, richer
+last-window/reopen policy and persistent per-root focus history remain open. See
+docs/windows.md and examples/windows/app.ts. Do not claim full SwiftUI scene parity.
 
 ## 4. Developer workflow
 

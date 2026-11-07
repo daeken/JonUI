@@ -20,13 +20,13 @@ async function setup() {
       if (message.op === 'focus.currentName') result = { name: focus.name };
       if (message.op === 'focus.availability') result = focus.availabilityError ? { error: focus.availabilityError } : { availability: focus.availability ?? 'ready' };
       if (message.op === 'focus.availability.watch') result = focus.availabilityWatchError ? { error: focus.availabilityWatchError } : { availability: focus.availability ?? 'ready', sequence: 0 };
-      if (message.op === 'focus.watch') result = focus.watchError ? { error: focus.watchError } : { name: focus.name, sequence: 0, context: focus.context ?? 1, window: focus.window ?? 1, generation: 0, responderRevision: focus.responderRevision ?? 1 };
-      if (message.op === 'focus.snapshot') result = focus.snapshotError ? { error: focus.snapshotError } : { accepted: true, observation: { token: message.token, sequence: ++focus.sequence, context: focus.context ?? 1, window: focus.window ?? 1, generation: focus.generation ?? 0, responderRevision: focus.responderRevision ?? 1, name: focus.name } };
+      if (message.op === 'focus.watch') result = focus.watchError ? { error: focus.watchError } : { name: focus.name, sequence: 0, context: focus.context ?? 1, window: focus.window ?? 1, root: focus.root ?? 0, generation: 0, responderRevision: focus.responderRevision ?? 1 };
+      if (message.op === 'focus.snapshot') result = focus.snapshotError ? { error: focus.snapshotError } : { accepted: true, observation: { token: message.token, sequence: ++focus.sequence, context: focus.context ?? 1, window: focus.window ?? 1, root: focus.root ?? 0, generation: focus.generation ?? 0, responderRevision: focus.responderRevision ?? 1, name: focus.name } };
       if (message.op === 'focus.direction') result = { moved: focus.focused };
       if (message.op === 'focus.traversal') result = { configured: focus.configured };
       if (message.focusRequest) {
         const oldName = focus.name;
-        const accepted = (message.focusRequest.context === undefined || message.focusRequest.context === (focus.context ?? 1)) && (message.focusRequest.window === undefined || message.focusRequest.window === (focus.window ?? 1));
+        const accepted = (message.focusRequest.context === undefined || message.focusRequest.context === (focus.context ?? 1)) && (message.focusRequest.window === undefined || message.focusRequest.window === (focus.window ?? 1)) && (message.focusRequest.root === undefined || message.focusRequest.root === (focus.root ?? 0));
         if (accepted && message.op === 'focus.named' && focus.focused) focus.name = message.name;
         if (accepted && message.op === 'focus.move' && message.direction === 'clear') focus.name = null;
         if (message.op === 'focus.blurNamed') { result.cleared = accepted && focus.name === message.name; if (result.cleared) focus.name = null; }
@@ -34,7 +34,7 @@ async function setup() {
         focus.generation = message.focusRequest.generation;
         if (!accepted) result.focused = result.moved = false;
         if (focus.name !== oldName) focus.responderRevision = (focus.responderRevision ?? 1) + 1;
-        result.observation = { token: message.focusRequest.token, generation: message.focusRequest.generation, sequence: ++focus.sequence, context: focus.context ?? 1, window: focus.window ?? 1, responderRevision: focus.responderRevision ?? 1, name: focus.name };
+        result.observation = { token: message.focusRequest.token, generation: message.focusRequest.generation, sequence: ++focus.sequence, context: focus.context ?? 1, window: focus.window ?? 1, root: focus.root ?? 0, responderRevision: focus.responderRevision ?? 1, name: focus.name };
       }
       if (message.op === 'state.create') {
         result = { value: message.value, revision: 0 }; states.set(message.id, result);
@@ -346,7 +346,7 @@ test('owned availability maps named, boolean and typed targets without exposing 
   });
   const done = launch(ui, Owner()); await tick(); const nodes = [...h.nodes.values()].filter(n => n.kind === 'textfield'), baseline = ui.__testing.stats();
   const names = Object.fromEntries(nodes.map(n => [n.props.title, n.props.focusName])); assert.notEqual(names.Number, names.String);
-  const query = (callback, name, availability) => { assert.equal(callback(), availability); assert.deepEqual(h.calls.at(-1), { op: 'focus.availability', name }); };
+  const query = (callback, name, availability) => { assert.equal(callback(), availability); assert.deepEqual(h.calls.at(-1), { op: 'focus.availability', name, root: 0 }); };
   for (const availability of ['missing', 'unrealized', 'inactiveWindow', 'unavailable', 'ready']) {
     h.focus.availability = availability;
     query(() => named.availability('named'), names.Named, availability); query(() => boolean.availability(), names.Boolean, availability);
@@ -580,6 +580,65 @@ test('owned availability subscription validation, purity, callback failures and 
     await assert.rejects(done, mode === 'snapshot' ? /context snapshot failed/ : mode === 'promise' ? /must be synchronous/ : /owned availability failed/);
     assert.equal(disposed, 1); assert.deepEqual(ui.__testing.availabilityStats(), { names: 0, listeners: 0 }); assert.deepEqual(ui.__testing.stats(), { actions: 0, cells: 0, dependencies: 0 });
   }
+});
+
+test('owned windows conditionally mount independent content scopes and cancel them on close', async () => {
+  const h = await setup(), { ui } = h, shown = ui.State(false); let setups = 0, disposals = 0, canceled = 0, local;
+  const Owner = ui.Component(scope => { setups++; local = scope.state('fresh'); scope.onDispose(() => { disposals++; }); scope.task(task => { task.onCancel(() => { canceled++; }); }); return () => ui.Text(local.value); });
+  const view = ui.Text('parent').window({ isPresented: shown.binding, title: 'Owned', width: 400, height: 300, content: Owner() });
+  const done = launch(ui, view); await tick(); const baseline = ui.__testing.stats(); assert.equal(setups, 0); const id = [...h.nodes.values()].find(n => n.props.name === 'window').id; assert.equal(h.nodes.get(id).children.length, 1);
+  for (let i = 0; i < 3; i++) {
+    shown.value = true; await tick(); assert.equal(setups, i + 1); assert.equal(h.nodes.get(id).children.length, 2); assert.equal(local.value, 'fresh'); local.value = 'changed';
+    shown.value = false; await tick(); assert.equal(disposals, i + 1); assert.equal(canceled, i + 1); assert.equal(h.nodes.get(id).children.length, 1); assert.deepEqual(ui.__testing.stats(), baseline);
+  }
+  h.emit({ type: 'stop' }); await done;
+});
+
+test('owned window focus controllers cannot resume in another logical root', async () => {
+  const h = await setup(), { ui } = h, shown = ui.State(false); let focus;
+  const Owner = ui.Component(scope => { focus = scope.focus('wanted'); return () => ui.Text('owner'); });
+  const done = launch(ui, ui.Text('parent').window({ isPresented: shown.binding, title: 'Owned', width: 400, height: 300, content: Owner() })); await tick();
+  const root = [...h.nodes.values()].find(n => n.props.name === 'window').id; h.focus.root = root; h.focus.focused = true; shown.value = true; await tick(); assert.equal(focus.actual.value, 'wanted'); assert.equal(h.calls.find(c => c.op === 'focus.named').focusRequest.root, root);
+  h.focus.root = 0; focus.resume(); focus.request('parent'); await tick(); assert.equal(focus.retired.value, true); assert.equal(h.calls.filter(c => c.op === 'focus.named').length, 1);
+  h.focus.root = root; focus.resume(); focus.request('wanted'); await tick(); assert.equal(focus.retired.value, false); shown.value = false; await tick(); h.emit({ type: 'stop' }); await done;
+});
+
+test('native window close disposes content before a presentation subscriber can immediately reopen', async () => {
+  const h = await setup(), { ui } = h, shown = ui.State(true); let setups = 0, disposals = 0, local;
+  const Owner = ui.Component(scope => { setups++; local = scope.state('fresh'); scope.onDispose(() => { disposals++; }); return () => ui.Text(local.value); });
+  const done = launch(ui, ui.Text('parent').window({ isPresented: shown.binding, title: 'Owned', width: 400, height: 300, content: Owner() })); await tick(); local.value = 'changed'; await tick();
+  const window = [...h.nodes.values()].find(n => n.props.name === 'window'), state = shown.binding.id, revision = h.states.get(state).revision + 1;
+  const stop = shown.subscribe(value => { if (!value) { assert.equal(disposals, 1); shown.value = true; } });
+  h.states.set(state, { value: false, revision }); h.emit({ type: 'windowClosed', id: window.id, content: window.children[1], state: { id: state, value: false, revision } }); await tick();
+  assert.equal(shown.value, true); assert.equal(setups, 2); assert.equal(local.value, 'fresh'); stop(); h.emit({ type: 'stop' }); await done; assert.equal(disposals, 2); assert.deepEqual(ui.__testing.stats(), { actions: 0, cells: 0, dependencies: 0 });
+});
+
+test('owned window options validate and projected bindings cannot cross window roots', async () => {
+  const h = await setup(), { ui } = h, shown = ui.State(true), text = ui.State('text'), child = ui.Text('child'), base = ui.Text('parent');
+  const options = { isPresented: shown.binding, content: child, title: 'Owned', width: 400, height: 300 }, before = h.calls.length;
+  for (const bad of [{ width: 0 }, { height: Infinity }, { title: null }, { extra: true }]) assert.throws(() => base.window({ ...options, ...bad }), /window requires|Unknown window option/);
+  assert.equal(h.calls.length, before);
+  const Owner = ui.Component(scope => { const focus = scope.focus(); return () => base.window({ ...options, content: ui.TextField('Other root', { text: text.binding }).focused(focus.binding('invalid')) }); });
+  await assert.rejects(launch(ui, Owner()), /share their controller window root/); assert.deepEqual(ui.__testing.stats(), { actions: 0, cells: 0, dependencies: 0 });
+});
+
+test('replacing a window modifier with another modifier ends the root boundary and its scopes', async () => {
+  const h = await setup(), { ui } = h, decorated = ui.State(true), shown = ui.State(true); let setups = 0, disposals = 0;
+  const Owner = ui.Component(scope => { setups++; scope.onDispose(() => { disposals++; }); return () => ui.Text('owned'); });
+  const done = launch(ui, ui.View(() => decorated.value ? ui.Text('base').window({ isPresented: shown.binding, title: 'Owned', width: 400, height: 300, content: Owner() }) : ui.Text('base').padding(0))); await tick();
+  const first = [...h.nodes.values()].find(n => n.props.name === 'window').id; decorated.value = false; await tick(); assert.equal(disposals, 1);
+  decorated.value = true; await tick(); assert.equal(setups, 2); assert.notEqual([...h.nodes.values()].filter(n => n.props.name === 'window').at(-1).id, first); h.emit({ type: 'stop' }); await done; assert.equal(disposals, 2);
+});
+
+test('queued native closes match content identity across binding replacement and cannot retire a newer opening', async () => {
+  const h = await setup(), { ui } = h, oldFlag = ui.State(true), newFlag = ui.State(true), rebound = ui.State(false); let setups = 0, disposals = 0;
+  const Owner = ui.Component(scope => { setups++; scope.onDispose(() => { disposals++; }); return () => ui.Text('owner'); });
+  const done = launch(ui, ui.View(() => ui.Text('base').window({ isPresented: rebound.value ? newFlag.binding : oldFlag.binding, title: 'Owned', width: 400, height: 300, content: Owner() }))); await tick();
+  const window = [...h.nodes.values()].find(n => n.props.name === 'window'), state = oldFlag.binding.id, revision = h.states.get(state).revision + 1, content = window.children[1];
+  rebound.value = true; await tick(); assert.equal(setups, 1);
+  h.states.set(state, { value: false, revision }); const event = { type: 'windowClosed', id: window.id, content, state: { id: state, value: false, revision } };
+  h.emit(event); await tick(); assert.equal(setups, 2); assert.equal(disposals, 1); assert.equal(newFlag.value, true); assert.equal(oldFlag.value, false);
+  h.emit(event); await tick(); assert.equal(setups, 2); assert.equal(disposals, 1); h.emit({ type: 'stop' }); await done; assert.equal(disposals, 2);
 });
 
 test('physical focus window handles are opaque, runtime branded and validated before controller allocation', async () => {

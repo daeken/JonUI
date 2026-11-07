@@ -173,7 +173,7 @@ not add dependencies to the effect that registered the listener.
 Allocate `scope.focus(initialName?)` during component setup. Its `desired.value`
 is tracked, writable intent; `actual.value` is a read-only tracked snapshot.
 Native Tab/click movement updates actual focus without changing desired focus or
-automatically requesting it again. The controller's names use the same app-wide
+automatically requesting it again. The controller's names use the same root-wide
 namespace and native eligibility as `Focus.requestNamed`.
 
 ```ts
@@ -297,7 +297,7 @@ The handle grants no ability to open, retain, show or activate a window. Use a n
 controller/component to choose a different physical guard.
 
 Global Focus commands still address the current active context. Owned availability
-**snapshot queries** also keep their existing current-target semantics, even when
+**snapshot queries** inspect their declaring logical root against the active context, even when
 the guarded owner is retired; they do not change its guard or enable requests.
 Owned availability **subscriptions** and retries require a live guarded session.
 Public name observation remains name-only, with physical IDs used internally.
@@ -305,9 +305,10 @@ Public name observation remains name-only, with physical IDs used internally.
 Try `bin/jonui examples/focus-window/app.ts`. The offscreen gate verifies real
 main/sheet isolation, all three controller variants, inactive-owner resume and
 retry/subscription suppression, native stamp validation, stable identity across
-watch sessions, canceled captures and 20 pending owner lifetimes. This is a focus
-guard, not a multiple-window root/scene API. Independent roots, per-window name
-namespaces, event routing and window-close ownership remain separate work.
+watch sessions, canceled captures and 20 pending owner lifetimes. This is a physical
+focus guard. [Owned windows](windows.md) provide separate logical roots, name
+namespaces, routing and close ownership. Controllers enforce their declaring root
+as well as any optional physical guard.
 
 ## Projected focus bindings
 
@@ -331,9 +332,9 @@ const Form = Component(scope => {
 TextField, SecureField, TextEditor, DatePicker, Stepper, Picker, Button, Toggle,
 Slider and WebView support the modifier (native availability/eligibility still apply),
 including through single-child modifiers such as frame, padding and disabled.
-Apply it to the input before a two-child sheet modifier. Containers and other
+Apply it to the input before a sheet or window boundary. Containers and other
 controls are currently rejected. An explicit different `focusName` conflicts;
-names still share the app-wide unique, exact-Unicode namespace. Projected views
+names still share their root's unique, exact-Unicode namespace. Projected views
 must live in the owning controller component's logical subtree, including nested
 components, so their registrations end with that owner. Disposed/foreign/forged
 projections are rejected when wiring views.
@@ -505,7 +506,7 @@ address a physical browser responder, as described below.
 
 ## Declared focus names
 
-Give a TextField, SecureField, TextEditor, DatePicker, or WebView an app-wide unique
+Give a TextField, SecureField, TextEditor, DatePicker, or WebView an root-wide unique
 `focusName`, then request it without first
 capturing a responder:
 

@@ -186,7 +186,12 @@ activating or retaining it. Pass `{ window }` as the last options argument to
 `scope.focus`, `focusBoolean` or `focusSelection` to pin that controller, including
 across resume. Capturing requires a mounted window, so capture in an action before
 mounting the guarded component. See [physical-window guards](docs/focus.md#physical-window-guards)
-and `bin/jonui examples/focus-window/app.ts`. Independent window roots remain open work.
+and `bin/jonui examples/focus-window/app.ts`.
+`view.window({ isPresented, title, width, height, content })` adds an owned native
+root. Closing updates the binding and disposes its content scopes; reopening
+starts fresh local state. Names and owned focus controllers are root-scoped.
+See [owned windows](docs/windows.md) and `bin/jonui examples/windows/app.ts` for
+two editors sharing app data.
 Owned controllers can inspect availability too: `focus.availability(name)` for a
 named controller, `focus.availability()` for a boolean target, or
 `focus.availability(id)` for a typed selection. Snapshots preserve intent and
@@ -259,7 +264,7 @@ while retaining pointer interaction, scripts, and data/RPC updates. The default
 is true; the chart demo includes a **Chart Tab stop** toggle.
 Declare `WebView({ html, focusName: 'editor' })` and call
 `Focus.requestNamed('editor')` to focus a realized browser before its first user
-focus. Names are app-wide unique and resolve within the active window. The demo's
+focus. Names are unique per logical window root and resolve within its active window/sheet. The demo's
 **Focus web control** button exercises this API. TextField, SecureField,
 TextEditor, and DatePicker also accept `focusName`; the native focus and form
 demos can focus inputs before capturing a responder.

@@ -18,6 +18,10 @@ private func integer(_ value: Any?) throws -> Int {
     guard let value = value as? Int, value > 0 else { throw BridgeError("Expected a positive handle") }
     return value
 }
+private func focusRootID(_ raw: Any) throws -> Int {
+    guard let value = layoutNumber(raw), value >= 0, value <= 9007199254740991, value.rounded() == value else { throw BridgeError("Invalid focus root counter") }
+    return Int(value)
+}
 
 @Observable
 private final class Cell {
@@ -96,6 +100,10 @@ private func validateLayout(_ kind: String, _ props: [String: Any]) throws {
         }
     case "modifier":
         switch props["name"] as? String {
+        case "window":
+            try keys(["name", "state", "title", "width", "height"])
+            guard props["title"] is String, let width = props["width"].flatMap(layoutNumber), width > 0,
+                  let height = props["height"].flatMap(layoutNumber), height > 0 else { throw BridgeError("Window requires a title and positive finite dimensions") }
         case "onAppear", "onDisappear":
             try keys(["name", "appearance"])
             guard let token = props["appearance"].flatMap(layoutNumber), token > 0, token.rounded() == token, token < Double(Int.max) else { throw BridgeError("Invalid appearance token") }
@@ -134,7 +142,7 @@ private struct LayoutFrames: PreferenceKey {
 }
 
 private func bindingKind(_ kind: String, _ props: [String: Any]) -> String? {
-    if kind == "modifier", props["name"] as? String == "sheet" { return "toggle" }
+    if kind == "modifier", ["sheet", "window"].contains(props["name"] as? String ?? "") { return "toggle" }
     return ["toggle", "textfield", "securefield", "texteditor", "list", "slider", "stepper", "picker", "datepicker"].contains(kind) ? kind : nil
 }
 private let earliestDate: Double = -62135596800000, latestDate: Double = 253402300799999
@@ -285,14 +293,14 @@ private struct HostedNativeControl: NSViewRepresentable {
         view.availabilityHost = host
         view.sizingOptions = [.intrinsicContentSize]
         context.coordinator.view = view
-        if let box = reference.box, !host.stopping, host.nodes[reference.id] === box {
+        if let box = reference.box, !host.stopping, host.liveNode(reference.id) === box {
             host.hostedControls[reference.id]?.invalidate()
             host.hostedControls[reference.id] = context.coordinator
         } else { context.coordinator.invalidate() }
         return view
     }
     func updateNSView(_ view: NSHostingView<AnyView>, context: Context) {
-        guard context.coordinator.active, let box = reference.box, !host.stopping, host.nodes[reference.id] === box else {
+        guard context.coordinator.active, let box = reference.box, !host.stopping, host.liveNode(reference.id) === box else {
             context.coordinator.invalidate(); return
         }
         view.rootView = AnyView(content.environment(\.self, context.environment))
@@ -316,7 +324,7 @@ private struct HostedNativeControl: NSViewRepresentable {
             host?.scheduleAvailabilityWatch()
         }
         func target(in window: NSWindow) -> NSView? {
-            guard active, let box = reference.box, let host, !host.stopping, host.nodes[reference.id] === box,
+            guard active, let box = reference.box, let host, !host.stopping, host.liveNode(reference.id) === box,
                   let view, view.window === window else { return nil }
             view.layoutSubtreeIfNeeded()
             func find(_ node: NSView) -> NSView? {
@@ -365,7 +373,7 @@ private struct NativeView: View {
     init(box: ViewBox, host: Host) { reference = ViewReference(box); self.host = host }
     init(reference: ViewReference, host: Host) { self.reference = reference; self.host = host }
     @ViewBuilder var body: some View {
-        if let node = reference.box, !host.stopping, host.nodes[node.id] === node {
+        if let node = reference.box, !host.stopping, host.liveNode(node.id) === node {
             let id = node.id
             if host.layoutTesting {
                 content().background(GeometryReader { geometry in
@@ -375,7 +383,7 @@ private struct NativeView: View {
         }
     }
     private func child(_ index: Int = 0) -> AnyView {
-        guard let box = reference.box, !host.stopping, host.nodes[box.id] === box, box.children.indices.contains(index) else { return AnyView(EmptyView()) }
+        guard let box = reference.box, !host.stopping, host.liveNode(box.id) === box, box.children.indices.contains(index) else { return AnyView(EmptyView()) }
         return AnyView(NativeView(box: box.children[index], host: host))
     }
     private func boolBinding() -> Binding<Bool> {
@@ -383,7 +391,7 @@ private struct NativeView: View {
         let cell = host.cells[box.props["state"] as? Int ?? 0]!
         _ = cell.value // Register this view as an Observation reader of the binding.
         return Binding(get: { [weak cell] in cell?.value as? Bool ?? false }, set: { [weak cell, weak box, weak host] value in
-            guard let cell, let box, let host, !host.stopping, host.nodes[box.id] === box,
+            guard let cell, let box, let host, !host.stopping, host.liveNode(box.id) === box,
                   host.cells[box.props["state"] as? Int ?? 0] === cell else { return }
             host.nativeWrite(cell, value: value)
         })
@@ -393,7 +401,7 @@ private struct NativeView: View {
         let cell = host.cells[box.props["state"] as? Int ?? 0]!
         _ = cell.value // Register this view as an Observation reader of the binding.
         return Binding(get: { [weak cell] in cell?.value as? String ?? "" }, set: { [weak cell, weak box, weak host] value in
-            guard let cell, let box, let host, !host.stopping, host.nodes[box.id] === box,
+            guard let cell, let box, let host, !host.stopping, host.liveNode(box.id) === box,
                   host.cells[box.props["state"] as? Int ?? 0] === cell else { return }
             host.nativeWrite(cell, value: value)
         })
@@ -421,7 +429,7 @@ private struct NativeView: View {
             let lower = Double(box.number("min") ?? 0), upper = Double(box.number("max") ?? (box.kind == "slider" ? 1 : 100))
             return min(upper, max(lower, cell.flatMap { layoutNumber($0.value) } ?? lower))
         }, set: { [weak cell, weak box, weak host] next in
-            guard let cell, let box, let host, next.isFinite, host.nodes[box.id] === box, !host.stopping else { return }
+            guard let cell, let box, let host, next.isFinite, host.liveNode(box.id) === box, !host.stopping else { return }
             let lower = Double(box.number("min") ?? 0), upper = Double(box.number("max") ?? (box.kind == "slider" ? 1 : 100))
             var value = min(upper, max(lower, next))
             if box.kind == "slider", let step = box.number("step") { value = min(upper, max(lower, lower + ((value - lower) / Double(step)).rounded() * Double(step))) }
@@ -437,7 +445,7 @@ private struct NativeView: View {
             let lower = box.props["min"].flatMap(dateTimestamp) ?? earliestDate, upper = box.props["max"].flatMap(dateTimestamp) ?? latestDate
             return Date(timeIntervalSince1970: min(upper, max(lower, dateTimestamp(cell.value) ?? lower)) / 1000)
         }, set: { [weak cell, weak box, weak host] date in
-            guard let cell, let box, let host, !host.stopping, host.nodes[box.id] === box,
+            guard let cell, let box, let host, !host.stopping, host.liveNode(box.id) === box,
                   host.cells[box.props["state"] as? Int ?? 0] === cell else { return }
             let value = (date.timeIntervalSince1970 * 1000).rounded()
             guard value.isFinite else { return }
@@ -454,7 +462,7 @@ private struct NativeView: View {
             if cell.value is NSNull { return nil }
             return try? encode(cell.value)
         }, set: { [weak cell, weak box, weak host] selected in
-            guard let cell, let box, let host, !host.stopping, host.nodes[box.id] === box,
+            guard let cell, let box, let host, !host.stopping, host.liveNode(box.id) === box,
                   host.cells[box.props["state"] as? Int ?? 0] === cell else { return }
             let value = selected.flatMap { try? JSONSerialization.jsonObject(with: Data($0.utf8), options: [.fragmentsAllowed]) } ?? NSNull()
             host.nativeWrite(cell, value: value)
@@ -468,7 +476,7 @@ private struct NativeView: View {
             guard let cell, let box, let key = pickerKey(cell.value), pickerItems(box.props).contains(where: { $0.id == key }) else { return pickerPlaceholder }
             return key
         }, set: { [weak cell, weak box, weak host] key in
-            guard let cell, let box, let host, !host.stopping, host.nodes[box.id] === box,
+            guard let cell, let box, let host, !host.stopping, host.liveNode(box.id) === box,
                   let option = pickerItems(box.props).first(where: { $0.id == key }) else { return }
             host.nativeWrite(cell, value: option.value)
         })
@@ -493,7 +501,7 @@ private struct NativeView: View {
         return AnyView(HostedNativeControl(reference: reference, content: content, host: host))
     }
     private func content() -> AnyView {
-        if host.stopping || reference.box == nil || host.nodes[box.id] !== box { return AnyView(EmptyView()) }
+        if host.stopping || reference.box == nil || host.liveNode(box.id) !== box { return AnyView(EmptyView()) }
         switch box.kind {
         case "text": return AnyView(Text(box.string("value")))
         case "image": return AnyView(Image(systemName: box.string("systemName")))
@@ -627,6 +635,7 @@ private struct NativeView: View {
                 if phase == "onAppear" { return AnyView(child().onAppear { [weak host] in host?.appearance(id, token: token, phase: phase) }) }
                 return AnyView(child().onDisappear { [weak host] in host?.appearance(id, token: token, phase: phase) })
             case "sheet": return AnyView(child().sheet(isPresented: boolBinding()) { child(1) })
+            case "window": return child()
             case "tag": return child()
             default: return AnyView(EmptyView())
             }
@@ -672,7 +681,7 @@ private struct EmbeddedWebView: NSViewRepresentable {
         view.availabilityHost = host
         view.navigationDelegate = context.coordinator
         view.setAccessibilityIdentifier("webview-\(reference.id)")
-        if let box = reference.box, host.nodes[reference.id] === box { host.webViews[reference.id] = context.coordinator }
+        if let box = reference.box, host.liveNode(reference.id) === box { host.webViews[reference.id] = context.coordinator }
         context.coordinator.update(view, props: props, enabled: context.environment.isEnabled)
         return view
     }
@@ -713,7 +722,7 @@ private struct EmbeddedWebView: NSViewRepresentable {
         func update(_ view: WKWebView, props: [String: Any], enabled: Bool) {
             defer { host.scheduleAvailabilityWatch() }
             self.view = view
-            guard active, let box = reference.box, !host.stopping, host.nodes[reference.id] === box else {
+            guard active, let box = reference.box, !host.stopping, host.liveNode(reference.id) === box else {
                 (view as? ControlWebView)?.setInteractionEnabled(false)
                 invalidate(); return
             }
@@ -770,7 +779,7 @@ private struct EmbeddedWebView: NSViewRepresentable {
             } else { deliverData() }
         }
         func deliverData() {
-            guard active, ready, let box = reference.box, !host.stopping, host.nodes[reference.id] === box,
+            guard active, ready, let box = reference.box, !host.stopping, host.liveNode(reference.id) === box,
                   let view, let value = box.props["data"], let bytes = try? jsonData(value), bytes != sentData else { return }
             sentData = bytes
             let currentToken = token
@@ -797,7 +806,7 @@ private struct EmbeddedWebView: NSViewRepresentable {
             decisionHandler(action.targetFrame?.isMainFrame == true && action.request.url?.absoluteString == "about:blank" ? .allow : .cancel)
         }
         func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
-            guard active, let box = reference.box, !host.stopping, host.nodes[reference.id] === box, message.frameInfo.isMainFrame,
+            guard active, let box = reference.box, !host.stopping, host.liveNode(reference.id) === box, message.frameInfo.isMainFrame,
                   let envelope = message.body as? [String: Any], envelope["token"] as? String == token else { return }
             if let error = envelope["error"] as? String { report(error); return }
             guard let value = envelope["value"], (try? jsonData(value)) != nil else { report("WebView message must contain JSON"); return }
@@ -813,12 +822,12 @@ private struct EmbeddedWebView: NSViewRepresentable {
             for reply in replies { reply(rpcError("AbortError", reason), nil) }
         }
         func reply(_ call: Int, epoch: Int, document: String, result: [String: Any]) -> Bool {
-            guard active, epoch == rpcEpoch, document == token, host.nodes[reference.id]?.props["rpcEpoch"] as? Int == epoch,
+            guard active, epoch == rpcEpoch, document == token, host.liveNode(reference.id)?.props["rpcEpoch"] as? Int == epoch,
                   let reply = pendingRPC.removeValue(forKey: call) else { return false }
             reply(result, nil); return true
         }
         func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage, replyHandler: @escaping (Any?, String?) -> Void) {
-            guard active, let box = reference.box, !host.stopping, host.nodes[reference.id] === box, message.frameInfo.isMainFrame,
+            guard active, let box = reference.box, !host.stopping, host.liveNode(reference.id) === box, message.frameInfo.isMainFrame,
                   let envelope = message.body as? [String: Any], envelope["token"] as? String == token,
                   box.props["rpcEpoch"] as? Int == rpcEpoch else { replyHandler(rpcError("AbortError", "WebView document is unavailable"), nil); return }
             guard let method = envelope["method"] as? String, let methods = box.props["methods"] as? [String], methods.contains(where: { Data($0.utf8) == Data(method.utf8) }),
@@ -831,7 +840,7 @@ private struct EmbeddedWebView: NSViewRepresentable {
             (error as NSError).userInfo["WKJavaScriptExceptionMessage"] as? String ?? error.localizedDescription
         }
         func report(_ message: String) {
-            guard active, let box = reference.box, !host.stopping, host.nodes[reference.id] === box else { return }
+            guard active, let box = reference.box, !host.stopping, host.liveNode(reference.id) === box else { return }
             host.emit(["type": "webError", "id": reference.id, "message": message])
         }
     }
@@ -846,6 +855,23 @@ private final class LauncherWindow: NSWindow {
     override func makeMain() { if !offscreen { super.makeMain() } }
     override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect {
         offscreen ? frameRect : super.constrainFrameRect(frameRect, to: screen)
+    }
+}
+
+private final class OwnedWindow: NSObject, NSWindowDelegate {
+    weak var host: Host?
+    let id: Int
+    var window: LauncherWindow?
+    var rootID: Int
+    init(id: Int, rootID: Int, host: Host) { self.id = id; self.rootID = rootID; self.host = host }
+    func windowShouldClose(_ sender: NSWindow) -> Bool { host?.closeOwnedWindow(id, publish: true); return false }
+    func windowDidBecomeKey(_ notification: Notification) { if let window { host?.selectFocusRoot(window) } }
+    func window(_ window: NSWindow, willPositionSheet sheet: NSWindow, using rect: NSRect) -> NSRect {
+        if host?.offscreen == true { sheet.alphaValue = 0; sheet.animationBehavior = .none }
+        return rect
+    }
+    func invalidate() {
+        window?.delegate = nil; window?.contentView = nil; window?.close(); window = nil
     }
 }
 
@@ -873,7 +899,9 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var focusTabNavigation = false
     private var interceptedTabs = 0
     private var nextFocusTarget = 1
-    private var namedFocusNodes: [Data: Int] = [:]
+    private var namedFocusNodes: [Int: [Data: Int]] = [:]
+    private var ownedWindows: [Int: OwnedWindow] = [:]
+    private weak var focusRootWindow: NSWindow?
     private weak var focusContextWindow: NSWindow?
     private var focusWatchToken: Int?
     private var lastFocusWatchToken = 0
@@ -894,6 +922,7 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
     var nodes: [Int: ViewBox] = [:]
     var webViews: [Int: EmbeddedWebView.Coordinator] = [:]
     var hostedControls: [Int: HostedNativeControl.Coordinator] = [:]
+    private var retiredWindowNodes = Set<Int>()
     var root: ViewBox?
     var window: NSWindow?
     var stopping = false
@@ -908,6 +937,11 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
         requestStop(); return .terminateCancel
     }
     func windowWillClose(_ notification: Notification) { requestStop() }
+    func windowDidBecomeKey(_ notification: Notification) { if let window = notification.object as? NSWindow { selectFocusRoot(window) } }
+    fileprivate func selectFocusRoot(_ window: NSWindow) {
+        focusRootWindow = rootWindow(window)
+        scheduleFocusWatch(); scheduleAvailabilityWatch()
+    }
     func window(_ window: NSWindow, willPositionSheet sheet: NSWindow, using rect: NSRect) -> NSRect {
         if offscreen { sheet.alphaValue = 0; sheet.animationBehavior = .none }
         return rect
@@ -924,22 +958,23 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
         do { _ = ju_runtime_emit(try encode(event)) }
         catch { ju_runtime_abort("Cannot encode native event: \(error)") }
     }
+    fileprivate func liveNode(_ id: Int) -> ViewBox? { retiredWindowNodes.contains(id) ? nil : nodes[id] }
     func action(_ id: Int) {
-        guard !stopping, nodes[id]?.kind == "button" else { return }
+        guard !stopping, liveNode(id)?.kind == "button" else { return }
         emit(["type": "action", "id": id])
     }
     func appearance(_ id: Int, token: Int, phase: String) {
-        guard !stopping, let box = nodes[id], box.kind == "modifier", box.string("name") == phase,
+        guard !stopping, let box = liveNode(id), box.kind == "modifier", box.string("name") == phase,
               box.props["appearance"] as? Int == token, ["onAppear", "onDisappear"].contains(phase) else { return }
         emit(["type": "appearance", "id": id, "token": token, "phase": phase])
     }
     func textSubmit(_ id: Int, token: Int) {
-        guard !stopping, let box = nodes[id], ["textfield", "securefield"].contains(box.kind),
+        guard !stopping, let box = liveNode(id), ["textfield", "securefield"].contains(box.kind),
               box.props["submit"] as? Int == token, let state = box.props["state"] as? Int, let cell = cells[state] else { return }
         emit(["type": "textSubmit", "id": id, "token": token, "state": cell.snapshot().merging(["id": state]) { _, new in new }])
     }
     func textEditing(_ id: Int, token: Int, editing: Bool) {
-        guard !stopping, let box = nodes[id], ["textfield", "securefield", "texteditor"].contains(box.kind),
+        guard !stopping, let box = liveNode(id), ["textfield", "securefield", "texteditor"].contains(box.kind),
               box.props["editing"] as? Int == token, let state = box.props["state"] as? Int, let cell = cells[state] else { return }
         emit(["type": "textEditing", "id": id, "token": token, "editing": editing,
               "state": cell.snapshot().merging(["id": state]) { _, new in new }])
@@ -969,10 +1004,12 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
         stopAvailabilityWatches()
         stopFocusWatch()
         retireFocusTargets(); focusContextWindow = nil; namedFocusNodes.removeAll(); focusWindows.removeAll()
+        for coordinator in ownedWindows.values { coordinator.invalidate() }; ownedWindows.removeAll(); focusRootWindow = nil
         for coordinator in webViews.values { coordinator.invalidate() }
         for coordinator in hostedControls.values { coordinator.invalidate() }
         window?.contentView = nil
         root = nil; nodes.removeAll(); cells.removeAll(); webViews.removeAll(); hostedControls.removeAll(); layoutFrames.removeAll()
+        retiredWindowNodes.removeAll()
     }
     func stopped(_ status: Int32) {
         exitStatus = status; stopping = true; dispose()
@@ -1004,6 +1041,56 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
         } else { window.center(); window.makeKeyAndOrderFront(nil) }
         self.window = window
         if !offscreen { NSApp.activate(ignoringOtherApps: true) }
+    }
+    private func syncOwnedWindows() {
+        let presented = nodes.values.filter { $0.kind == "modifier" && $0.string("name") == "window" && $0.children.count == 2 &&
+            (cells[$0.props["state"] as? Int ?? 0]?.value as? Bool) == true }.sorted { $0.id < $1.id }
+        let ids = Set(presented.map(\.id))
+        for id in Array(ownedWindows.keys) where !ids.contains(id) { closeOwnedWindow(id, publish: false) }
+        for box in presented {
+            let root = box.children[1]
+            if let existing = ownedWindows[box.id], let window = existing.window {
+                window.title = box.string("title")
+                if existing.rootID != root.id {
+                    existing.rootID = root.id
+                    window.contentView = hostingRoot(root)
+                }
+                continue
+            }
+            let coordinator = OwnedWindow(id: box.id, rootID: root.id, host: self)
+            let window = LauncherWindow(contentRect: NSRect(x: 0, y: 0, width: box.number("width") ?? 500, height: box.number("height") ?? 400),
+                styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
+            window.offscreen = offscreen; window.title = box.string("title"); window.isReleasedWhenClosed = false; window.delegate = coordinator
+            coordinator.window = window; ownedWindows[box.id] = coordinator
+            window.contentView = hostingRoot(root)
+            if offscreen { window.alphaValue = 0; window.animationBehavior = .none; window.setFrameOrigin(NSPoint(x: -10000, y: -10000)); window.orderFront(nil) }
+            else { window.center(); window.makeKeyAndOrderFront(nil) }
+            selectFocusRoot(window)
+        }
+    }
+    private func hostingRoot(_ root: ViewBox) -> NSView {
+        let content = NSHostingView(rootView: NativeView(box: root, host: self))
+        content.sizingOptions = []; content.autoresizingMask = [.width, .height]; return content
+    }
+    fileprivate func closeOwnedWindow(_ id: Int, publish: Bool) {
+        guard let coordinator = ownedWindows.removeValue(forKey: id) else { return }
+        if let root = nodes[coordinator.rootID] {
+            var descendants = Set<Int>()
+            func collect(_ box: ViewBox) { guard descendants.insert(box.id).inserted else { return }; for child in box.children { collect(child) } }
+            collect(root)
+            retiredWindowNodes.formUnion(descendants)
+            for child in Array(ownedWindows.keys) where descendants.contains(child) { closeOwnedWindow(child, publish: false) }
+            for child in descendants {
+                webViews.removeValue(forKey: child)?.invalidate(); hostedControls.removeValue(forKey: child)?.invalidate()
+            }
+        }
+        if focusRootWindow === coordinator.window { focusRootWindow = nil }
+        coordinator.invalidate()
+        if publish, let box = nodes[id], let state = box.props["state"] as? Int, let cell = cells[state], !stopping {
+            let snapshot = write(cell, value: false)
+            emit(["type": "windowClosed", "id": id, "content": coordinator.rootID, "state": snapshot.merging(["id": state]) { _, new in new }])
+        }
+        scheduleFocusWatch(); scheduleAvailabilityWatch()
     }
     private func scrollViews() -> [NSScrollView] {
         var result: [NSScrollView] = []
@@ -1072,9 +1159,18 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
         return result
     }
     private func currentFocusWindow() -> NSWindow? {
-        guard var current = window else { return nil }
+        if !offscreen, let key = NSApp.keyWindow, let root = rootWindow(key) { focusRootWindow = root }
+        guard var current = focusRootWindow ?? window else { return nil }
         while let sheet = current.attachedSheet { current = sheet }
         return current
+    }
+    private func rootWindow(_ selected: NSWindow) -> NSWindow? {
+        var root = selected; while let parent = root.sheetParent { root = parent }
+        if root === window || ownedWindows.values.contains(where: { $0.window === root }) { return root }; return nil
+    }
+    private func focusDomain(_ selected: NSWindow) -> Int {
+        let root = rootWindow(selected)
+        return ownedWindows.first(where: { $0.value.window === root })?.key ?? 0
     }
     private func focusWindowID(_ window: NSWindow) -> Int {
         focusWindows = focusWindows.filter { $0.value.window != nil }
@@ -1113,8 +1209,8 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
         guard let view = target, eligibleFocusView(view, in: window) else { return nil }
         return view
     }
-    private func namedAvailability(_ name: String, in window: NSWindow) -> String {
-        guard let id = namedFocusNodes[Data(name.utf8)] else { return "missing" }
+    private func namedAvailability(_ name: String, in window: NSWindow, domain: Int? = nil) -> String {
+        guard let id = namedFocusNodes[domain ?? focusDomain(window)]?[Data(name.utf8)] else { return "missing" }
         let surface: NSView?
         if nodes[id]?.kind == "webview", let coordinator = webViews[id], coordinator.active { surface = coordinator.view }
         else if let coordinator = hostedControls[id], coordinator.active { surface = coordinator.view }
@@ -1146,7 +1242,7 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
     }
     private func currentFocusName(in window: NSWindow) -> String? {
-        for id in namedFocusNodes.values {
+        for id in (namedFocusNodes[focusDomain(window)] ?? [:]).values {
             guard let view = namedFocusView(id, in: window),
                   let current = focusView(window.firstResponder) ?? window.firstResponder as? NSView,
                   current === view || current.isDescendant(of: view),
@@ -1191,7 +1287,7 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
             guard changedWindow || changedResponder || name.map({ Data($0.utf8) }) != self.focusWatchName.map({ Data($0.utf8) }) else { return }
             self.focusWatchName = name; self.focusWatchSequence += 1
             self.emit(["type": "focusChanged", "token": token, "sequence": self.focusWatchSequence,
-                "context": self.focusWatchContext, "window": self.focusWindowID(window), "generation": self.focusRequestGeneration, "responderRevision": self.responderRevision, "name": name as Any? ?? NSNull()])
+                "context": self.focusWatchContext, "root": self.focusDomain(window), "window": self.focusWindowID(window), "generation": self.focusRequestGeneration, "responderRevision": self.responderRevision, "name": name as Any? ?? NSNull()])
         }
     }
     private func pruneFocusTargets() {
@@ -1302,13 +1398,13 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
         updateResponderRevision(in: window)
         focusWatchName = currentFocusName(in: window); focusWatchSequence += 1
         return ["token": focusWatchToken!, "generation": focusRequestGeneration,
-            "sequence": focusWatchSequence, "context": focusWatchContext, "window": focusWindowID(window), "responderRevision": responderRevision, "name": focusWatchName as Any? ?? NSNull()]
+            "sequence": focusWatchSequence, "context": focusWatchContext, "root": focusDomain(window), "window": focusWindowID(window), "responderRevision": responderRevision, "name": focusWatchName as Any? ?? NSNull()]
     }
     func handle(_ message: [String: Any]) throws -> Any {
         precondition(Thread.isMainThread)
         guard let raw = message["focusRequest"], !stopping, !disposed else { return try handleOperation(message) }
         guard let op = message["op"] as? String, ["focus.move", "focus.direction", "focus.named", "focus.target", "focus.blurNamed"].contains(op),
-              let stamp = raw as? [String: Any], Set(stamp.keys).isSubset(of: ["token", "generation", "context", "window"]) else { throw BridgeError("Invalid focus request stamp") }
+              let stamp = raw as? [String: Any], Set(stamp.keys).isSubset(of: ["token", "generation", "context", "window", "root"]) else { throw BridgeError("Invalid focus request stamp") }
         func counter(_ raw: Any?) throws -> Int {
             guard let raw, let number = layoutNumber(raw), number >= 1, number <= 9007199254740991, number.rounded() == number else { throw BridgeError("Invalid focus request counter") }
             return Int(number)
@@ -1316,6 +1412,7 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let token = try counter(stamp["token"]), generation = try counter(stamp["generation"])
         let context = try stamp["context"].map { try counter($0) }
         let ownerWindow = try stamp["window"].map { try counter($0) }
+        let ownerRoot = try stamp["root"].map(focusRootID)
         var rejected: [String: Any] = ["focusAccepted": false, "focused": false, "moved": false]
         guard token == focusWatchToken else { return rejected }
         guard generation > focusRequestGeneration else {
@@ -1323,7 +1420,7 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
         let window = try prepareFocusWindow()
         if focusWatchWindow !== window { watchFocusWindow(window) }
-        if context.map({ $0 != focusWatchContext }) == true || ownerWindow.map({ focusWindows[$0]?.window !== window }) == true {
+        if context.map({ $0 != focusWatchContext }) == true || ownerWindow.map({ focusWindows[$0]?.window !== window }) == true || ownerRoot.map({ $0 != focusDomain(window) }) == true {
             focusRequestGeneration = generation
             rejected["observation"] = try focusAcknowledgement(); return rejected
         }
@@ -1381,7 +1478,7 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
         case "focus.named":
             let window = try prepareFocusWindow()
             guard let name = message["name"] as? String, !name.isEmpty else { throw BridgeError("Focus name must be a nonempty string") }
-            guard let id = namedFocusNodes[Data(name.utf8)] else { return ["focused": false] }
+            guard let id = namedFocusNodes[focusDomain(window)]?[Data(name.utf8)] else { return ["focused": false] }
             guard let view = namedFocusView(id, in: window) else { return ["focused": false] }
             func focused() -> Bool {
                 guard let current = focusView(window.firstResponder) ?? window.firstResponder as? NSView else { return false }
@@ -1393,7 +1490,7 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
         case "focus.availability":
             let window = try prepareFocusWindow()
             guard let name = message["name"] as? String, !name.isEmpty else { throw BridgeError("Focus name must be a nonempty string") }
-            return ["availability": namedAvailability(name, in: window)]
+            return ["availability": namedAvailability(name, in: window, domain: try message["root"].map(focusRootID))]
         case "focus.availability.watch":
             let token = try integer(message["token"]), window = try prepareFocusWindow()
             guard token > lastAvailabilityToken else { throw BridgeError("Availability observation token must increase") }
@@ -1403,7 +1500,7 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
             if availabilityNotifications.isEmpty {
                 for event in [NSWindow.willBeginSheetNotification, NSWindow.didEndSheetNotification, NSWindow.didUpdateNotification, NSWindow.willCloseNotification] {
                     availabilityNotifications.append(NotificationCenter.default.addObserver(forName: event, object: nil, queue: nil) { [weak self] notification in
-                        guard let self, let window = notification.object as? NSWindow, window === self.window || window === self.currentFocusWindow() else { return }
+                        guard let self, let window = notification.object as? NSWindow, self.rootWindow(window) != nil else { return }
                         self.scheduleAvailabilityWatch()
                     })
                 }
@@ -1433,11 +1530,11 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
             for name in [NSWindow.willBeginSheetNotification, NSWindow.didEndSheetNotification, NSWindow.didUpdateNotification, NSWindow.willCloseNotification] {
                 focusWindowNotifications.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: nil) { [weak self] notification in
                     guard let self, let window = notification.object as? NSWindow,
-                          window === self.window || window === self.focusWatchWindow || window === self.currentFocusWindow() else { return }
+                          self.rootWindow(window) != nil || window === self.focusWatchWindow else { return }
                     self.scheduleFocusWatch()
                 })
             }
-            return ["sequence": focusWatchSequence, "context": focusWatchContext, "window": focusWindowID(window), "generation": focusRequestGeneration, "responderRevision": responderRevision, "name": focusWatchName as Any? ?? NSNull()]
+            return ["sequence": focusWatchSequence, "context": focusWatchContext, "root": focusDomain(window), "window": focusWindowID(window), "generation": focusRequestGeneration, "responderRevision": responderRevision, "name": focusWatchName as Any? ?? NSNull()]
         case "focus.unwatch":
             let token = try integer(message["token"])
             if token == focusWatchToken { stopFocusWatch() }
@@ -1493,10 +1590,11 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
             var reachable = Set<Int>(), visiting = Set<Int>()
             var boundTypes: [Int: Set<String>] = [:], pickerValues: [(Int, Any)] = []
             var numericRanges: [(Int, Double, Double)] = []
-            var focusNames: [Data: Int] = [:]
-            func visit(_ id: Int) throws {
+            var focusNames: [Int: [Data: Int]] = [:], roots: [Int: Int] = [:]
+            func visit(_ id: Int, domain: Int) throws {
                 if visiting.contains(id) { throw BridgeError("Cyclic view graph") }
-                if reachable.contains(id) { return }
+                if let existing = roots[id] { guard existing == domain else { throw BridgeError("View belongs to multiple window roots") }; return }
+                roots[id] = domain
                 visiting.insert(id)
                 guard descriptions[id] != nil || nodes[id] != nil else { throw BridgeError("Unknown child view handle") }
                 let value = descriptions[id]
@@ -1504,13 +1602,13 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 let kind = value?["kind"] as? String ?? nodes[id]!.kind
                 let children = value?["children"] as? [Int] ?? nodes[id]!.children.map(\.id)
                 let modifier = props["name"] as? String ?? ""
-                let modifiers: Set<String> = ["font", "foregroundStyle", "padding", "frame", "fixedSize", "layoutPriority", "navigationTitle", "accessibilityIdentifier", "disabled", "focusSection", "onAppear", "onDisappear", "tag", "sheet"]
+                let modifiers: Set<String> = ["font", "foregroundStyle", "padding", "frame", "fixedSize", "layoutPriority", "navigationTitle", "accessibilityIdentifier", "disabled", "focusSection", "onAppear", "onDisappear", "tag", "sheet", "window"]
                 if kind == "modifier" && !modifiers.contains(modifier) { throw BridgeError("Unknown view modifier") }
                 try validateLayout(kind, props)
                 try validateInput(kind, props)
                 if ["textfield", "securefield", "texteditor", "datepicker", "stepper", "picker", "button", "toggle", "slider", "webview"].contains(kind), let raw = props["focusName"] {
                     guard let name = raw as? String, !name.isEmpty else { throw BridgeError("Focus name must be a nonempty string") }
-                    guard focusNames.updateValue(id, forKey: Data(name.utf8)) == nil else { throw BridgeError("Duplicate focus name") }
+                    guard focusNames[domain, default: [:]].updateValue(id, forKey: Data(name.utf8)) == nil else { throw BridgeError("Duplicate focus name") }
                 }
                 if kind == "webview" {
                     guard props["html"] is String, let data = props["data"], (try? jsonData(data)) != nil else { throw BridgeError("Invalid WebView content or data") }
@@ -1519,7 +1617,9 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
                           let methods = props["methods"] as? [String], Set(methods.map { Data($0.utf8) }).count == methods.count,
                           methods.allSatisfy({ !$0.isEmpty && !["then", "__proto__", "prototype", "constructor", "toJSON"].contains($0) }) else { throw BridgeError("Invalid WebView API descriptor") }
                 }
-                let count: Int? = kind == "split" || (kind == "modifier" && modifier == "sheet") ? 2
+                if kind == "modifier" && modifier == "window", ![1, 2].contains(children.count) { throw BridgeError("Invalid child count for window") }
+                let count: Int? = kind == "modifier" && modifier == "window" ? nil
+                    : kind == "split" || (kind == "modifier" && modifier == "sheet") ? 2
                     : ["list", "dynamic", "modifier", "scroll"].contains(kind) ? 1
                     : ["vstack", "hstack", "lazyvstack", "lazyhstack", "lazyvgrid", "lazyhgrid", "foreach", "form", "section"].contains(kind) ? nil : 0
                 if let count, children.count != count { throw BridgeError("Invalid child count for \(kind)") }
@@ -1530,10 +1630,10 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
                     if kind == "picker" { pickerValues.append(contentsOf: pickerItems(props).map { (state, $0.value) }) }
                     if kind == "slider" || kind == "stepper" { numericRanges.append((state, props["min"].flatMap(layoutNumber) ?? 0, props["max"].flatMap(layoutNumber) ?? (kind == "slider" ? 1 : 100))) }
                 }
-                for child in children { try visit(child) }
+                for (index, child) in children.enumerated() { try visit(child, domain: kind == "modifier" && modifier == "window" && index == 1 ? id : domain) }
                 visiting.remove(id); reachable.insert(id)
             }
-            try visit(rootID)
+            try visit(rootID, domain: 0)
             // A choice must also be valid for other controls sharing its cell;
             // otherwise a valid-looking menu could fail only after selection.
             for (state, value) in pickerValues {
@@ -1556,6 +1656,9 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 if box.children.map(\.id) != children { box.children = children.map { nodes[$0]! } }
             }
             root = nodes[rootID]
+            // Close roots while their old graph is still available for native
+            // document/adapter retirement, before dropping unreachable boxes.
+            for id in Array(ownedWindows.keys) where !reachable.contains(id) || nodes[id]?.children.count != 2 { closeOwnedWindow(id, publish: false) }
             for (id, coordinator) in webViews where !reachable.contains(id) {
                 coordinator.invalidate(); webViews.removeValue(forKey: id)
             }
@@ -1563,15 +1666,27 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 coordinator.invalidate(); hostedControls.removeValue(forKey: id)
             }
             nodes = nodes.filter { reachable.contains($0.key) }
+            retiredWindowNodes.formIntersection(reachable)
             namedFocusNodes = focusNames
             if let options = message["window"] as? [String: Any] { open(options) }
+            syncOwnedWindows()
             scheduleFocusWatch()
             scheduleAvailabilityWatch()
             return [:]
         case "dispose": stopping = true; dispose(); return [:]
         case "debug.snapshot" where testing:
-            return ["nodes": nodes.values.sorted { $0.id < $1.id }.map { ["id": $0.id, "kind": $0.kind, "props": $0.props, "children": $0.children.map(\.id)] as [String: Any] },
-                    "states": cells.map { ["id": $0.key].merging($0.value.snapshot()) { _, new in new } }, "liveViews": ViewBox.live, "liveCells": Cell.live, "webViewCount": webViews.count, "textInputCount": hostedControls.filter { ["textfield", "securefield", "texteditor"].contains(nodes[$0.key]?.kind ?? "") }.count, "hostedControlCount": hostedControls.count, "focusWindowCount": focusWindows.count, "availabilityWatchCount": availabilityWatches.count, "availabilityNotificationCount": availabilityNotifications.count, "applicationEventRouting": NSApp is JonUIApplication, "mainThread": Thread.isMainThread, "windowVisible": window?.isVisible ?? false, "sheetPresented": window?.attachedSheet != nil]
+            let views: [[String: Any]] = nodes.values.sorted { $0.id < $1.id }.map {
+                ["id": $0.id, "kind": $0.kind, "props": $0.props, "children": $0.children.map(\.id)]
+            }
+            let states: [[String: Any]] = cells.map { ["id": $0.key].merging($0.value.snapshot()) { _, new in new } }
+            let textCount = hostedControls.filter { ["textfield", "securefield", "texteditor"].contains(nodes[$0.key]?.kind ?? "") }.count
+            let snapshot: [String: Any] = ["nodes": views, "states": states, "liveViews": ViewBox.live, "liveCells": Cell.live,
+                "webViewCount": webViews.count, "textInputCount": textCount, "hostedControlCount": hostedControls.count,
+                "ownedWindowCount": ownedWindows.count, "focusWindowCount": focusWindows.count,
+                "availabilityWatchCount": availabilityWatches.count, "availabilityNotificationCount": availabilityNotifications.count,
+                "applicationEventRouting": NSApp is JonUIApplication, "mainThread": Thread.isMainThread,
+                "windowVisible": window?.isVisible ?? false, "sheetPresented": window?.attachedSheet != nil]
+            return snapshot
         case "debug.controls" where testing:
             return ["controls": numericControls().enumerated().map { index, control in
                 ["index": index, "kind": control is NSSlider ? "slider" : "stepper", "value": control.doubleValue] as [String: Any]
@@ -1665,7 +1780,7 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
             let mainFields = textControls(in: window).enumerated().compactMap { index, field -> Int? in
                 guard let editor = field.currentEditor(), window?.firstResponder === editor else { return nil }; return index
             }
-            return ["sheet": current != nil && current !== window, "mainKey": window?.isKeyWindow ?? false,
+            return ["sheet": current?.sheetParent != nil, "root": current.map(focusDomain) ?? 0, "mainKey": window?.isKeyWindow ?? false,
                 "activeKey": current?.isKeyWindow ?? false, "mainFields": mainFields, "active": NSApp.isActive,
                 "animationsSuppressed": current?.animationBehavior == NSWindow.AnimationBehavior.none,
                 "alpha": current?.alphaValue ?? 0]
@@ -1675,7 +1790,19 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
             focusWindows = focusWindows.filter { $0.value.window != nil }
             return ["windows": focusWindows.count, "live": focusWindows.values.filter { $0.window != nil }.count]
         case "debug.focusNames" where testing:
-            return ["count": namedFocusNodes.count]
+            return ["count": namedFocusNodes[currentFocusWindow().map(focusDomain) ?? 0]?.count ?? 0]
+        case "debug.windows" where testing:
+            return ["windows": ownedWindows.sorted { $0.key < $1.key }.map { id, coordinator in
+                ["id": id, "root": coordinator.rootID, "title": coordinator.window?.title ?? "", "visible": coordinator.window?.isVisible ?? false,
+                 "key": coordinator.window?.isKeyWindow ?? false, "alpha": coordinator.window?.alphaValue ?? 1,
+                 "width": coordinator.window?.contentView?.frame.width ?? 0, "height": coordinator.window?.contentView?.frame.height ?? 0] as [String: Any]
+            }]
+        case "debug.selectWindow" where testing && offscreen:
+            let selected = (message["id"] as? Int).flatMap { ownedWindows[$0]?.window } ?? (message["id"] as? Int == 0 ? window : nil)
+            guard let selected else { throw BridgeError("Unknown test window") }; selectFocusRoot(selected); return [:]
+        case "debug.closeWindow" where testing:
+            guard let id = message["id"] as? Int, let window = ownedWindows[id]?.window else { throw BridgeError("Unknown test window") }
+            window.performClose(nil); return [:]
         case "debug.availabilityWatch" where testing:
             return ["watches": availabilityWatches.count, "notifications": availabilityNotifications.count, "scheduled": availabilityScheduled]
         case "debug.focusWatch" where testing:

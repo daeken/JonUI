@@ -24,6 +24,7 @@ let nextWebEpoch = 1;
 const textSubmits = new Map();
 const textEditings = new Map();
 const appearances = new Map();
+const windowViews = new Map();
 const viewMarker = Symbol('JonUI.View');
 const bindingMarker = Symbol('JonUI.Binding');
 const focusBindings = new WeakMap();
@@ -411,6 +412,11 @@ class ViewValue {
   }
   tag(value) { itemKey(value); return this.modifier('tag', { value }); }
   sheet({ isPresented, content }) { return new ViewValue('modifier', { name: 'sheet', state: binding(isPresented) }, [this, content]); }
+  window(options) {
+    const props = layoutOptions(options, ['isPresented', 'content', 'title', 'width', 'height'], 'window');
+    if (typeof props.title !== 'string' || ![props.width, props.height].every(n => typeof n === 'number' && Number.isFinite(n) && n > 0)) throw new TypeError('window requires a title and positive finite dimensions');
+    return new ViewValue('modifier', { name: 'window', state: binding(props.isPresented), title: props.title, width: props.width, height: props.height }, [this, props.content]);
+  }
 }
 export function View(body, options = {}) {
   if (typeof body !== 'function') throw new TypeError('View expects a synchronous body');
@@ -423,8 +429,15 @@ export function Component(setup) {
   const definition = Object.freeze({});
   return props => new ViewValue('component', { definition, setup, componentProps: props });
 }
+function windowRoot(mounted) {
+  for (let child = mounted, parent = child?.parent; parent; child = parent, parent = parent.parent) {
+    if (parent.value.kind === 'modifier' && parent.value.props.name === 'window' && child.key === '1') return parent.id;
+  }
+  return 0;
+}
 function initializeComponent(mounted) {
   const owned = { cells: new Set(), computations: new Set(), effects: new Set(), propsSignal: { dependents: new Set() }, nextEffectIndex: 0, cleanups: [], initializing: true, disposed: false, render: null };
+  owned.windowRoot = windowRoot(mounted);
   liveDependencies.add(owned.propsSignal);
   mounted.component = owned;
   const scope = Object.freeze({
@@ -516,7 +529,7 @@ function initializeComponent(mounted) {
         if (caller && !taskIsCurrent(caller)) { resuming = false; baseline = null; requestTask = null; conditionalClear = null; pendingIntent = false; retired.value = true; cancelRetry(); pendingRetry = null; stopAvailabilitySubscriptions(); return; }
         unsubscribe = subscribeFocus(sample => {
           if (!ready) return;
-          if (sample.token !== token || sample.context !== context || ownerWindow !== undefined && sample.window !== ownerWindow) { retire(); return; }
+          if (sample.token !== token || sample.context !== context || (sample.root ?? 0) !== owned.windowRoot || ownerWindow !== undefined && sample.window !== ownerWindow) { retire(); return; }
           if (retry?.baseline && (sample.name !== retry.baseline.name || sample.responderRevision !== retry.baseline.responderRevision)) cancelRetry();
           actual.value = sample.name;
         }, true);
@@ -524,7 +537,7 @@ function initializeComponent(mounted) {
           const sample = request('focus.snapshot', { token: focusWatch.token }).observation;
           if (!sample) throw new Error('Focus observation session expired');
           receiveFocusChange(sample);
-          if (ownerWindow !== undefined && sample.window !== ownerWindow) { resuming = false; retire(); return; }
+          if ((sample.root ?? 0) !== owned.windowRoot || ownerWindow !== undefined && sample.window !== ownerWindow) { resuming = false; retire(); return; }
           token = sample.token; context = sample.context; ready = true; resuming = false; retired.value = false; actual.value = sample.name;
           if (retry && !retry.baseline) { retry.baseline = sample; if (sample.name === retry.name) cancelRetry(); }
         } catch (error) { unsubscribe(); throw error; }
@@ -549,9 +562,9 @@ function initializeComponent(mounted) {
         const op = onlyClear !== null ? 'focus.blurNamed' : name === null ? 'focus.move' : 'focus.named';
         const args = onlyClear !== null ? { name: onlyClear } : name === null ? { direction: 'clear' } : { name };
         let result;
-        try { result = requestFocus(op, args, context, ownerWindow); } finally { if (source) cancelRetry(source); }
+        try { result = requestFocus(op, args, context, ownerWindow, owned.windowRoot); } finally { if (source) cancelRetry(source); }
         const sample = result.observation;
-        if (!sample || result.focusAccepted === false || sample.context !== context || sample.token !== token || ownerWindow !== undefined && sample.window !== ownerWindow) { retire(); return; }
+        if (!sample || result.focusAccepted === false || sample.context !== context || sample.token !== token || (sample.root ?? 0) !== owned.windowRoot || ownerWindow !== undefined && sample.window !== ownerWindow) { retire(); return; }
         actual.value = sample.name;
         if (retry && sample.name === retry.name) cancelRetry();
       });
@@ -572,7 +585,7 @@ function initializeComponent(mounted) {
       function contextSnapshot() {
         const sample = request('focus.snapshot', { token }).observation;
         if (sample) receiveFocusChange(sample);
-        if (!sample || sample.token !== token || sample.context !== context || ownerWindow !== undefined && sample.window !== ownerWindow) { retire(); return null; }
+        if (!sample || sample.token !== token || sample.context !== context || (sample.root ?? 0) !== owned.windowRoot || ownerWindow !== undefined && sample.window !== ownerWindow) { retire(); return null; }
         return sample;
       }
       function subscribeOwnedAvailability(name, callback, onStop) {
@@ -597,7 +610,7 @@ function initializeComponent(mounted) {
         },
         availability(name) {
           if (!canWrite('read scoped focus availability')) return null;
-          return Focus.availabilityNamed(name);
+          return request('focus.availability', { name: focusName(name), root: owned.windowRoot }).availability;
         },
         subscribeAvailability(name, callback) {
           return subscribeOwnedAvailability(name, callback);
@@ -1029,12 +1042,14 @@ function receiveFocusChange(event) {
       !Number.isSafeInteger(event.context) || event.context < watch.context ||
       !Number.isSafeInteger(event.generation) || event.generation < watch.generation ||
       event.window !== undefined && (!Number.isSafeInteger(event.window) || event.window < 1) ||
+      event.root !== undefined && (!Number.isSafeInteger(event.root) || event.root < 0) ||
       event.responderRevision !== undefined && (!Number.isSafeInteger(event.responderRevision) || event.responderRevision < (watch.responderRevision ?? 0)) ||
       event.name !== null && (typeof event.name !== 'string' || !event.name.length || !event.name.isWellFormed())) return;
   watch.sequence = event.sequence; watch.context = event.context; watch.name = event.name;
   watch.generation = event.generation; watch.requestGeneration = Math.max(watch.requestGeneration, event.generation);
   watch.responderRevision = event.responderRevision ?? watch.responderRevision;
   watch.window = event.window ?? watch.window;
+  watch.root = event.root ?? watch.root ?? 0;
   if (watch.deliveryScheduled) return;
   watch.deliveryScheduled = true;
   queueMicrotask(() => {
@@ -1044,9 +1059,9 @@ function receiveFocusChange(event) {
     try {
       taskStorage.run(undefined, () => untracked(() => {
         for (const entry of [...focusListeners]) {
-          if (focusWatch !== watch || watch.sequence !== sequence || !focusListeners.has(entry) || entry.name === name && (!entry.metadata || entry.context === watch.context && entry.window === watch.window && entry.responderRevision === watch.responderRevision)) continue;
-          entry.name = name; entry.context = watch.context; entry.window = watch.window; entry.responderRevision = watch.responderRevision;
-          const value = entry.metadata ? { token: watch.token, context: watch.context, window: watch.window, responderRevision: watch.responderRevision, name } : name;
+          if (focusWatch !== watch || watch.sequence !== sequence || !focusListeners.has(entry) || entry.name === name && (!entry.metadata || entry.context === watch.context && entry.root === watch.root && entry.window === watch.window && entry.responderRevision === watch.responderRevision)) continue;
+          entry.name = name; entry.context = watch.context; entry.root = watch.root; entry.window = watch.window; entry.responderRevision = watch.responderRevision;
+          const value = entry.metadata ? { token: watch.token, context: watch.context, root: watch.root, window: watch.window, responderRevision: watch.responderRevision, name } : name;
           if (!entry.task) entry.callback(value);
           else if (taskIsCurrent(entry.task)) taskStorage.run(entry.task, () => entry.callback(value));
         }
@@ -1054,10 +1069,10 @@ function receiveFocusChange(event) {
     } catch (error) { fail(error); }
   });
 }
-function requestFocus(op, args = {}, context, ownerWindow) {
+function requestFocus(op, args = {}, context, ownerWindow, ownerRoot) {
   const watch = focusWatch;
   if (!watch) return request(op, args);
-  const result = request(op, { ...args, focusRequest: { token: watch.token, generation: ++watch.requestGeneration, ...(context === undefined ? {} : { context }), ...(ownerWindow === undefined ? {} : { window: ownerWindow }) } });
+  const result = request(op, { ...args, focusRequest: { token: watch.token, generation: ++watch.requestGeneration, ...(context === undefined ? {} : { context }), ...(ownerWindow === undefined ? {} : { window: ownerWindow }), ...(ownerRoot === undefined ? {} : { root: ownerRoot }) } });
   if (focusWatch === watch && result.observation) receiveFocusChange(result.observation);
   return result;
 }
@@ -1072,7 +1087,7 @@ function subscribeFocus(callback, metadata = false) {
     try { Object.assign(watch, request('focus.watch', { token: watch.token })); }
     catch (error) { focusListeners.delete(entry); focusWatch = null; throw error; }
   }
-  entry.name = focusWatch.name; entry.context = focusWatch.context; entry.window = focusWatch.window; entry.responderRevision = focusWatch.responderRevision;
+  entry.name = focusWatch.name; entry.context = focusWatch.context; entry.root = focusWatch.root ?? 0; entry.window = focusWatch.window; entry.responderRevision = focusWatch.responderRevision;
   if (entry.task) entry.unregister = registerTaskCleanup(entry.task, unsubscribe);
   return unsubscribe;
 }
@@ -1263,6 +1278,7 @@ function unmount(mounted) {
   mounted.alive = false;
   const failures = [];
   dirty.delete(mounted); updates.delete(mounted.id); actions.delete(mounted.id); webErrors.delete(mounted.id);
+  windowViews.delete(mounted.id);
   try { disposeWebAPI(mounted.id); } catch (error) { failures.push(error); }
   textSubmits.delete(mounted.submitToken);
   textEditings.delete(mounted.editingToken);
@@ -1277,11 +1293,14 @@ function reconcile(previous, value, key, parent = null) {
   validate(value);
   if (value.props.focusBinding) {
     const owner = focusProjection(value.props.focusBinding).owner;
+    if (windowRoot({ parent, key }) !== owner.windowRoot) throw new Error('Focused views must share their controller window root');
     let ancestor = parent;
     while (ancestor && ancestor.component !== owner) ancestor = ancestor.parent;
     if (!ancestor) throw new Error('Focused views must be descendants of their controller component');
   }
-  if (previous && (previous.value.kind !== value.kind || (value.kind === 'component' && previous.value.props.definition !== value.props.definition))) { unmount(previous); previous = null; }
+  if (previous && (previous.value.kind !== value.kind ||
+      (previous.value.kind === 'modifier' && (previous.value.props.name === 'window') !== (value.props.name === 'window')) ||
+      (value.kind === 'component' && previous.value.props.definition !== value.props.definition))) { unmount(previous); previous = null; }
   const mounted = previous ?? { id: nextView++, key, children: [], dependencies: new Set(), alive: true };
   const propsChanged = mounted.component && !equalProps(mounted.value.props.componentProps, value.props.componentProps);
   mounted.value = value; mounted.parent = parent;
@@ -1350,6 +1369,10 @@ function evaluateContent(mounted) {
     children = [{ key: 'body', value: body }];
   } else if (value.kind === 'foreach') {
     children = value.props.rows;
+  } else if (value.kind === 'modifier' && value.props.name === 'window') {
+    const presented = track(mounted, () => cells.get(value.props.state).cell.value);
+    if (typeof presented !== 'boolean') throw new TypeError('window requires a boolean presentation binding');
+    if (!presented) children = children.slice(0, 1);
   }
   finishEvaluation(mounted, children);
 }
@@ -1361,6 +1384,7 @@ function finishEvaluation(mounted, children) {
     old.delete(child.key); return result;
   });
   unmountAll(old.values());
+  if (value.kind === 'modifier' && value.props.name === 'window') windowViews.set(mounted.id, mounted);
   const { body, fallback, rows, row, action, onMessage, onError, api, onSubmit, onEditingChanged, onAppearance, focusBinding, definition, setup, componentProps, ...props } = value.props;
   if (mounted.appearancePhase !== props.name || !onAppearance) {
     appearances.delete(mounted.appearanceToken); mounted.appearanceToken = undefined;
@@ -1484,7 +1508,7 @@ function shutdown(error, partialMounts = []) {
   availabilityWatches.clear(); availabilityTokens.clear();
   for (const observer of [...computations]) disposeComputed(observer);
   for (const id of [...webAPIs.keys()]) disposeWebAPI(id);
-  dirty.clear(); updates.clear(); actions.clear(); webErrors.clear(); textSubmits.clear(); textEditings.clear(); appearances.clear();
+  dirty.clear(); updates.clear(); actions.clear(); webErrors.clear(); textSubmits.clear(); textEditings.clear(); appearances.clear(); windowViews.clear();
   for (const { listeners, cell } of cells.values()) { listeners.clear(); cell.dependents.clear(); }
   cells.clear();
   try { request('dispose'); } catch (caught) { failure ??= caught; }
@@ -1498,6 +1522,17 @@ bridge.listen(json => {
     const event = JSON.parse(json);
     if (stopped) return;
     if (event.type === 'state') cells.get(event.id)?.accept(event);
+    else if (event.type === 'windowClosed') {
+      const mounted = windowViews.get(event.id);
+      if (mounted?.alive && mounted.children[1]?.id === event.content) {
+        const removed = mounted.children.slice(1); mounted.children = mounted.children.slice(0, 1);
+        unmountAll(removed);
+        updates.set(mounted.id, { id: mounted.id, kind: 'modifier', props: mounted.value.props, children: mounted.children.map(child => child.id) });
+        dirty.add(mounted);
+      }
+      cells.get(event.state?.id)?.accept(event.state);
+      schedule();
+    }
     else if (event.type === 'action') actions.get(event.id)?.();
     else if (event.type === 'focusChanged') receiveFocusChange(event);
     else if (event.type === 'focusAvailability') receiveAvailabilityChange(event);

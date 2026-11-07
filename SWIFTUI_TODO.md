@@ -29,6 +29,25 @@ Status meanings:
 
 ## Current review
 
+- Owned independent roots review (2026-11-07): View.window uses a boolean binding
+  and copied title/initial dimensions. Presented content scopes mount separately;
+  native close publishes false, retires native documents/adapters immediately and
+  disposes logical scopes on the event queue. Nested ownership closes children;
+  siblings survive, main close/Quit disposes all roots. Names validate per root,
+  shared handles/projections cannot cross roots, and controller activation/native
+  stamps enforce automatic logical ownership plus optional physical guards.
+  Owned availability snapshots query their own namespace; global APIs follow the
+  selected owned key root/deepest sheet. Build, 175 unit/compiler cases, both type
+  checks, focused native edits/Tab/sheets/nested/task/RPC/20-owner and four failure
+  cases pass. Native close unmounts scopes before presentation subscribers can
+  reopen, with unit/native regressions proving fresh locals and content IDs
+  guarding delayed closes across binding replacement/new openings. Retired native node
+  guards block cached views/callbacks during close-to-commit. Full validation is
+  recorded in TODO: native build, all 102 offscreen scenarios, 175 unit/compiler
+  cases, both type checkers and API classification pass. The recorded AppKit
+  sheet-close crash did not recur; no framework fix is claimed. Offscreen auxiliary delegates
+  suppress sheet alpha/animations too. Environment inheritance, Scene WindowGroup,
+  restoration, activation/order controls and richer lifecycle policies remain open.
 - Physical focus window review (2026-11-07): captureWindow returns a frozen opaque
   weak physical identity; all three focus constructors copy optional window guards
   before state allocation. Activation, metadata, availability delivery and native
@@ -403,7 +422,7 @@ Status meanings:
 
 | Widget / capability | Status | State / binding contract | Remaining work / evidence |
 | --- | --- | --- | --- |
-| sheet | Partial | Boolean presentation Binding and content. | Single-sheet mixed-widget focus/RPC, opt-in Tab routing and owner teardown verified; item-based and nested cases remain. <!-- api: View.sheet --> |
+| sheet | Partial | Boolean presentation Binding and content in the declaring native root. | Main/auxiliary-root mixed-widget focus/RPC, Tab routing, offscreen delegate handling and owner teardown verified; item-based and nested-sheet cases remain. <!-- api: View.sheet --> |
 | popover | Missing | Boolean/item Binding, anchor and dismissal. | Native positioning, window ownership, focus and cleanup. |
 | fullScreenCover | Platform gate | Boolean/item Binding and presentation content. | Availability/platform semantics; ownership and dismissal. |
 | alert | Missing | Boolean/item Binding, message and actions. | Roles, text input, default/cancel and queued presentation policy. |
@@ -418,9 +437,9 @@ Status meanings:
 | commands | Missing | Scene-level command groups and enabled state. | Keyboard shortcut/role/validation and window ownership. |
 | CommandGroup | Missing | Group placement/replacement and dynamic commands. | Scene command tree and conflict handling. |
 | CommandMenu | Missing | Menu title and child commands. | Native menu lifecycle and enablement. |
-| Main window / App | Partial | Title, initial size, content and stop callback. | Native launcher verified; scenes, activation/reopen policies and multi-window roots remain. <!-- api: runApp, AppOptions --> |
+| Main window / App | Partial | Title, initial size, content and stop callback; main close/Quit disposes every owned root. | Native launcher and multi-root stop/cleanup verified; scenes and richer activation/reopen/last-window policies remain. <!-- api: runApp, AppOptions --> |
 | WindowGroup | Missing | Scene identity, independent root state and windows. | Multi-window ownership, open/dismiss and state restoration. |
-| Window | Missing | Stable unique window ID, content and visibility. | Existing launcher window is not a general scene/window API. |
+| Window | Partial (JonUI) | View.window owns an independent root by modifier identity and boolean presentation binding, copied title/initial dimensions. Content scopes end on close/removal; reopen starts fresh locals. | Separate state/names, native close binding, nested/sibling lifetime, sheets/Tab, task/RPC cancellation, 20 cycles and failure cleanup verified. User scene IDs, restoration, activation/order controls and full SwiftUI scene parity remain. <!-- api: View.window, WindowOptions --> |
 | UtilityWindow | SDK gate | Utility window ID and visibility. | Availability, focus/activation and window lifecycle. |
 | MenuBarExtra | Missing | Status-item insertion Binding, label and content. | Native menu/window styles and background app lifecycle. |
 | Settings | Missing | App-owned settings root and persistence. | Scene registration, SettingsLink and reopen/activation. |
@@ -454,7 +473,7 @@ Status meanings:
 | Typed focus selection controller | Partial (JonUI) | Fixed string/number domain, intent/observation, bindings/resume, availability/subscriptions/retry and optional physical-window guard. | Typed identity/validation, text/date/WebKit/clear, main/sheet guard, retry/cancellation, task/RPC leases and owner cleanup verified; dynamic/object domains/general overloads remain. <!-- api: SelectionFocusController, ComponentScope.focusSelection --> |
 | Physical focus window guard | Partial (JonUI) | Opaque weak deduplicated physical handle; constructor guard remains fixed across resume, with native request validation. | Main/sheet guard, inactive-owner activation, canceled captures, malformed/native stamps and cleanup verified. No opening/activation/independent root or close ownership. Cached physical sheet identity can recur. <!-- api: FocusWindow, FocusOptions, Focus.captureWindow --> |
 | focused projection | Partial (JonUI) | Boolean actual getter and deferred true/conditional-false request, attached to one named supported control. | Text/secure/editor/date/WebKit focus verified; Stepper/Picker/Button/Toggle/Slider wiring and unavailable gates verified, successful focus still gated. Modifier/owner/Unicode blur/cleanup covered; containers remain unsupported. <!-- api: FocusBinding, View.focused --> |
-| Native focus observation | Partial (JonUI) | Nullable named responder snapshots/coalesced subscriptions; generation-stamped acknowledgements and internal weak responder-owner revisions; observations do not write intent. | Text/date/WebKit/single-sheet, unnamed shared-editor retry guard, public name-only dedup, generation/sequence/context guards and cleanup verified; broader controls/IME/AX remain. <!-- api: Focus.subscribe --> |
+| Native focus observation | Partial (JonUI) | Names/coalesced subscriptions, stamped acknowledgements and internal physical/logical root and responder metadata; observations do not write intent. | Multiple owned roots/auxiliary sheets, namespace/automatic controller root guards, public name-only dedup, native stamp checks and cleanup verified; broader controls/IME/AX remain. <!-- api: Focus.subscribe --> |
 | Named focus availability | Partial (JonUI) | Snapshots/shared native/global-context subscriptions, session-bound owned helpers and opt-in one-shot controller retry. | Exact/opaque states, native/lazy/sheet changes, caller/session/owner cancellation and observer cleanup verified; triggerless OS changes, viewport/physical-window policies remain. <!-- api: FocusAvailability, Focus.availabilityNamed, Focus.subscribeAvailability --> |
 | Focus commands | Partial | Native next/previous/clear plus four-axis geometric move. | Real text/date/WebKit/sheet/directional paths verified; full keyboard-access and optional non-editing arrow routing remain. <!-- api: Focus, Focus.next, Focus.previous, Focus.clear, Focus.move --> |
 | Captured / named focus | Partial | Weak opaque physical target or exact UTF-8 name; currentName snapshot; optional active-window Tab cycle. | Text/date/WebKit focus/captures/Tab verified; Stepper/Picker/Button/Toggle/Slider registration and unavailable gates verified. Additional-control positive focus/capture/Tab remains gated by native availability/eligibility. <!-- api: FocusTarget, Focus.capture, Focus.request, Focus.requestNamed, Focus.currentName, Focus.setTraversal --> |
@@ -511,7 +530,7 @@ Status meanings:
 | preferredColorScheme / tint / controlSize | Missing | Environment presentation values. | Public environment/style APIs and dynamic changes. |
 | Layout direction / locale / dynamic type | Missing | Inherited environment and formatting values. | Localization, RTL geometry and accessibility text scaling. |
 | Presentation detents / interactiveDismissDisabled | Missing | Detent selection and dismissal permission. | Platform-specific sheet contracts and cleanup. |
-| Window sizing / placement / restoration | Missing | Frame constraints, persisted IDs and placement. | Current AppOptions only sets initial dimensions. |
+| Window sizing / placement / restoration | Partial (JonUI) | AppOptions/WindowOptions initial content dimensions; owned title updates preserve geometry. | Initial size/live title verified. User placement, frame constraints, stable scene IDs and restoration remain. |
 
 ## Related Apple-framework SwiftUI widgets and future platform ports
 
@@ -589,7 +608,7 @@ can still bypass local enforcement; this is not server-side branch protection.
 Repository instructions require the same review for contributors and automation.
 
 <!-- coverage-review:generated -->
-Review baseline (checkout HEAD before commit): `e935714e679a078c64955490b57c21fdfb1d1aa8`.
+Review baseline (checkout HEAD before commit): `915bde05c4433fca8d949d6bfeb82a6c8ab44460`.
 
-Staged source-tree SHA-256 (excluding this catalog): `a4f89233439df434aea8a448ecd083159f977b1dba6fe258498ca7b12c4e3556`.
+Staged source-tree SHA-256 (excluding this catalog): `5c7886e9715bed13e3f469313eb4936b482c57b787921cec01f00bac9c56baa7`.
 <!-- /coverage-review:generated -->
