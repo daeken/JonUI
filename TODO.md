@@ -857,6 +857,30 @@ typed projections, additional named native controls subject to keyboard-access
 eligibility, physical-window resumption/realization policy, IME/AX/nested-sheet
 coverage and the recorded intermittent AppKit sheet-close crash.
 
+Standalone boolean focus controllers completed (2026-11-07): setup-only
+`scope.focusBoolean(initialFocused = false)` exposes desired boolean intent,
+read-only actual/retired state, one opaque `binding`, deferred requests and passive
+resume. Each controller generates its own name and reuses the named controller's
+resource ownership/context/task guards. Independent desired values do not feed
+back from native observations. Changed false intent conditionally clears its own
+target, preserving an unrelated responder; equal desired writes are inert and
+explicit requests retry. The binding attaches to one supported descendant input;
+duplicate use follows native duplicate-name rejection. Global name observations
+can expose generated names, which have no stable public identity. Added a runnable
+boolean example and compile-time positive/negative API checks.
+
+Validation: all 137 runtime/compiler cases, Deno and TypeScript checks pass.
+The focused offscreen native gate verifies five independent text/secure/editor/
+date/WebKit targets, Unicode Return ordering, keyed identity, conditional clear,
+per-controller stale-task leases, modal retirement/passive parent resume and
+20 pending-request/resume owner lifetimes at baseline resources. All 73 offscreen
+native integration scenarios and API classification pass. No native source or
+bridge protocol changed. The recorded AppKit crash did not recur in this run;
+no framework fix is claimed. Keep the broad focus item unchecked. Next: typed
+non-string selections/general overloads; additional controls subject to native
+eligibility, realization/physical-window policy, IME/AX/nested-sheet coverage and
+the recorded intermittent AppKit sheet-close crash remain open.
+
 ## 3. Application and operating-system integration
 
 - [ ] Support multiple windows with independent roots and explicit window ownership.

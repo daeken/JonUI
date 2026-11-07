@@ -149,6 +149,11 @@ See [owned focus controllers](docs/focus.md#owned-focus-controllers) and
 to a named boolean projection. Read its `.value` for actual focus and write true
 to request it; false conditionally clears that target while preserving newer
 intent. See [projected focus bindings](docs/focus.md#projected-focus-bindings).
+`scope.focusBoolean()` provides the same lifecycle for one opaque target:
+`.focused(focus.binding)` wires the input, `focus.desired.value` tracks intent,
+and `focus.actual.value` observes it. False clears only that target. See
+[boolean focus controllers](docs/focus.md#boolean-focus-controllers) and
+`bin/jonui examples/focus-boolean/app.ts`.
 `Focus.capture()` remembers the current native responder as a weak opaque target;
 `Focus.request(target)` restores it while its identity remains available. Adding
 or removing view handles retires saved captures; value updates/keyed reorder keep

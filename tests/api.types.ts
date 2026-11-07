@@ -150,6 +150,26 @@ WebView({ html: "", data: () => 1 });
 WebView({ url: "https://example.com" });
 
 const ScopedCounter = Component<{ label: string }>((scope, initial) => {
+  const booleanFocus = scope.focusBoolean();
+  scope.focusBoolean(true);
+  booleanFocus.desired.value = true; booleanFocus.request(false); booleanFocus.resume();
+  const isFocused: boolean = booleanFocus.actual.value; void isFocused;
+  booleanFocus.desired.subscribe(value => { const desired: boolean = value; void desired; });
+  TextField('Boolean focus', { text: title.binding }).focused(booleanFocus.binding);
+  // @ts-expect-error Initial boolean focus cannot be a name.
+  scope.focusBoolean('name');
+  // @ts-expect-error Boolean focus is non-nullable.
+  scope.focusBoolean(null);
+  // @ts-expect-error Boolean requests require booleans.
+  booleanFocus.request(1);
+  // @ts-expect-error Boolean desired state requires booleans.
+  booleanFocus.desired.value = 'true';
+  // @ts-expect-error Actual boolean focus is readonly.
+  booleanFocus.actual.value = true;
+  // @ts-expect-error Boolean intent is not a scalar native binding.
+  void booleanFocus.desired.binding;
+  // @ts-expect-error A boolean controller has one binding, not named projections.
+  booleanFocus.binding('name');
   const focus = scope.focus(); focus.desired.value = 'name'; focus.request(null); focus.resume();
   const projected = focus.binding('name'); projected.value = true; const selected: boolean = projected.value; void selected;
   TextField('Projected', { text: title.binding }).padding(4).focused(projected);

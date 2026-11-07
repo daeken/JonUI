@@ -67,6 +67,15 @@ export interface FocusController {
   /** Project a named target; apply with view.focused() inside this controller's component subtree. */
   binding(name: string): FocusBinding;
 }
+/** One opaque target with separate boolean intent/observation; use binding on one descendant input. */
+export interface BooleanFocusController {
+  readonly desired: Pick<State<boolean>, 'value' | 'subscribe'>;
+  readonly actual: Computed<boolean>;
+  readonly retired: Computed<boolean>;
+  readonly binding: FocusBinding;
+  request(focused: boolean): void;
+  resume(): void;
+}
 export interface ComponentScope<Props = unknown> {
   /** Track synchronous inputs and abort previous runs on change, stop or unmount. */
   task(callback: (task: TaskContext) => void | Promise<void>): () => void;
@@ -80,6 +89,8 @@ export interface ComponentScope<Props = unknown> {
   computed<T>(derive: () => T, ...validation: StateValidation<T>): Computed<T>;
   /** Setup-only focus controller. Initial null is passive; resume or remount after context retirement. */
   focus(initialName?: string | null): FocusController;
+  /** Setup-only opaque single-target focus controller. Initial false is passive. */
+  focusBoolean(initialFocused?: boolean): BooleanFocusController;
   /** Runs once on unmount, in reverse registration order, including setup failure. */
   onDispose(cleanup: () => void): void;
 }

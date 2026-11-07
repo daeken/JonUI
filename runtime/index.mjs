@@ -1,5 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { isPromise } from "node:util/types";
+import { randomUUID } from "node:crypto";
 // Public constructors build immutable values. Only mounted values own native views.
 const bridge = globalThis.__jonuiNative;
 if (!bridge) throw new Error('Run this application with the jonui launcher');
@@ -560,9 +561,36 @@ function initializeComponent(mounted) {
               });
             },
           });
-          focusBindings.set(projection, { owner: owned, name });
+          focusBindings.set(projection, { owner: owned, name, setDesired(focused) {
+            if (!canWrite('write boolean desired focus')) return;
+            if (typeof focused !== 'boolean') throw new TypeError('Desired focus must be boolean');
+            untracked(() => {
+              if (focused ? desired.value === name : desired.value !== name) return;
+              requestTask = taskStorage.getStore(); conditionalClear = focused ? null : name; pendingIntent = true;
+              desired.value = focused ? name : null;
+            });
+          } });
           return projection;
         },
+      });
+    },
+    focusBoolean(initialFocused = false) {
+      assertNotComputing('allocate boolean focus controllers');
+      if (!owned.initializing || owned.disposed) throw new Error('Allocate boolean focus controllers during component setup');
+      if (typeof initialFocused !== 'boolean') throw new TypeError('Initial focus must be boolean');
+      const name = `jonui:boolean:${randomUUID()}`, controller = scope.focus(initialFocused ? name : null), projected = controller.binding(name);
+      const setDesired = focusBindings.get(projected).setDesired;
+      const desired = Object.freeze({
+        get value() { return controller.desired.value === name; },
+        set value(value) { setDesired(value); },
+        subscribe(listener) {
+          if (typeof listener !== 'function') throw new TypeError('Expected a listener');
+          return controller.desired.subscribe(value => listener(value === name));
+        },
+      });
+      return Object.freeze({
+        desired, actual: Object.freeze({ get value() { return projected.value; } }), retired: controller.retired,
+        binding: projected, request(value) { projected.value = value; }, resume: controller.resume,
       });
     },
     onDispose(cleanup) {

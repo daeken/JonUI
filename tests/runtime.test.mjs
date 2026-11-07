@@ -616,6 +616,68 @@ test('focused views cannot escape their controller component subtree', async () 
   assert.deepEqual(ui.__testing.stats(), { actions: 0, cells: 0, dependencies: 0 }); assert.deepEqual(ui.__testing.focusStats(), { listeners: 0, watching: false });
 });
 
+test('boolean focus controllers generate distinct targets, keep intent separate and clear only their own target', async () => {
+  const h = await setup(), { ui } = h; h.focus.focused = true; let a, b;
+  const Owner = ui.Component(scope => {
+    a = scope.focusBoolean(); b = scope.focusBoolean(true); const text = scope.state('');
+    return () => ui.VStack([ui.TextField('A', { text: text.binding }).focused(a.binding), ui.TextField('B', { text: text.binding }).focused(b.binding), ui.Text(`${a.actual.value}/${b.actual.value}`)]);
+  });
+  const done = launch(ui, Owner()); await tick(); const names = [...h.nodes.values()].filter(n => n.kind === 'textfield').map(n => n.props.focusName);
+  assert.equal(new Set(names).size, 2); assert.ok(names.every(n => typeof n === 'string' && n.length > 0));
+  assert.equal(a.desired.value, false); assert.equal(b.desired.value, true); assert.equal(a.actual.value, false); assert.equal(b.actual.value, true);
+  assert.equal(h.calls.filter(c => c.op === 'focus.named').length, 1, 'false is passive');
+  a.desired.value = true; await tick(); assert.equal(a.actual.value, true); assert.equal(b.actual.value, false); assert.equal(b.desired.value, true);
+  const booleans = []; const stop = b.desired.subscribe(value => booleans.push(value)); b.desired.value = false; await tick();
+  assert.equal(a.actual.value, true); assert.deepEqual(booleans, [false]); assert.equal(h.focus.name, names[0]);
+  a.desired.value = false; await tick(); assert.equal(a.actual.value, false); assert.equal(h.focus.name, null);
+  assert.ok(Object.isFrozen(a)); assert.ok(Object.isFrozen(a.desired)); assert.equal(a.desired.binding, undefined);
+  assert.throws(() => { a.actual.value = true; }, TypeError); stop();
+  h.emit({ type: 'stop' }); await done; assert.deepEqual(ui.__testing.stats(), { actions: 0, cells: 0, dependencies: 0 });
+});
+
+test('boolean focus desired writes are state-like while requests retry and resume is passive', async () => {
+  const h = await setup(), { ui } = h; h.focus.focused = true; h.focus.name = 'other'; let focus;
+  const Owner = ui.Component(scope => { focus = scope.focusBoolean(); return () => ui.Text(`${focus.desired.value}:${focus.actual.value}`); });
+  const done = launch(ui, Owner()); await tick(); focus.desired.value = true; assert.equal(focus.actual.value, false); await tick();
+  assert.equal(focus.actual.value, true); const name = h.focus.name, before = h.calls.filter(c => c.op === 'focus.named').length;
+  focus.desired.value = true; await tick(); assert.equal(h.calls.filter(c => c.op === 'focus.named').length, before);
+  focus.request(true); await tick(); assert.equal(h.calls.filter(c => c.op === 'focus.named').length, before + 1);
+  h.focus.name = 'other'; focus.desired.value = false; await tick(); assert.equal(h.focus.name, 'other'); assert.equal(focus.actual.value, false);
+  const route = h.calls.filter(c => c.focusRequest).at(-1).focusRequest;
+  h.focus.name = name; h.emit({ type: 'focusChanged', token: route.token, sequence: ++h.focus.sequence, context: 1, generation: route.generation, name }); await tick();
+  assert.equal(focus.desired.value, false); assert.equal(focus.actual.value, true); focus.request(false); await tick(); assert.equal(h.focus.name, null);
+  h.focus.focused = false; focus.desired.value = true; await tick(); assert.equal(focus.actual.value, false); assert.equal(focus.desired.value, true);
+  focus.request(false); await tick(); assert.equal(focus.desired.value, false);
+  h.focus.focused = true; focus.desired.value = true; await tick(); h.focus.name = 'other';
+  focus.resume(); await tick(); assert.equal(focus.desired.value, true); assert.equal(focus.actual.value, false); assert.equal(h.focus.name, 'other');
+  focus.resume(); focus.request(true); await tick(); assert.equal(focus.actual.value, true);
+  const current = h.calls.filter(c => c.focusRequest).at(-1).focusRequest;
+  h.emit({ type: 'focusChanged', token: current.token, sequence: ++h.focus.sequence, context: 2, generation: current.generation, name: 'sheet' }); await tick();
+  assert.equal(focus.retired.value, true); assert.equal(focus.actual.value, false);
+  const retiredRequests = h.calls.filter(c => c.focusRequest).length;
+  focus.desired.value = false; await tick(); focus.desired.value = true; await tick();
+  assert.equal(focus.desired.value, true); assert.equal(h.calls.filter(c => c.focusRequest).length, retiredRequests);
+  h.focus.name = 'other'; focus.resume(); await tick(); assert.equal(focus.retired.value, false); assert.equal(focus.actual.value, false); assert.equal(h.focus.name, 'other');
+  h.emit({ type: 'stop' }); await done;
+});
+
+test('boolean focus controllers validate setup/purity, preserve leases and ignore disposed writers', async () => {
+  const h = await setup(), { ui } = h; h.focus.focused = true; let focus, escaped, release; const shown = ui.State(true);
+  const Owner = ui.Component(scope => {
+    escaped = scope; const before = h.calls.length;
+    for (const initial of [null, 0, 'false', {}]) assert.throws(() => scope.focusBoolean(initial), /must be boolean/); assert.equal(h.calls.length, before);
+    focus = scope.focusBoolean(); scope.task(async () => { await new Promise(resolve => { release = resolve; }); focus.request(true); focus.desired.value = true; });
+    return () => { assert.throws(() => focus.request(true), /outside view bodies/); assert.throws(() => { focus.desired.value = true; }, /outside view bodies/); return ui.Text('owner'); };
+  });
+  const done = launch(ui, ui.View(() => shown.value ? Owner() : ui.Text('hidden'))); await tick();
+  assert.throws(() => escaped.focusBoolean(), /during component setup/); assert.throws(() => focus.desired.subscribe(null), /listener/);
+  for (const value of [null, 1, 'true', {}]) { assert.throws(() => { focus.desired.value = value; }, /must be boolean/); assert.throws(() => focus.request(value), /must be boolean/); }
+  const derived = ui.Computed(() => { focus.desired.value = true; return true; }); assert.throws(() => derived.value, /Computed callbacks cannot write boolean desired focus/);
+  focus.resume(); await tick(); const before = h.calls.length; release(); await tick(); assert.equal(h.calls.length, before); assert.equal(focus.desired.value, false);
+  shown.value = false; await tick(); const count = h.calls.length; focus.desired.value = true; focus.request(true); focus.resume(); assert.equal(h.calls.length, count);
+  h.emit({ type: 'stop' }); await done; assert.deepEqual(ui.__testing.stats(), { actions: 0, cells: 0, dependencies: 0 });
+});
+
 test('disabled validates flags before transport and property changes preserve scoped bindings/actions', async () => {
   const h = await setup(), { ui } = h;
   const child = ui.Text('passive'); assert.deepEqual(child.disabled().props, { name: 'disabled', value: true });

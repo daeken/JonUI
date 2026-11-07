@@ -243,7 +243,7 @@ for display; no canceled queued command moves native focus. Disposal before a
 queued resumption prevents the new observation session from starting.
 
 The controller exposes no scalar `binding` for desired focus. Named boolean
-projections are described below. Standalone boolean controllers, typed non-string
+projections and standalone boolean controllers are described below. Typed non-string
 selections, automatic physical-window resumption and realization-aware policies
 remain future work. Controllers created in a parent context before a
 sheet appears retire when that sheet becomes active; this is not a sheet
@@ -296,6 +296,50 @@ created in render bodies. Only the name reaches native view descriptors. They
 are distinct from scalar `Binding<boolean>` and cannot be substituted for a
 Toggle's value binding. This is the named-target subset of focus binding;
 general SwiftUI FocusState overloads remain partial.
+
+## Boolean focus controllers
+
+Use setup-only `scope.focusBoolean(initialFocused = false)` when a control needs
+its own boolean focus state without choosing a name:
+
+```ts
+const Form = Component(scope => {
+  const text = scope.state('');
+  const focus = scope.focusBoolean(true);
+  return () => VStack([
+    TextField('Name', { text: text.binding }).focused(focus.binding),
+    Button('Request focus', () => focus.request(true)),
+    Button('Clear this field', () => focus.request(false)),
+    Text(`Desired ${focus.desired.value}; actual ${focus.actual.value}`),
+  ]);
+});
+```
+
+`desired.value` is tracked boolean intent; `actual.value` is read-only observed
+focus. `binding.value` also reads observed focus and accepts deferred requests.
+Native movement changes actual without changing desired. Setting desired true
+requests focus after commit; setting false cancels its intent and conditionally
+clears only this target. A different focused control stays focused. Equal desired
+writes are inert; use `request(true)` to retry an unavailable target or
+`request(false)` to clear it when desired is already false. Initial false is
+passive; initial true attempts once after commit, without polling realization.
+
+Attach the stable `binding` property to one supported descendant input using
+`.focused(focus.binding)`. The supported controls, modifier/ownership rules and
+native eligibility are the same as named projections. Reusing one binding on
+multiple inputs fails the existing duplicate-name check. Independent controllers
+have distinct generated names, stable for that component's lifetime and keyed
+reorders. `Focus.currentName()` and `Focus.subscribe()` expose these opaque names;
+use the controller's boolean actual value instead of storing or matching them.
+Do not supply a separate explicit `focusName` on its input.
+
+`retired` and passive `resume()` follow the named controller contract, including
+modal context changes, stale task/RPC leases and canceled pending requests.
+Independent controllers retain independent intent and leases. Resume does not
+replay true intent. Disposal makes late writes inert and releases all owned work.
+Each boolean controller uses one named controller internally, with the same five
+cells, two effects and two computations; its boolean wrappers add no native
+resources. Try `bin/jonui examples/focus-boolean/app.ts`.
 
 ## Captured responder targets
 

@@ -854,7 +854,21 @@ targets, modal resumption and 20 pending owner lifetimes. Runtime cases cover
 brands, readonly wire data, observation/deferred writes, caller cancellation,
 ownership and failure teardown.
 
-An experimental two-way boolean FocusState adapter was discarded:
+`scope.focusBoolean` uses a UUID-backed opaque name and one existing named
+controller. Its frozen desired wrapper maps boolean intent to that name/null;
+the actual wrapper reads the existing named projection. The private projection
+metadata also holds a guarded state-like desired writer: equal values do nothing,
+while a changed false queues conditional blur rather than global clear. Explicit
+requests use the projection setter and can retry equal values. Observer delivery
+never writes desired. This adds no bridge operations, observers, cells, effects
+or computations beyond the backing controller. Names persist across reorder and
+explicit resume; remount creates a new name. Only the generated name reaches the
+wire; global name observations can expose it, but it has no public stable identity.
+Native checks cover five independent control types, conditional false with another
+target focused, keyed identity, per-controller task leases, sheet retirement and
+passive parent resume, plus 20 owners removed with pending requests/resumes.
+
+An earlier two-way boolean FocusState synchronization prototype was discarded:
 late framework observations could revive an obsolete blur request, so it is not
 part of the public API or native graph validation. SwiftUI accessibility identifiers
 were also absent from the underlying NSViews in the offscreen probe, so identifier
