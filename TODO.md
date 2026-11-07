@@ -1748,11 +1748,59 @@ layout/contracts regressions pass. No full-suite pass or mixed-sheet-close fix i
 claimed. New dispatch in lazy/owned windows, nested/long composition, public result
 schema and hardware/minimum-OS behavior remain open; keep broad gestures unchecked.
 
-Next: define and probe causal leaf completion/session ownership and callback paths
-before allowing callback-bearing leaves or exposing a composition method. Preserve
-native terminal completion identity separately from observer intervals; do not
-infer a leaf end from changed-phase presence. Add branch-state reset and the
-remaining lifecycle contexts before checking composition complete.
+Native leaf receipt/callback-order probe (2026-11-07), continuing session ownership:
+
+- [x] Observe actual native tap/spatial leaf ends with stable constructor paths; correlate each terminal group value to exact completed-branch receipts and verify cleanup.
+- [ ] Add owned native leaf-receipt leases and per-callback claims, current-handler dispatch, reentrant mutation/error cleanup and branch-state/session ownership.
+
+The raw test modifier now has opt-in `traceLeaves`; changing it requires a newer
+epoch and malformed flags fail atomically. Real native leaf onEnded observers
+record monotonic receipts at `[0]`/`[1]`, independent of pure mapped payloads.
+A native cohort starts with the first completed leaf under the current epoch/slot.
+A group end correlates only when present paths/payloads match its exact receipts;
+absent branches have no receipt. Duplicate/missing/extra/mismatched receipts cannot
+silently associate a result. Cohort IDs distinguish equal-count double-click group
+ends even when they share the input-observer interval.
+
+Measured behavior: a one-tap branch completes on the first click, retains its value
+while a two-tap sibling waits, and does not complete again on a successful second
+click. Changed-phase presence still does not establish completion. A two-tap first
+branch and one-tap second branch report leaf paths `[1]`, then `[0]`, then the group;
+sorting callbacks by path would change native order. docs/gestures.md records the
+proposed policy: dispatch actual leaf receipts once in observed native order, then
+the group; revalidate each callback so owner/config mutations suppress retired
+remaining events. No leaf callbacks are dispatched in this increment.
+
+Each live node retains at most one completed-branch cohort/two receipts; the trace
+can drain without discarding pending correlation. Terminal completion/inactivity,
+rearm/disable/disappear, graph retirement and shutdown clear ownership. A pending
+leaf receipt cannot leak into the first fresh point after epoch replacement or
+into a sheet's next presentation. These are completed-branch cohorts, **not** full
+recognition sessions or branch GestureState: no branch is identified before its
+first completion, and receipts currently retire at native group completion before
+queued Node leaf callbacks could claim them. Callback-bearing leaves remain
+rejected; the broad causal-session/branch-state item stays unchecked.
+
+Validation: native build, 202 unit/compiler cases, 11 coverage workflow tests,
+both type checkers and API classification pass. Twenty focused offscreen native
+gates pass, including four new receipt gates. The new matrix checks all count pairs,
+priorities and Button outcomes, reverse native callback order, exact optional
+receipt/payload matches, independent double-click cohorts, trace drain while
+pending, fresh spatial points after replacements, flag validation/mode changes,
+retained-sheet disappearance/re-entry, held and pending-receipt shutdown, stable
+field identity/focus/Unicode and twenty owner lifetimes at baseline resources.
+Existing rearming/probe, owned dispatch/sheet/error/shutdown, typed values/state,
+taps/spatial, layout/appearance/contracts regressions pass. No full-suite pass or
+fix for the recorded mixed-sheet close crash is claimed. Public coverage is
+unchanged; lazy/owned-window dispatch, nested/long groups and hardware/minimum-OS
+behavior remain open.
+
+Next: retain native leaf receipts under bounded claimable leases long enough for
+queued Node handlers, with per-callback owner/config validation and explicit group
+correlation. Test handler replacement, mutation/disposal during the first leaf,
+errors/thenables and repeated lifecycle cleanup before accepting callback-bearing
+leaves. Establish earlier branch session identity and transient-state reset before
+exposing public composition; keep observer intervals diagnostic.
 
 ## 3. Application and operating-system integration
 

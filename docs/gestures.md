@@ -488,3 +488,60 @@ cleanup and twenty owner lifetimes. Unit checks additionally inject malformed,
 duplicate and retired events and synchronous owner removal. Compound leaf paths,
 causal sessions, branch GestureState and lazy/owned-window dispatch remain future
 work. Existing raw recognition/control tests do not prove those dispatch paths.
+
+
+### Native completed-branch receipts and proposed callback policy
+
+The raw private modifier accepts `traceLeaves: true` to attach real native
+`onEnded` observers to its two leaves. It requires the same three test flags.
+Changing this flag requires a newer configuration epoch; malformed flags are
+rejected before graph mutation. This opt-in changes no public descriptor or Node
+callback API. Pure mapped values still carry no ownership stamps.
+
+Each native leaf end records a unique monotonic receipt and its constructor path:
+`[0]` for first, `[1]` for second. Paths describe tree position, not callback order.
+A native completed-branch cohort begins at the first leaf receipt under the current
+epoch/armed slot. The next group end must reference exactly those receipts whose
+paths and payloads match its present branches; absent branches have null receipts.
+Duplicate paths, missing/extra receipts or payload mismatches invalidate correlation
+and increment a test diagnostic rather than silently pairing unrelated values.
+One live node retains at most one cohort with two receipts. The bounded diagnostic
+trace can be drained independently while a group still waits. Terminal completion,
+inactivity, re-arming, disable/disappearance, graph retirement and shutdown release
+cohort ownership.
+
+Offscreen native measurements establish this tap/spatial subset:
+
+- For equal one-tap leaves, a double click produces two pairs of leaf ends and
+  two group ends. The groups have different cohort/receipt/completion IDs even
+  though the input-observer interval can be shared.
+- For mixed one/two-tap leaves, the one-tap leaf ends on the first click and its
+  value is retained while the group waits. A successful double click does not
+  produce another one-tap leaf end. On a single click, the two-tap branch can
+  appear in changed values but has no leaf receipt and is absent at the group end.
+- With a two-tap first leaf and one-tap second leaf, successful double-click leaf
+  callbacks occur at paths `[1]`, then `[0]`, then the group callback. Sorting by
+  path would change native order. Equal-count first/second order is an observed
+  SDK outcome, not a promised order for all future gesture types.
+- The normal/high/simultaneous Button outcomes remain the same with observers
+  attached. Epoch replacement while a completed branch waits discards its receipt;
+  the first fresh point belongs to a new cohort. Native sheet disappearance also
+  retires pending receipts while keeping logical owner State for re-entry.
+
+The proposed Node leaf-callback contract is to deliver actual leaf-end receipts
+in observed native order, before the associated group end. A receipt fires once;
+a retained leaf value in a later group result does not fire it again. Native claims
+must revalidate ownership before **each** callback so a handler that replaces or
+removes its group suppresses remaining retired leaf/group events. Each callback
+uses the latest handler and the existing synchronous, untracked, task-isolated
+failure rules. No path-sorted batch or synthetic leaf completion is planned.
+
+This contract is specified but leaf dispatch is not implemented. The receipt
+cohort is a completed-branch correlation model, not a general gesture session:
+it does not identify branches that have begun but have not completed. It currently
+releases receipts at native group completion, before queued Node leaf handlers
+could claim them. Next work needs bounded native receipt leases, per-callback
+claims/retirement, current-handler delivery, reentrant mutation/failure tests and
+an earlier session/state model for branch GestureState reset. Callback-bearing
+leaves therefore remain rejected. Long/nested groups, lazy/owned-window receipt
+ownership, general cancellation and hardware/minimum-OS validation remain open.
