@@ -1272,6 +1272,38 @@ priority, then location/content-shape contracts and long-press phases. Sheet
 pointer delivery needs a reliable offscreen AppKit path or an explicit manual
 hardware check before being marked verified.
 
+Lazy tap recognition follow-up (2026-11-07): real native single/double taps are
+now exercised in vertical/horizontal lazy stacks and grids after scrolling. An
+explicit Command-click test mode delivers a genuine background-window mouse
+interaction to inactive SwiftUI descendants. No public gesture API, modifier
+filter, native eligibility override or desktop activation is added. The first
+unmodified lazy probe timed out waiting for its callback despite valid geometry;
+the same layout passes with Command-clicks. Unmodified inactive scroll/sheet
+first-mouse delivery stays a separate validation gap, not a claimed fix.
+
+The test driver now rejects centers outside native window content or any
+ancestor ScrollView viewport. Four fixtures specifically keep a row partially
+realized with its center clipped but still inside the window, verifying rejection
+before dispatch. Visible rows use real AppKit/SwiftUI recognition; no direct
+callback invocation is used. Across all four layouts, eager logical callbacks and
+partial native layout, current handlers, retained local State/token on keyed
+reorder/reappearance, count changes, offscreen owner removal and 20 container
+lifetimes return to baseline resources. The window fixture additionally verifies
+sheet single/double Command-clicks, token replacement and current State writes.
+The previous sheet-pointer gap is narrowed to unmodified inactive delivery.
+
+Validation: native build, 182 unit/compiler cases, 11 coverage workflow tests,
+both type checkers and API classification pass. Eleven unique focused native
+gates pass (four lazy modes, taps, tap windows, two tap failures, layout,
+appearance and lazy WebView). The updated sheet/window fixture passes again after
+its positive Command-click assertions were added. No uninterrupted full-suite
+pass or fix for the recorded focus-mixed-sheet AppKit close SIGSEGV is claimed.
+Keep the broad gestures/animation item unchecked. Next actionable increment:
+competing native-control tap priority/composition, followed by location/content-
+shape contracts and long-press phases. Unmodified inactive pointer delivery and
+foreground/hardware checks remain open; do not repeatedly rerun that probe
+without a new delivery approach or claim the modified-click subset proves it.
+
 ## 3. Application and operating-system integration
 
 Button Command shortcuts completed (2026-11-07), continuing keyboard navigation:

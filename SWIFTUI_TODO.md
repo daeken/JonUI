@@ -29,6 +29,20 @@ Status meanings:
 
 ## Current review
 
+- Lazy tap/Command-click review (2026-11-07): no public widget/state API added.
+  Real single/double Command-clicks verify taps after scrolling in all four lazy
+  stack/grid variants, eager logical versus partial native lifetime, current
+  keyed handlers/local State, count replacement, offscreen removal and 20 owner
+  lifetimes per variant. Window/ancestor scroll clips reject a partially realized
+  row whose center is outside its viewport. Sheet single/double Command-clicks,
+  token replacement and State writes also pass. The unmodified inactive lazy
+  probe produced no callback; ordinary inactive scroll/sheet delivery remains
+  unverified. No activation or framework eligibility override is added. Build,
+  182 unit/compiler cases, 11 coverage workflow tests, both type checkers and
+  eleven unique focused native gates pass; no full-suite or sheet-close crash
+  fix is claimed. Competing controls, location/shape/priority/composition,
+  foreground/hardware checks and other gestures/animation remain open.
+
 - Tap window follow-up (2026-11-07): no new public widget/state API. Physical
   main/owned/sheet layout records now drive hidden-window pointer tests; weak,
   non-hit-testing probes and live-owner guards avoid retaining/recreating retired
@@ -36,11 +50,12 @@ Status meanings:
   State, disabled content, cross-root and sheet-parent rejection, native close,
   fresh reopen, 20 lifetimes and shutdown with an open root are verified. Build,
   182 unit/compiler cases, 11 coverage workflow tests, both type checkers and ten
-  focused native gates pass. Positive inactive SwiftUI-sheet taps remain blocked:
+  focused native gates pass. Unmodified inactive SwiftUI-sheet taps were blocked:
   queued real events at a valid sheet frame/window produced no callback. No
   private/activation workaround, full-suite pass or sheet-close crash fix is
-  claimed. Lazy/competing-control pointer behavior and location/shape/priority/
-  composition remain open; broad gesture/animation parity stays unchecked.
+  claimed. See the Command-click review above for subsequent lazy/sheet coverage;
+  competing-control behavior and location/shape/priority/composition remain open;
+  broad gesture/animation parity stays unchecked.
 
 - Tap gesture review (2026-11-07): View.onTapGesture adds native single/double
   recognition with synchronous current Node callbacks and owned tokens/counts.
@@ -396,15 +411,15 @@ Status meanings:
 | VStack | Available | Tracked child array, alignment and optional spacing. | Native layout/keyed identity verified; baseline documentation in docs/layout.md. <!-- api: VStack --> |
 | HStack | Available | Tracked child array, vertical/baseline alignment and spacing. | Native geometry and dynamic alignment verified. <!-- api: HStack --> |
 | ZStack | Missing | Child array and two-axis alignment. | Layer order, hit testing, identity and accessibility. |
-| LazyVStack | Available | Eager logical keyed scopes; lazy native rows. | Actual partial realization/scrolling/removal and owner cleanup verified. <!-- api: LazyVStack --> |
-| LazyHStack | Available | Eager logical keyed scopes; lazy native columns. | Partial realization, horizontal scroll, keyed state and cleanup verified. <!-- api: LazyHStack --> |
-| LazyVGrid | Available | Detached fixed/flexible/adaptive tracks; keyed state. | Native geometry/repacking/scrolling and scoped cleanup verified. <!-- api: LazyVGrid, GridItem --> |
-| LazyHGrid | Available | Detached row tracks; keyed state. | Native horizontal grid measurement/repacking and cleanup verified. <!-- api: LazyHGrid --> |
+| LazyVStack | Available | Eager logical keyed scopes; lazy native rows. | Actual partial realization/scrolling/removal, keyed local State and owner cleanup verified; visible native Command-taps after scroll and clipped-center rejection covered. <!-- api: LazyVStack --> |
+| LazyHStack | Available | Eager logical keyed scopes; lazy native columns. | Partial realization, horizontal scroll, keyed state and cleanup verified; native Command-taps after scroll and clipped-center rejection covered. <!-- api: LazyHStack --> |
+| LazyVGrid | Available | Detached fixed/flexible/adaptive tracks; keyed state. | Native geometry/repacking/scrolling and scoped cleanup verified; visible native Command-taps after scroll and clipped-center rejection covered. <!-- api: LazyVGrid, GridItem --> |
+| LazyHGrid | Available | Detached row tracks; keyed state. | Native horizontal grid measurement/repacking and cleanup verified; visible native Command-taps after scroll and clipped-center rejection covered. <!-- api: LazyHGrid --> |
 | Grid | Missing | Eager rows/columns, alignment, spacing. | Cell spans, unsized axes, anchors and row identity. |
 | GridRow | Missing | Child cells and row alignment. | Requires Grid with span/alignment contracts. |
 | Spacer | Available | Optional finite nonnegative minimum length. | Native layout verified; no owned mutable state. <!-- api: Spacer --> |
 | Divider | Available | Stateless native separator. | Rendered in native hierarchy; style/orientation follow native layout. <!-- api: Divider --> |
-| ScrollView | Partial | Axes and indicator visibility; content owns state. | Native scroll/geometry verified; position Binding, reader, bounce and target APIs remain. <!-- api: ScrollView --> |
+| ScrollView | Partial | Axes and indicator visibility; content owns state. | Native scroll/geometry and visible lazy Command-tap interaction verified; test driver rejects clipped centers. Position Binding, reader, bounce and target APIs remain. <!-- api: ScrollView --> |
 | ScrollViewReader | Missing | Stable scroll target IDs and scroll actions. | Cancellation, unrealized lazy targets and window ownership. |
 | ScrollPosition / ScrollGeometry | Missing | Position/anchor and read-only scroll snapshots. | Define typed coalesced scroll events, Binding and revision rules. |
 | List | Partial | String/number/null single-selection Binding; keyed rows. | Basic Landmarks selection/state verified; editing, multi-select, sections/styles and drag/drop remain. <!-- api: List --> |
@@ -555,7 +570,7 @@ Status meanings:
 | onChange / onReceive | Partial analog | State.subscribe and component effects on Node. | Native value/event adapters and delivery/cancellation policy remain. |
 | task / refreshable | Partial analog | Scoped task cancellation exists. | Native view-appearance task, ID-triggered task and refresh UI integration remain. |
 | onSubmit / onEditingChanged | Partial | Native text revision snapshot before Node callback. | Supported text controls verified; richer submit scopes/triggers remain. |
-| onTapGesture / double tap | Partial | Native count 1/2; synchronous current Node handler, owned modifier token, disabled ancestors and cleanup. | Actual main/owned-window recognition, keyed/count changes, local State, failures, cross-root/sheet-parent rejection, native-close retirement/reopen and 20 lifetimes verified. Inactive-sheet recognition has a concrete offscreen delivery gap; location/content shapes, priority/composition and positive lazy/competing-control pointer coverage remain. <!-- api: View.onTapGesture --> |
+| onTapGesture / double tap | Partial | Native count 1/2; synchronous current Node handler, owned modifier token, disabled ancestors and cleanup. | Actual main/owned-window recognition, keyed/count changes, local State, failures, cross-root/sheet-parent rejection, native-close retirement/reopen and 20 lifetimes verified. Native lazy stack/grid and sheet Command-taps verified; unmodified inactive scroll/sheet delivery remains unverified. Location/content shapes, priority/composition and competing-control pointer coverage remain. <!-- api: View.onTapGesture --> |
 | LongPressGesture | Missing | Press phase, duration/distance and cancellation. | Native/Node event phases and transient state. |
 | DragGesture | Missing | Translation, location, prediction and coordinate space. | High-rate event coalescing, GestureState and cleanup. |
 | MagnifyGesture / RotationGesture | Missing | Scale/angle phase and anchor. | Trackpad/touch availability and cancellation. |
@@ -655,7 +670,7 @@ can still bypass local enforcement; this is not server-side branch protection.
 Repository instructions require the same review for contributors and automation.
 
 <!-- coverage-review:generated -->
-Review baseline (checkout HEAD before commit): `b22fe16b8fdea8acbd194b0cb354bebc43f46710`.
+Review baseline (checkout HEAD before commit): `2f2a5a7419cd9e1e68acb2d7afe58dc18f308bc4`.
 
-Staged source-tree SHA-256 (excluding this catalog): `a7b8c5ab293cf079e36c0a9658f91e2b10f08614a3f5f3e2cc621819961e146b`.
+Staged source-tree SHA-256 (excluding this catalog): `72e38c221a9cd1888948a7ba6a8a4d72eb76faa2ab27cc263ccd1925a548a03b`.
 <!-- /coverage-review:generated -->

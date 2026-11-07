@@ -1919,13 +1919,29 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
             let count = message["count"] as? Int ?? 1
             guard [1, 2].contains(count) else { throw BridgeError("Invalid test tap count") }
             let point = NSPoint(x: frame.midX, y: window.frame.height - frame.midY)
+            // Lazy layout can retain geometry outside a clip. Never turn such
+            // coordinates into a click on unrelated visible content.
+            func path(_ node: ViewBox) -> [ViewBox]? {
+                guard liveNode(node.id) === node else { return nil }
+                if node.id == target { return [node] }
+                for child in node.children { if let found = path(child) { return [node] + found } }
+                return nil
+            }
+            guard let content = window.contentView, content.bounds.contains(content.convert(point, from: nil)),
+                  let root = liveNode(surface.id), let ancestors = path(root),
+                  ancestors.filter({ $0.kind == "scroll" }).allSatisfy({ surface.frames[$0.id]?.contains(CGPoint(x: frame.midX, y: frame.midY)) == true }) else {
+                throw BridgeError("Tap target outside visible viewport")
+            }
+            // Command-click is an actual background-window interaction. Use it
+            // explicitly for inactive scroll descendants that reject first mouse.
+            let flags: NSEvent.ModifierFlags = message["command"] as? Bool == true ? .command : []
             let id = nextTapTest; nextTapTest += 1
             let base = ProcessInfo.processInfo.systemUptime
             tapTestResults[id] = false
             for click in 1...count {
                 for (index, type) in [NSEvent.EventType.leftMouseDown, .leftMouseUp].enumerated() {
                     let time = base + Double(click * 2 + index) / 1000
-                    guard let event = NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: time, windowNumber: window.windowNumber,
+                    guard let event = NSEvent.mouseEvent(with: type, location: point, modifierFlags: flags, timestamp: time, windowNumber: window.windowNumber,
                         context: nil, eventNumber: click * 2 + index, clickCount: click, pressure: index == 0 ? 1 : 0) else { throw BridgeError("Cannot create test tap") }
                     tapTestEvents[Int64((event.timestamp * 1_000_000).rounded())] = id; NSApp.postEvent(event, atStart: false)
                 }
@@ -1934,7 +1950,7 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
             guard let marker = NSEvent.otherEvent(with: .applicationDefined, location: .zero, modifierFlags: [], timestamp: end,
                 windowNumber: window.windowNumber, context: nil, subtype: 0, data1: 0, data2: 0) else { throw BridgeError("Cannot create tap marker") }
             tapTestEvents[Int64((marker.timestamp * 1_000_000).rounded())] = id; NSApp.postEvent(marker, atStart: false)
-            return ["id": id, "x": point.x, "y": point.y]
+            return ["id": id, "x": point.x, "y": point.y, "modifiers": flags.rawValue]
         case "debug.tapResult" where testing && layoutTesting && offscreen:
             let id = try integer(message["id"])
             guard let done = tapTestResults[id] else { throw BridgeError("Unknown test tap") }

@@ -39,10 +39,24 @@ records; reopen gets fresh state/handlers. Independent roots, current handlers,
 disabled content, single/double taps, 20 close/reopen lifetimes and shutdown with
 an open root are verified without desktop activation.
 
-Positive pointer recognition in inactive SwiftUI-owned sheets is still a gap:
-a probe found the sheet's native window and valid target frame, but queued real
-mouse-down/up events produced no tap callback. Physical-window frame scoping does
-not resolve that failure; no private delegate/eligibility override is used to
-claim it passes. Positive lazy-scroll and competing-control pointer coverage,
-location/content-shape/priority contracts and hardware checks remain open. The
-separately recorded AppKit sheet-close SIGSEGV also remains unresolved.
+Lazy VStack/HStack and VGrid/HGrid recognition is verified after native scrolling
+using explicit **Command-click** events. The same background interaction verifies
+single/double taps, current callbacks and State writes inside a SwiftUI-owned
+sheet. `command: true` belongs only to the internal native test driver; it is not
+an `onTapGesture` option or modifier filter. These are real native gesture events;
+tests neither activate the app nor override framework descendants' eligibility.
+
+The driver checks the target center against the native window content bounds
+and every ancestor ScrollView viewport. It rejects a partially realized row whose
+center is clipped, even when that coordinate is still within the window. It does
+not promise pixel-level visibility, opaque content shapes or freedom from
+occlusion. Each lazy variant verifies partial native realization with eager
+logical owners, retained local State/current tokens across keyed reorder and
+scrolling, count changes, offscreen logical removal and 20 owner lifetimes.
+
+Ordinary unmodified first-mouse delivery to inactive scroll descendants and
+SwiftUI-owned sheets remains unverified: the unmodified lazy probe produced no
+callback, while Command-clicks passed. Active-window/hardware checks are still
+needed for that path. Competing-control pointer behavior, location/content-shape/
+priority contracts and the separately recorded AppKit sheet-close SIGSEGV also
+remain open.
