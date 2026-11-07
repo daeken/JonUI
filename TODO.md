@@ -736,6 +736,34 @@ against observation sequence/context before exposing a two-way Binding; the
 current asynchronous observation stream may lag a synchronous snapshot. Keyboard-
 access/IME/AX and safe nested-sheet coverage remain blocked as recorded above.
 
+Focus request acknowledgement completed (2026-11-07): while subscriptions are
+active, imperative focus movements carry a monotonically increasing request
+generation. Native acknowledgement includes the actual name, session, observation
+sequence, generation and window context before the method returns. Older queued
+events cannot overwrite that newer result. Native replay/stale-session rejection
+and an optional expected-context guard establish the protocol for future owned
+declarative requests. Imperative methods retain active-window semantics and
+their public boolean/void return types. Invalid stamps and operation-validation
+failures do not consume generations; context rejection acknowledges actual focus
+without moving it before evaluating the operation.
+
+Node coalesces delivery in a microtask and compares each listener's own baseline.
+A newer request replaces pending old observations, including a reentrant request
+from another listener; newly joining listeners get no initial replay. Two new
+runtime cases cover queued gain/blur, consecutive requests, acknowledgement floors,
+stale generations, reentrant movement, pending joins and round trips (118 total).
+The focused offscreen gate passes a real queued native gain followed by a newer
+blur, captured/directional/unavailable requests, replayed generations, a retired
+sheet context, stale sessions, invalid counters/options and 20 queued owner
+retirements. Final validation: native build, all 70 offscreen native integration
+scenarios, 118 unit tests, Deno/TypeScript and API classification pass. An
+additional focused run also verifies unacknowledged native shared-field-editor
+traversal independently of the request acknowledgement path.
+Keep the broad item unchecked. Next: an owned declarative controller must keep
+desired state separate from observed state and bind requests to owner/context
+lifetime; no public two-way Binding or FocusState is shipped in this increment.
+The previously recorded keyboard-access/IME/AX/nested-sheet gaps remain open.
+
 ## 3. Application and operating-system integration
 
 - [ ] Support multiple windows with independent roots and explicit window ownership.

@@ -38,6 +38,11 @@ assert.deepEqual(events, []); assert.deepEqual(test.focusStats(), { listeners: 3
 assert.equal(watch().observations, 1); assert.equal(watch().notifications, 4);
 assert.throws(() => test.request('focus.watch', { token: 1 }), /token must increase/);
 test.request('focus.unwatch', { token: 1 }); assert.equal(watch().watching, true, 'stale stop cannot retire a newer session');
+// Emit a real native gain while Node is still in this synchronous turn, then
+// acknowledge a newer blur before the queued event can reach its listeners.
+const beforeGain = watch().sequence;
+test.request('focus.named', { name: 'café' }); assert.ok(watch().sequence > beforeGain);
+Focus.clear(); await sleep(60); assert.deepEqual(events, []); assert.equal(model.actual.value, null);
 async function request(name) {
   assert.equal(Focus.requestNamed(name), true);
   await until(() => events.at(-1) === name && model.actual.value === name, `observed ${name}`);
@@ -45,7 +50,7 @@ async function request(name) {
 await request('café');
 // No debug/query/layout call before this assertion: observe shared field-editor
 // reassignment independently of polling the native view hierarchy.
-Focus.next(); await sleep(60); assert.equal(events.at(-1), 'cafe\u0301');
+test.request('focus.move', { direction: 'next' }); await sleep(60); assert.equal(events.at(-1), 'cafe\u0301');
 for (const name of ['secure', 'editor', 'date', 'web']) await request(name);
 const before = events.length;
 test.request('debug.web.evaluate', { id: browser(), script: "document.getElementById('second').focus()" }); await sleep(60);
@@ -66,6 +71,29 @@ assert.deepEqual(other, events);
 stop(); const stoppedCount = events.length; assert.equal(Focus.requestNamed('editor'), true);
 await until(() => other.at(-1) === 'editor' && model.actual.value === 'editor', 'remaining listeners'); assert.equal(events.length, stoppedCount);
 stopOther(); stopOther(); assert.deepEqual(test.focusStats(), { listeners: 1, watching: true });
+const saved = Focus.capture(); assert.ok(saved);
+const beforeMove = watch().generation;
+assert.equal(typeof Focus.move('up'), 'boolean'); assert.equal(Focus.request(saved), true);
+assert.equal(Focus.currentName(), 'editor'); assert.ok(watch().generation >= beforeMove + 2);
+assert.equal(Focus.requestNamed('unavailable'), false); assert.equal(Focus.currentName(), 'editor');
+const channel = watch(), stamp = { token: channel.token, generation: channel.generation + 1, context: channel.context };
+const applied = test.request('focus.named', { name: 'secure', focusRequest: stamp });
+assert.equal(applied.focusAccepted, true); assert.equal(applied.focused, true); assert.equal(applied.observation.name, 'secure');
+assert.equal(applied.observation.generation, stamp.generation); assert.ok(applied.observation.sequence > channel.sequence);
+const replayed = test.request('focus.named', { name: 'editor', focusRequest: stamp });
+assert.equal(replayed.focusAccepted, false); assert.equal(replayed.observation.name, 'secure');
+const wrongWindow = test.request('focus.named', { name: 'editor', focusRequest: { ...stamp, generation: stamp.generation + 1, context: sheetContext } });
+assert.equal(wrongWindow.focusAccepted, false); assert.equal(wrongWindow.observation.name, 'secure');
+assert.equal(wrongWindow.observation.context, channel.context);
+const staleSession = test.request('focus.move', { direction: 'clear', focusRequest: { ...stamp, token: 1, generation: stamp.generation + 2 } });
+assert.equal(staleSession.focusAccepted, false); assert.equal(Focus.currentName(), 'secure');
+const beforeInvalid = watch().generation;
+for (const focusRequest of [null, [], 1, {}, { ...stamp, generation: true }, { ...stamp, generation: 0 }, { ...stamp, context: -1 }, { ...stamp, unknown: true }]) {
+  assert.throws(() => test.request('focus.named', { name: 'editor', focusRequest }), /focus request/);
+  assert.equal(watch().generation, beforeInvalid); assert.equal(Focus.currentName(), 'secure');
+}
+assert.throws(() => test.request('focus.move', { direction: 'invalid', focusRequest: { ...stamp, generation: beforeInvalid + 1 } }), /focus direction/);
+assert.equal(watch().generation, beforeInvalid);
 shown.value = false; await until(() => snapshot().hostedControlCount === 1 && snapshot().webViewCount === 0 && test.focusStats().listeners === 0, 'scope observer retirement');
 assert.equal(watch().watching, false); assert.equal(watch().observations, 0); assert.equal(watch().notifications, 0); const baseline = test.stats();
 for (let i = 0; i < 20; i++) {
@@ -79,4 +107,4 @@ for (let i = 0; i < 20; i++) {
 assert.equal(setups, 21); assert.equal(disposals, setups);
 test.request('debug.close'); await app; assert.deepEqual(test.stats(), { actions: 0, cells: 0, dependencies: 0 });
 assert.equal(snapshot().liveCells, 0);
-console.log('PASS focus subscriptions: actual native/DOM focus, shared field editors, exact Unicode rename, coalesced changes, shared observation, disabled/passive controls, sheet context isolation and 20 queued focused owner retirements');
+console.log('PASS focus subscriptions: native/DOM focus and unacknowledged shared field-editor traversal, queued gain/newer blur acknowledgements, request generations/context/replay guards, exact Unicode, listener isolation and 20 queued focused owner retirements');

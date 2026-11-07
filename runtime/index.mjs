@@ -648,17 +648,34 @@ function receiveFocusChange(event) {
   const watch = focusWatch;
   if (!watch || event.token !== watch.token || !Number.isSafeInteger(event.sequence) || event.sequence <= watch.sequence ||
       !Number.isSafeInteger(event.context) || event.context < watch.context ||
+      !Number.isSafeInteger(event.generation) || event.generation < watch.generation ||
       event.name !== null && (typeof event.name !== 'string' || !event.name.length || !event.name.isWellFormed())) return;
-  const changed = watch.name !== event.name;
   watch.sequence = event.sequence; watch.context = event.context; watch.name = event.name;
-  if (!changed) return;
-  taskStorage.run(undefined, () => untracked(() => {
-    for (const entry of [...focusListeners]) {
-      if (focusWatch !== watch || !focusListeners.has(entry)) continue;
-      if (!entry.task) entry.callback(event.name);
-      else if (taskIsCurrent(entry.task)) taskStorage.run(entry.task, () => entry.callback(event.name));
-    }
-  }));
+  watch.generation = event.generation; watch.requestGeneration = Math.max(watch.requestGeneration, event.generation);
+  if (watch.deliveryScheduled) return;
+  watch.deliveryScheduled = true;
+  queueMicrotask(() => {
+    watch.deliveryScheduled = false;
+    if (stopped || focusWatch !== watch) return;
+    const sequence = watch.sequence, name = watch.name;
+    try {
+      taskStorage.run(undefined, () => untracked(() => {
+        for (const entry of [...focusListeners]) {
+          if (focusWatch !== watch || watch.sequence !== sequence || !focusListeners.has(entry) || entry.name === name) continue;
+          entry.name = name;
+          if (!entry.task) entry.callback(name);
+          else if (taskIsCurrent(entry.task)) taskStorage.run(entry.task, () => entry.callback(name));
+        }
+      }));
+    } catch (error) { fail(error); }
+  });
+}
+function requestFocus(op, args = {}) {
+  const watch = focusWatch;
+  if (!watch) return request(op, args);
+  const result = request(op, { ...args, focusRequest: { token: watch.token, generation: ++watch.requestGeneration } });
+  if (focusWatch === watch && result.observation) receiveFocusChange(result.observation);
+  return result;
 }
 function focusName(value) {
   if (typeof value !== 'string' || !value.length || !value.isWellFormed()) throw new TypeError('Focus names must be nonempty well-formed strings');
@@ -673,14 +690,14 @@ function canMoveFocus(action = 'move focus') {
 }
 function moveFocus(direction) {
   if (!canMoveFocus()) return;
-  request('focus.move', { direction });
+  requestFocus('focus.move', { direction });
 }
 export const Focus = Object.freeze({
   next: () => moveFocus('next'), previous: () => moveFocus('previous'), clear: () => moveFocus('clear'),
   move(direction) {
     if (!canMoveFocus()) return false;
     layoutEnum(direction, ['left', 'right', 'up', 'down'], 'focus direction');
-    return request('focus.direction', { direction }).moved;
+    return requestFocus('focus.direction', { direction }).moved;
   },
   capture() {
     if (!canMoveFocus()) return null;
@@ -692,11 +709,11 @@ export const Focus = Object.freeze({
     if (!canMoveFocus()) return false;
     const id = focusTargets.get(target);
     if (id === undefined) throw new TypeError('Focus.request expects a captured FocusTarget');
-    return request('focus.target', { target: id }).focused;
+    return requestFocus('focus.target', { target: id }).focused;
   },
   requestNamed(name) {
     if (!canMoveFocus()) return false;
-    return request('focus.named', { name: focusName(name) }).focused;
+    return requestFocus('focus.named', { name: focusName(name) }).focused;
   },
   currentName() {
     if (!canMoveFocus('read native focus')) return null;
@@ -709,10 +726,11 @@ export const Focus = Object.freeze({
     const unsubscribe = () => stopFocusListener(entry);
     focusListeners.add(entry);
     if (!focusWatch) {
-      const watch = { token: nextFocusWatch++ }; focusWatch = watch;
+      const watch = { token: nextFocusWatch++, requestGeneration: 0 }; focusWatch = watch;
       try { Object.assign(watch, request('focus.watch', { token: watch.token })); }
       catch (error) { focusListeners.delete(entry); focusWatch = null; throw error; }
     }
+    entry.name = focusWatch.name;
     if (entry.task) entry.unregister = registerTaskCleanup(entry.task, unsubscribe);
     return unsubscribe;
   },

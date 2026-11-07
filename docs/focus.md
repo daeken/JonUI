@@ -135,6 +135,21 @@ responder movement. A callback can lag a synchronous snapshot: keep observed
 focus separate from desired focus requests. This API does not write focus or
 provide a two-way binding.
 
+While subscribed, imperative focus movement also acknowledges its actual result
+before returning. Next/Previous/Clear, geometric moves, captured restoration and
+named requests advance a request generation and observation sequence. Queued
+observations from before that acknowledgement cannot later replace its result.
+Callbacks remain asynchronous: a rapid request followed by Clear can coalesce
+to cleared focus without delivering an obsolete intermediate gain. If a listener
+moves focus during delivery, later listeners wait for the newer result rather
+than receiving the older name. Each listener keeps its own baseline, preserving
+no initial replay when it joins during pending delivery.
+
+These acknowledgements protect the observed stream; they do not turn it into a
+desired-state binding. Ordinary commands continue to target the current active
+window. Internal context-bound requests can reject a retired window context,
+which is groundwork for future declarative ownership.
+
 All listeners share one active-window native observation session. Its token,
 sequence and window-context counter reject events from retired sessions and
 out-of-order deliveries. Native callbacks queue a fresh responder read rather

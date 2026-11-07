@@ -698,7 +698,7 @@ isolation and 20 focused owner retirements with baseline resources.
 
 `Focus.subscribe` shares a `focus.watch` session among Node listeners. A new
 monotonically increasing token starts native observation and acknowledges a
-baseline `{ name, sequence, context }` without initial callback replay. A stale
+baseline `{ name, sequence, context, generation }` without initial callback replay. A stale
 watch token is rejected before replacing a session; a stale `focus.unwatch`
 cannot stop a newer one. Last-listener cleanup stops the matching session.
 
@@ -708,12 +708,12 @@ commits schedule a coalesced main-queue sample. The sample lays out the active
 window, rebinds KVO on a context switch, and resolves the actual live named
 responder. It never consumes the KVO payload's old responder. UTF-8 comparison
 detects canonically equivalent name changes. It emits `focusChanged` with token,
-increasing sequence, context counter and nullable name only when the name/context
+increasing sequence, context counter, request generation and nullable name only when the name/context
 changes. Sampling guards prevent reentrant layout notifications from queuing a
 feedback loop. Stop/disposal invalidate KVO and all notification registrations;
 queued samples also require their original session token.
 
-Node validates name/sequence/context and ignores retired/out-of-order events.
+Node validates name/sequence/context/generation and ignores retired/out-of-order events.
 Context-only changes update the baseline without duplicate public name callbacks.
 Listeners run untracked outside the delivering task context; task-owned listeners
 retain their own cancellation checks and cleanup. Components use effect cleanup.
@@ -726,7 +726,43 @@ editors without polling for one traversal, DOM-name stability, exact Unicode
 renames, inherited disabled/passive eligibility, active sheet context switches,
 shared observers and 20 queued focused owner retirements. A separate native
 failure gate verifies one stop/disposal. These observations remain asynchronous;
-desired-focus generation acknowledgements and two-way binding are still pending.
+an owned declarative desired/observed binding is still pending.
+
+Focus-mutating operations (`focus.move`, `focus.direction`, `focus.named`,
+`focus.target`) accept an internal `focusRequest` stamp: session `token`, strictly
+increasing positive safe-integer `generation`, and optional positive `context`.
+Unknown stamp fields and invalid counters throw without consuming the generation.
+An operation that reaches its validator also throws without consuming a generation
+when its arguments are invalid. A stale token is rejected without disturbing the newer
+session. Replayed generations and mismatched context reject movement and return
+the current observation acknowledgement; a context rejection consumes its new
+generation so an old request cannot be replayed after another window switch.
+
+An accepted operation returns its ordinary result plus `focusAccepted: true` and
+`observation: { token, generation, sequence, context, name }`. `focusAccepted`
+describes protocol acceptance; an unavailable/refusing target can still return
+`focused: false` or `moved: false`. The acknowledgement resolves actual focus,
+updates the watch baseline and advances sequence even if the name is unchanged.
+Sequence gaps in emitted events are therefore expected. Old queued samples
+resample current focus under the latest generation; already emitted older events
+fall below the acknowledged sequence/generation floor.
+
+Node stamps imperative commands only while a watch session exists, preserving
+ordinary unobserved bridge calls. It accepts the acknowledgement before returning
+the public boolean/void result, then coalesces callback delivery in a microtask.
+One listener's reentrant focus request invalidates the old delivery for later
+listeners. Per-listener name baselines preserve no replay for a listener joining
+pending work, including same-name acknowledgements and rapid round trips.
+Imperative commands omit the optional context to retain active-window semantics;
+a future declarative controller can bind desired requests to a captured context.
+The existing public Focus method signatures do not change.
+
+Native tests queue a real gain event while Node is synchronous and acknowledge a
+newer blur before delivery; the old gain never reaches listeners. They also cover
+captured/geometric/unavailable results, request replay, retired-sheet contexts,
+stale sessions and atomic malformed-stamp rejection. Runtime tests cover queued
+gains, consecutive requests, acknowledgement floors, stale generations and
+reentrant/joining listeners. No desired state is written by these observations.
 
 An experimental two-way boolean FocusState adapter was discarded:
 late framework observations could revive an obsolete blur request, so it is not

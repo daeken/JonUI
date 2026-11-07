@@ -136,6 +136,9 @@ snapshot; it does not subscribe or establish a two-way focus binding.
 from `scope.effect` for component ownership; task subscriptions cancel with their
 task. See [focus subscriptions](docs/focus.md#focus-change-subscriptions) for delivery
 and initial-snapshot rules.
+Observed movement acknowledges its result before returning, so queued older
+focus events cannot overwrite a newer clear or request. Delivery stays coalesced
+and asynchronous; declarative two-way focus bindings remain future work.
 `Focus.capture()` remembers the current native responder as a weak opaque target;
 `Focus.request(target)` restores it while its identity remains available. Adding
 or removing view handles retires saved captures; value updates/keyed reorder keep

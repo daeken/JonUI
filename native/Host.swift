@@ -831,7 +831,7 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private weak var focusContextWindow: NSWindow?
     private var focusWatchToken: Int?
     private var lastFocusWatchToken = 0
-    private var focusWatchSequence = 0, focusWatchContext = 0
+    private var focusWatchSequence = 0, focusWatchContext = 0, focusRequestGeneration = 0
     private var focusWatchName: String?
     private weak var focusWatchWindow: NSWindow?
     private var focusResponderObservation: NSKeyValueObservation?
@@ -1086,7 +1086,7 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
             guard changedWindow || name.map({ Data($0.utf8) }) != self.focusWatchName.map({ Data($0.utf8) }) else { return }
             self.focusWatchName = name; self.focusWatchSequence += 1
             self.emit(["type": "focusChanged", "token": token, "sequence": self.focusWatchSequence,
-                "context": self.focusWatchContext, "name": name as Any? ?? NSNull()])
+                "context": self.focusWatchContext, "generation": self.focusRequestGeneration, "name": name as Any? ?? NSNull()])
         }
     }
     private func pruneFocusTargets() {
@@ -1189,7 +1189,44 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
         if testing { interceptedTabs += 1 }
         return true
     }
+    private func focusAcknowledgement() throws -> [String: Any] {
+        focusWatchSampling = true
+        defer { focusWatchSampling = false }
+        let window = try prepareFocusWindow()
+        if focusWatchWindow !== window { watchFocusWindow(window) }
+        focusWatchName = currentFocusName(in: window); focusWatchSequence += 1
+        return ["token": focusWatchToken!, "generation": focusRequestGeneration,
+            "sequence": focusWatchSequence, "context": focusWatchContext, "name": focusWatchName as Any? ?? NSNull()]
+    }
     func handle(_ message: [String: Any]) throws -> Any {
+        precondition(Thread.isMainThread)
+        guard let raw = message["focusRequest"], !stopping, !disposed else { return try handleOperation(message) }
+        guard let op = message["op"] as? String, ["focus.move", "focus.direction", "focus.named", "focus.target"].contains(op),
+              let stamp = raw as? [String: Any], Set(stamp.keys).isSubset(of: ["token", "generation", "context"]) else { throw BridgeError("Invalid focus request stamp") }
+        func counter(_ raw: Any?) throws -> Int {
+            guard let raw, let number = layoutNumber(raw), number >= 1, number <= 9007199254740991, number.rounded() == number else { throw BridgeError("Invalid focus request counter") }
+            return Int(number)
+        }
+        let token = try counter(stamp["token"]), generation = try counter(stamp["generation"])
+        let context = try stamp["context"].map { try counter($0) }
+        var rejected: [String: Any] = ["focusAccepted": false, "focused": false, "moved": false]
+        guard token == focusWatchToken else { return rejected }
+        guard generation > focusRequestGeneration else {
+            rejected["observation"] = try focusAcknowledgement(); return rejected
+        }
+        let window = try prepareFocusWindow()
+        if focusWatchWindow !== window { watchFocusWindow(window) }
+        if let context, context != focusWatchContext {
+            focusRequestGeneration = generation
+            rejected["observation"] = try focusAcknowledgement(); return rejected
+        }
+        // Invalid operations throw without consuming a request generation.
+        var result = try handleOperation(message) as! [String: Any]
+        focusRequestGeneration = generation
+        result["focusAccepted"] = true; result["observation"] = try focusAcknowledgement()
+        return result
+    }
+    private func handleOperation(_ message: [String: Any]) throws -> Any {
         precondition(Thread.isMainThread)
         guard let op = message["op"] as? String else { throw BridgeError("Missing operation") }
         if (disposed || stopping) && ["web.reply", "web.claim"].contains(op) { return ["accepted": false] }
@@ -1246,7 +1283,7 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
             let token = try integer(message["token"]), window = try prepareFocusWindow()
             guard token > lastFocusWatchToken else { throw BridgeError("Focus observation token must increase") }
             lastFocusWatchToken = token
-            stopFocusWatch(); focusWatchToken = token; focusWatchSequence = 0; focusWatchContext = 0
+            stopFocusWatch(); focusWatchToken = token; focusWatchSequence = 0; focusWatchContext = 0; focusRequestGeneration = 0
             focusWatchSampling = true
             watchFocusWindow(window); focusWatchName = currentFocusName(in: window)
             focusWatchSampling = false
@@ -1257,7 +1294,7 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
                     self.scheduleFocusWatch()
                 })
             }
-            return ["sequence": focusWatchSequence, "context": focusWatchContext, "name": focusWatchName as Any? ?? NSNull()]
+            return ["sequence": focusWatchSequence, "context": focusWatchContext, "generation": focusRequestGeneration, "name": focusWatchName as Any? ?? NSNull()]
         case "focus.unwatch":
             let token = try integer(message["token"])
             if token == focusWatchToken { stopFocusWatch() }
@@ -1492,7 +1529,8 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
             return ["count": namedFocusNodes.count]
         case "debug.focusWatch" where testing:
             return ["watching": focusWatchToken != nil, "observations": focusResponderObservation == nil ? 0 : 1,
-                "notifications": focusWindowNotifications.count, "sequence": focusWatchSequence, "context": focusWatchContext]
+                "notifications": focusWindowNotifications.count, "sequence": focusWatchSequence, "context": focusWatchContext,
+                "token": focusWatchToken as Any? ?? NSNull(), "generation": focusRequestGeneration]
         case "debug.focusTraversal" where testing:
             return ["count": focusTraversal.count, "tabNavigation": focusTabNavigation]
         case "debug.tab" where testing:
