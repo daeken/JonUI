@@ -25,10 +25,24 @@ payloads, explicit gesture composition/priority, long press/drag/magnification a
 animation/transition APIs are not part of this initial contract.
 
 Run `bin/jonui examples/gestures/app.ts` to try single and double taps. Automated
-recognition checks post real AppKit mouse-down/up events to the main hidden
-window, with `JONUI_TEST=1 JONUI_TEST_OFFSCREEN=1 JONUI_TEST_LAYOUT=1`.
-The test hosting view accepts first mouse because hidden windows never become
+recognition checks post real AppKit mouse-down/up events to the main and owned
+hidden windows, with `JONUI_TEST=1 JONUI_TEST_OFFSCREEN=1 JONUI_TEST_LAYOUT=1`.
+The test hosting views accept first mouse because hidden windows never become
 key; production retains AppKit's ordinary first-click policy. Tests verify
-SwiftUI recognition, rather than invoking its callback directly. Positive
-pointer coverage for sheets, independent roots, lazy scrolling and competing
-controls remains to be added.
+SwiftUI recognition, rather than invoking its callback directly.
+
+Test layout records are scoped to physical windows, including sheet surfaces.
+Their probes never intercept hit-testing and hold no windows or bridge boxes.
+The tap driver rejects targets outside the current window, including blocked
+parents while a sheet is presented. Native close and logical removal retire the
+records; reopen gets fresh state/handlers. Independent roots, current handlers,
+disabled content, single/double taps, 20 close/reopen lifetimes and shutdown with
+an open root are verified without desktop activation.
+
+Positive pointer recognition in inactive SwiftUI-owned sheets is still a gap:
+a probe found the sheet's native window and valid target frame, but queued real
+mouse-down/up events produced no tap callback. Physical-window frame scoping does
+not resolve that failure; no private delegate/eligibility override is used to
+claim it passes. Positive lazy-scroll and competing-control pointer coverage,
+location/content-shape/priority contracts and hardware checks remain open. The
+separately recorded AppKit sheet-close SIGSEGV also remains unresolved.

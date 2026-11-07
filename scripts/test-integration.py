@@ -180,3 +180,4 @@ run('tests/integration/shortcuts-error.mjs', failure='intentional shortcut actio
 run('tests/integration/taps.mjs', timeout=90, layout=True)
 run('tests/integration/taps-error.mjs', failure='intentional tap failure', layout=True)
 run('tests/integration/taps-error.mjs', case='promise', failure='must be synchronous', layout=True)
+run('tests/integration/tap-windows.mjs', timeout=90, layout=True)

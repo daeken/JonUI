@@ -259,6 +259,31 @@ private final class TestMouseHostingView<Content: View>: NSHostingView<Content> 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { acceptsTestMouse || super.acceptsFirstMouse(for: event) }
 }
 
+// Test geometry is scoped to a physical native surface. Records retain neither
+// windows nor bridge boxes; cached SwiftUI views cannot keep logical owners alive.
+private final class TestLayoutSurface {
+    let id: Int
+    var frames: [Int: CGRect] = [:]
+    weak var view: TestLayoutSurfaceView?
+    init(_ id: Int) { self.id = id }
+}
+private final class TestLayoutSurfaceView: NSView {
+    let surface: TestLayoutSurface
+    init(_ surface: TestLayoutSurface) { self.surface = surface; super.init(frame: .zero) }
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+}
+private struct TestLayoutSurfaceProbe: NSViewRepresentable {
+    let surface: TestLayoutSurface
+    func makeNSView(context: Context) -> TestLayoutSurfaceView {
+        let view = TestLayoutSurfaceView(surface); surface.view = view; return view
+    }
+    func updateNSView(_ view: TestLayoutSurfaceView, context: Context) {}
+    static func dismantleNSView(_ view: TestLayoutSurfaceView, coordinator: ()) {
+        if view.surface.view === view { view.surface.view = nil; view.surface.frames.removeAll() }
+    }
+}
+
 private struct NativeTapGesture: View {
     let content: AnyView
     let count: Int
@@ -664,7 +689,9 @@ private struct NativeView: View {
                 let id = box.id, phase = box.string("name"), token = box.props["appearance"] as? Int ?? 0
                 if phase == "onAppear" { return AnyView(child().onAppear { [weak host] in host?.appearance(id, token: token, phase: phase) }) }
                 return AnyView(child().onDisappear { [weak host] in host?.appearance(id, token: token, phase: phase) })
-            case "sheet": return AnyView(child().sheet(isPresented: boolBinding()) { child(1) })
+            case "sheet":
+                let surfaceID = box.children.count > 1 ? box.children[1].id : 0
+                return AnyView(child().sheet(isPresented: boolBinding()) { host.testLayoutRoot(child(1), id: surfaceID) })
             case "onTapGesture":
                 let id = box.id, count = box.props["count"] as? Int ?? 1, token = box.props["tap"] as? Int ?? 0
                 return AnyView(NativeTapGesture(content: child(), count: count, tapped: { [weak host] in host?.tap(id, token: token, count: count) }))
@@ -972,6 +999,7 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
     let testing = ProcessInfo.processInfo.environment["JONUI_TEST"] == "1"
     var layoutTesting: Bool { testing && ProcessInfo.processInfo.environment["JONUI_TEST_LAYOUT"] == "1" }
     var layoutFrames: [Int: CGRect] = [:]
+    private var layoutSurfaces: [Int: TestLayoutSurface] = [:]
     var offscreen: Bool { testing && ProcessInfo.processInfo.environment["JONUI_TEST_OFFSCREEN"] == "1" }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
@@ -1072,7 +1100,7 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
         root = nil; nodes.removeAll(); cells.removeAll(); webViews.removeAll(); hostedControls.removeAll(); layoutFrames.removeAll()
         retiredWindowNodes.removeAll()
         shortcutTestEvents.removeAll(); shortcutTestResults.removeAll()
-        tapTestEvents.removeAll(); tapTestResults.removeAll()
+        tapTestEvents.removeAll(); tapTestResults.removeAll(); layoutSurfaces.removeAll()
     }
     func stopped(_ status: Int32) {
         exitStatus = status; stopping = true; dispose()
@@ -1093,7 +1121,7 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
         window.title = options["title"] as? String ?? "JonUI"
         window.isReleasedWhenClosed = false; window.delegate = self
-        let content = TestMouseHostingView(rootView: NativeView(box: root, host: self).onPreferenceChange(LayoutFrames.self) { [weak self] frames in self?.layoutFrames = frames })
+        let content = TestMouseHostingView(rootView: testLayoutRoot(AnyView(NativeView(box: root, host: self).onPreferenceChange(LayoutFrames.self) { [weak self] frames in self?.layoutFrames = frames }), id: root.id))
         content.acceptsTestMouse = testing && offscreen
         // AppOptions owns the initial window size. A transient intrinsic root
         // (such as a hidden-state label) must not impose a new window maximum.
@@ -1132,8 +1160,15 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
             selectFocusRoot(window)
         }
     }
+    fileprivate func testLayoutRoot(_ content: AnyView, id: Int) -> AnyView {
+        guard layoutTesting, !stopping, liveNode(id) != nil else { return content }
+        let surface = layoutSurfaces[id] ?? TestLayoutSurface(id); layoutSurfaces[id] = surface
+        return AnyView(content.background(TestLayoutSurfaceProbe(surface: surface))
+            .onPreferenceChange(LayoutFrames.self) { [weak surface] frames in surface?.frames = frames })
+    }
     private func hostingRoot(_ root: ViewBox) -> NSView {
-        let content = NSHostingView(rootView: NativeView(box: root, host: self))
+        let content = TestMouseHostingView(rootView: testLayoutRoot(AnyView(NativeView(box: root, host: self)), id: root.id))
+        content.acceptsTestMouse = testing && offscreen
         content.sizingOptions = []; content.autoresizingMask = [.width, .height]; return content
     }
     fileprivate func closeOwnedWindow(_ id: Int, publish: Bool) {
@@ -1145,6 +1180,7 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
             retiredWindowNodes.formUnion(descendants)
             for child in Array(ownedWindows.keys) where descendants.contains(child) { closeOwnedWindow(child, publish: false) }
             for child in descendants {
+                layoutSurfaces.removeValue(forKey: child)
                 webViews.removeValue(forKey: child)?.invalidate(); hostedControls.removeValue(forKey: child)?.invalidate()
             }
         }
@@ -1730,6 +1766,7 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 coordinator.invalidate(); hostedControls.removeValue(forKey: id)
             }
             nodes = nodes.filter { reachable.contains($0.key) }
+            layoutSurfaces = layoutSurfaces.filter { reachable.contains($0.key) }
             retiredWindowNodes.formIntersection(reachable)
             namedFocusNodes = focusNames
             if let options = message["window"] as? [String: Any] { open(options) }
@@ -1747,6 +1784,7 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
             let snapshot: [String: Any] = ["nodes": views, "states": states, "liveViews": ViewBox.live, "liveCells": Cell.live,
                 "webViewCount": webViews.count, "textInputCount": textCount, "hostedControlCount": hostedControls.count,
                 "ownedWindowCount": ownedWindows.count, "focusWindowCount": focusWindows.count,
+                "layoutSurfaceCount": layoutSurfaces.count,
                 "availabilityWatchCount": availabilityWatches.count, "availabilityNotificationCount": availabilityNotifications.count,
                 "applicationEventRouting": NSApp is JonUIApplication, "mainThread": Thread.isMainThread,
                 "windowVisible": window?.isVisible ?? false, "sheetPresented": window?.attachedSheet != nil]
@@ -1867,9 +1905,17 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
         case "debug.closeWindow" where testing:
             guard let id = message["id"] as? Int, let window = ownedWindows[id]?.window else { throw BridgeError("Unknown test window") }
             window.performClose(nil); return [:]
+        case "debug.layoutSurfaces" where layoutTesting:
+            return ["records": layoutSurfaces.count, "surfaces": layoutSurfaces.values.filter { liveNode($0.id) != nil }.map { surface in
+                ["id": surface.id, "attached": surface.view?.window != nil,
+                 "current": surface.view?.window != nil && surface.view?.window === currentFocusWindow(),
+                 "frames": surface.frames.filter { liveNode($0.key) != nil }.map { ["id": $0.key, "rect": rectangle($0.value)] as [String: Any] }] as [String: Any]
+            }]
         case "debug.tap" where testing && layoutTesting && offscreen:
             let target = try integer(message["id"])
-            guard liveNode(target) != nil, let window = currentFocusWindow(), window === self.window, let frame = layoutFrames[target], !frame.isEmpty else { throw BridgeError("Tap target not laid out") }
+            guard liveNode(target) != nil, let window = currentFocusWindow(),
+                  let surface = layoutSurfaces.values.first(where: { $0.view?.window === window && $0.frames[target] != nil }),
+                  let frame = surface.frames[target], !frame.isEmpty else { throw BridgeError("Tap target not laid out in current window") }
             let count = message["count"] as? Int ?? 1
             guard [1, 2].contains(count) else { throw BridgeError("Invalid test tap count") }
             let point = NSPoint(x: frame.midX, y: window.frame.height - frame.midY)

@@ -29,6 +29,19 @@ Status meanings:
 
 ## Current review
 
+- Tap window follow-up (2026-11-07): no new public widget/state API. Physical
+  main/owned/sheet layout records now drive hidden-window pointer tests; weak,
+  non-hit-testing probes and live-owner guards avoid retaining/recreating retired
+  roots. Actual single/double taps in independent roots, current handlers/local
+  State, disabled content, cross-root and sheet-parent rejection, native close,
+  fresh reopen, 20 lifetimes and shutdown with an open root are verified. Build,
+  182 unit/compiler cases, 11 coverage workflow tests, both type checkers and ten
+  focused native gates pass. Positive inactive SwiftUI-sheet taps remain blocked:
+  queued real events at a valid sheet frame/window produced no callback. No
+  private/activation workaround, full-suite pass or sheet-close crash fix is
+  claimed. Lazy/competing-control pointer behavior and location/shape/priority/
+  composition remain open; broad gesture/animation parity stays unchecked.
+
 - Tap gesture review (2026-11-07): View.onTapGesture adds native single/double
   recognition with synchronous current Node callbacks and owned tokens/counts.
   Keyed updates retain tokens; count/modifier replacement and owner teardown
@@ -40,7 +53,8 @@ Status meanings:
   native gates pass. Full-suite mixed-sheet teardown remains blocked as recorded;
   no clean full-suite pass or framework fix is claimed. Location, shape/priority/
   composition and positive sheet/auxiliary/lazy/competing-control pointer coverage
-  remain open. Broad gesture/animation parity stays unchecked.
+  were open at that review; see the window follow-up above. Broad gesture/animation
+  parity stays unchecked.
 
 - Button Command shortcut review (2026-11-07): View.keyboardShortcut accepts one
   lowercase ASCII letter/digit on a Button through single-child modifiers. Only
@@ -541,7 +555,7 @@ Status meanings:
 | onChange / onReceive | Partial analog | State.subscribe and component effects on Node. | Native value/event adapters and delivery/cancellation policy remain. |
 | task / refreshable | Partial analog | Scoped task cancellation exists. | Native view-appearance task, ID-triggered task and refresh UI integration remain. |
 | onSubmit / onEditingChanged | Partial | Native text revision snapshot before Node callback. | Supported text controls verified; richer submit scopes/triggers remain. |
-| onTapGesture / double tap | Partial | Native count 1/2; synchronous current Node handler, owned modifier token, disabled ancestors and cleanup. | Actual main-window recognition, keyed/count changes, State writes, failures and 20 lifetimes verified. Location/content shapes, priority/composition and positive sheet/auxiliary/lazy/competing-control pointer coverage remain. <!-- api: View.onTapGesture --> |
+| onTapGesture / double tap | Partial | Native count 1/2; synchronous current Node handler, owned modifier token, disabled ancestors and cleanup. | Actual main/owned-window recognition, keyed/count changes, local State, failures, cross-root/sheet-parent rejection, native-close retirement/reopen and 20 lifetimes verified. Inactive-sheet recognition has a concrete offscreen delivery gap; location/content shapes, priority/composition and positive lazy/competing-control pointer coverage remain. <!-- api: View.onTapGesture --> |
 | LongPressGesture | Missing | Press phase, duration/distance and cancellation. | Native/Node event phases and transient state. |
 | DragGesture | Missing | Translation, location, prediction and coordinate space. | High-rate event coalescing, GestureState and cleanup. |
 | MagnifyGesture / RotationGesture | Missing | Scale/angle phase and anchor. | Trackpad/touch availability and cancellation. |
@@ -641,7 +655,7 @@ can still bypass local enforcement; this is not server-side branch protection.
 Repository instructions require the same review for contributors and automation.
 
 <!-- coverage-review:generated -->
-Review baseline (checkout HEAD before commit): `4660a9ba0064e73ea5b3591cb1c4de4f3a5c88b4`.
+Review baseline (checkout HEAD before commit): `b22fe16b8fdea8acbd194b0cb354bebc43f46710`.
 
-Staged source-tree SHA-256 (excluding this catalog): `8a659eea92778a366d897e3cd46a994adb3982b430d3251319141a4bf80ba619`.
+Staged source-tree SHA-256 (excluding this catalog): `a7b8c5ab293cf079e36c0a9658f91e2b10f08614a3f5f3e2cc621819961e146b`.
 <!-- /coverage-review:generated -->

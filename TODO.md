@@ -1238,6 +1238,40 @@ lazy/competing-control content, then define location/priority contracts and nati
 long-press phase/cancellation semantics. These can proceed independently of the
 blocked keyboard modifier/platform-focus paths.
 
+Tap window ownership follow-up (2026-11-07): native pointer automation now
+scopes layout records to physical main/owned/sheet windows. A transparent,
+non-hit-testing probe keeps only weak view/window access and frame values; it
+retains no bridge boxes. The test driver requires the target's surface to match
+the current window, rejecting other roots, removed targets and blocked parents
+under a sheet. Native close immediately retires descendant records; logical
+removal and app shutdown clear them too. A live-node/stopping guard prevents
+cached sheet callbacks from recreating retired records. Main/owned test hosts
+accept first mouse only in offscreen tests; production keeps its native policy.
+No public API, widget or binding contract is added in this follow-up.
+
+Validation: native build, 182 unit/compiler cases, 11 coverage workflow tests,
+both type checkers and API classification pass. Ten focused offscreen native
+gates pass: tap windows, taps, throw/Promise tap failures, layout, lazy WebView,
+appearance, owned windows (with layout instrumentation), contracts and shortcuts.
+Real native single/double taps in two independent roots verify current handlers,
+local State, disabled content, cross-root/sheet-parent rejection, native-close
+retirement, fresh reopen and 20 close/reopen lifetimes with baseline cells/views/
+callbacks/layout-record counts. Shutdown with a root still open clears all records.
+The first new-fixture run reached shutdown but tried an unavailable post-disposal
+debug operation; final cleanup now checks the supported snapshot, and the gate passes.
+
+Concrete remaining sheet-pointer gap: the offscreen probe found the correct
+SwiftUI-owned sheet window and target frame, yet real queued down/up events
+produced no tap callback. Surface scoping alone does not fix inactive-sheet
+recognition; positive sheet tap coverage stays open. No private framework
+method/delegate or activation workaround is used to claim success. The separately
+recorded focus-mixed-sheet AppKit close SIGSEGV remains unresolved; no clean
+full-suite pass is claimed. Keep gestures/animation unchecked. Next actionable
+work: real lazy-scrolled tap recognition/retirement and competing native-control
+priority, then location/content-shape contracts and long-press phases. Sheet
+pointer delivery needs a reliable offscreen AppKit path or an explicit manual
+hardware check before being marked verified.
+
 ## 3. Application and operating-system integration
 
 Button Command shortcuts completed (2026-11-07), continuing keyboard navigation:
