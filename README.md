@@ -37,6 +37,8 @@ frozen local `{ x, y }` snapshot with the same count and priority options.
 `.onLongPressGesture(action, { onPressingChanged })` adds held recognition and
 native pressing notifications. Add `priority: "simultaneous"` to recognize holds
 alongside native control actions or child long presses (default: `"normal"`).
+For automatic pressing reset, allocate `const held = scope.gestureState()` during
+component setup and pass `{ pressing: held }`; render with read-only `held.value`.
 
 ## Build and run
 

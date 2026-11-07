@@ -5,21 +5,22 @@ const shown = State(false), priority = State('normal'), revision = State(0), rev
 const events = [], timing = []; let model, setups = 0, disposals = 0;
 const Owner = Component(scope => {
   setups++; const text = scope.state('日本 🦊'), on = scope.state(false), total = scope.state(0); model = { text, on, total };
-  scope.onDispose(() => disposals++);
+  const held = Object.fromEntries(['field', 'button', 'toggle', 'nested'].map(key => [key, scope.gestureState()]));
+  scope.onDispose(() => { assert.ok(Object.values(held).every(state => !state.value)); disposals++; });
   return () => {
     const current = revision.value;
-    const options = { priority: priority.value, minimumDuration: duration.value,
-      onPressingChanged: active => { events.push(['pressing', active]); timing.push([active, Date.now()]); },
-    };
+    const options = key => ({ pressing: held[key], priority: priority.value, minimumDuration: duration.value,
+      onPressingChanged: active => { assert.equal(held[key].value, active); events.push(['pressing', active]); timing.push([active, Date.now()]); },
+    });
     const record = kind => { total.value++; events.push([kind, current]); timing.push([kind, Date.now()]); };
     const rows = {
-      field: () => TextField('Field', { text: text.binding, focusName: 'field' }).frame({ width: 260, height: 40 }).onLongPressGesture(() => record('field'), options),
-      button: () => Button('Button', () => record('button')).frame({ width: 260, height: 40 }).onLongPressGesture(() => record('button-hold'), options),
-      toggle: () => Toggle('Toggle', { isOn: on.binding }).frame({ width: 260, height: 40 }).onLongPressGesture(() => record('toggle-hold'), options),
-      nested: () => Text('Nested').frame({ width: 260, height: 40 }).onLongPressGesture(() => record('child'), { minimumDuration: duration.value }).onLongPressGesture(() => record('parent'), options),
+      field: () => TextField('Field', { text: text.binding, focusName: 'field' }).frame({ width: 260, height: 40 }).onLongPressGesture(() => record('field'), options('field')),
+      button: () => Button('Button', () => record('button')).frame({ width: 260, height: 40 }).onLongPressGesture(() => record('button-hold'), options('button')),
+      toggle: () => Toggle('Toggle', { isOn: on.binding }).frame({ width: 260, height: 40 }).onLongPressGesture(() => record('toggle-hold'), options('toggle')),
+      nested: () => Text('Nested').frame({ width: 260, height: 40 }).onLongPressGesture(() => record('child'), { minimumDuration: duration.value }).onLongPressGesture(() => record('parent'), options('nested')),
     };
     const order = Object.keys(rows); if (reversed.value) order.reverse();
-    return VStack([ForEach(order, { id: id => id }, id => rows[id]()), Text(`Total: ${total.value}`)], { spacing: 12 }).disabled(blocked.value);
+    return VStack([ForEach(order, { id: id => id }, id => rows[id]()), Text(`Total: ${total.value} · ${Object.values(held).some(state => state.value) ? 'held' : 'idle'}`)], { spacing: 12 }).disabled(blocked.value);
   };
 });
 const app = runApp({ title: 'JonUI native long press priorities', width: 480, height: 420, content: View(() => shown.value ? Owner() : Text('removed')) });
@@ -91,10 +92,10 @@ for (const value of [undefined, null, true, 1, '', 'high', 'exclusive', [], {}])
 for (const value of ['normal', 'simultaneous']) {
   priority.value = value; blocked.value = true; test.flush(); await sleep(40); await holdTarget('Button', [], { pressing: false }); await holdTarget('Toggle', [], { pressing: false }); await holdTarget('Nested', [], { pressing: false });
 }
-blocked.value = false; shown.value = false; test.flush(); await until(() => snapshot().hostedControlCount === 0 && snapshot().liveViews === snapshot().nodes.length, 'owner removal'); assert.deepEqual(test.stats(), baseline); assert.equal(Focus.request(captured), false);
+blocked.value = false; shown.value = false; test.flush(); await until(() => snapshot().hostedControlCount === 0 && snapshot().liveViews === snapshot().nodes.length, 'owner removal'); assert.deepEqual(test.stats(), baseline); assert.equal(test.gestureStats().active, 0); assert.equal(Focus.request(captured), false);
 for (let i = 0; i < 20; i++) {
   shown.value = true; test.flush(); await until(() => snapshot().hostedControlCount === 1 && node('Button'), `mount ${i}`); await checkMode(['normal', 'simultaneous'][i % 2], false);
-  shown.value = false; test.flush(); await until(() => snapshot().hostedControlCount === 0 && snapshot().liveViews === snapshot().nodes.length, `remove ${i}`); assert.deepEqual(test.stats(), baseline);
+  shown.value = false; test.flush(); await until(() => snapshot().hostedControlCount === 0 && snapshot().liveViews === snapshot().nodes.length, `remove ${i}`); assert.deepEqual(test.stats(), baseline); assert.equal(test.gestureStats().active, 0);
 }
 assert.equal(setups, 21); assert.equal(disposals, setups); test.request('debug.close'); await app; assert.equal(snapshot().liveCells, 0); assert.equal(snapshot().liveViews, 0); assert.deepEqual(test.stats(), { actions: 0, cells: 0, dependencies: 0 });
 console.log('PASS long press priorities: real normal/simultaneous Button/Toggle/nested holds and zero thresholds, early release/movement cancellation, pressing observers, current keyed handlers, stable field focus, disabling, atomic validation and 20 owner lifetimes without activation');

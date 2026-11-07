@@ -396,6 +396,84 @@ test('owned availability applies per-controller task leases before validation an
   h.emit({ type: 'stop' }); await done;
 });
 
+test('GestureState is scoped, readonly, tracked without native cells, and reset before observer/cleanup', async () => {
+  const h = await setup(), { ui } = h; const shown = ui.State(true), revision = ui.State(0); let held, scopeRef, derived, cleanup, renders = 0; const events = [], effects = [];
+  const Owner = ui.Component(scope => {
+    scopeRef = scope; held = scope.gestureState(); derived = scope.computed(() => held.value ? 'down' : 'up');
+    scope.effect(() => { effects.push(held.value); }); scope.onDispose(() => { cleanup = held.value; });
+    return () => { renders++; const current = revision.value; return ui.Text(derived.value).onLongPressGesture(() => events.push(['perform', current, held.value]), { pressing: held, onPressingChanged: value => events.push([value, current, held.value]) }); };
+  });
+  const done = launch(ui, ui.View(() => shown.value ? Owner() : ui.Text('removed'))); await tick();
+  const node = () => [...h.nodes.values()].filter(n => n.props.press).at(-1), emit = (phase, pressing, target = node()) => h.emit({ type: 'longPress', id: target.id, token: target.props.press, phase, ...(pressing === undefined ? {} : { pressing }) });
+  assert.equal(held.value, false); assert.ok(Object.isFrozen(held)); assert.throws(() => { held.value = true; }, TypeError); assert.equal(held.binding, undefined); assert.equal(h.states.size, 2);
+  assert.throws(() => scopeRef.gestureState(), /during component setup/);
+  const first = node(); assert.equal(first.props.pressingState, undefined); assert.equal(first.props.tracksPressing, true); assert.equal(first.props.observesPressing, true);
+  emit('pressing', true); assert.equal(held.value, true); emit('performed'); await tick(); assert.ok(renders >= 2); assert.deepEqual(effects, [false, true]);
+  revision.value++; await tick(); assert.equal(node().props.press, first.props.press); emit('pressing', false); await tick();
+  assert.deepEqual(events, [[true, 0, true], ['perform', 0, true], [false, 1, false]]); assert.equal(derived.value, 'up');
+  emit('pressing', true); emit('reset'); assert.equal(held.value, false); assert.deepEqual(events.at(-1), [true, 1, true], 'reset never synthesizes observer callbacks');
+  emit('pressing', true); shown.value = false; await tick(); assert.equal(cleanup, false); assert.throws(() => held.value, /disposed GestureState/); assert.equal(ui.__testing.gestureStats().active, 0);
+  const count = events.length; emit('pressing', true, first); assert.equal(events.length, count);
+  h.emit({ type: 'stop' }); await done; assert.deepEqual(ui.__testing.gestureStats(), { active: 0, attached: 0, dependencies: 0 });
+});
+
+test('GestureState epochs reset independent projections and reject stale or malformed events', async () => {
+  const h = await setup(), { ui } = h, config = ui.State(0), selected = ui.State(0), observed = ui.State(false); let states; const calls = [];
+  const Owner = ui.Component(scope => { states = [scope.gestureState(), scope.gestureState()]; return () => ui.Text(String(states[selected.value].value)).onLongPressGesture(() => {}, { pressing: states[selected.value], minimumDuration: config.value, ...(observed.value ? { onPressingChanged: value => calls.push(value) } : {}) }); });
+  const done = launch(ui, Owner()); await tick(); const node = () => [...h.nodes.values()].find(n => n.props.press);
+  const emit = (n, phase, pressing) => h.emit({ type: 'longPress', id: n.id, token: n.props.press, phase, ...(pressing === undefined ? {} : { pressing }) });
+  assert.equal(ui.__testing.stats().actions, 1);
+  for (const change of [() => config.value++, () => { selected.value = 1; }, () => { observed.value = true; }]) {
+    const old = node(); emit(old, 'pressing', true); assert.equal(states[selected.value].value, true); change(); await tick(); const current = node();
+    assert.equal(current.id, old.id); assert.notEqual(current.props.press, old.props.press); assert.ok(states.every(state => !state.value)); emit(old, 'pressing', true); assert.ok(states.every(state => !state.value));
+  }
+  const current = node(); emit(current, 'pressing', true); emit(current, 'reset', true); assert.equal(states[1].value, true); emit({ ...current, id: -1 }, 'reset'); assert.equal(states[1].value, true);
+  emit(current, 'reset'); assert.equal(states[1].value, false); assert.deepEqual(calls, [true]);
+  h.emit({ type: 'stop' }); await done; assert.equal(ui.__testing.gestureStats().active, 0);
+});
+
+test('GestureState rejects forged, reused, foreign and cross-window attachments and invalid setup', async () => {
+  for (const mode of ['fake', 'initial', 'shared', 'foreign', 'window', 'setup-failure']) {
+    const h = await setup(), { ui } = h, presented = ui.State(true); let held; let cleanup;
+    const Child = ui.Component(() => () => ui.Text('child').onLongPressGesture(() => {}, { pressing: held }));
+    const Owner = ui.Component(scope => {
+      if (mode === 'initial') scope.gestureState(true);
+      held = scope.gestureState(); scope.onDispose(() => { cleanup = held.value; });
+      if (mode === 'setup-failure') throw new Error('setup failed');
+      return () => {
+        const target = () => ui.Text('target').onLongPressGesture(() => {}, { pressing: mode === 'fake' ? { value: false } : held });
+        if (mode === 'foreign') return ui.VStack([target(), ui.Text('outside')]);
+        if (mode === 'window') return ui.Text('main').window({ isPresented: presented.binding, title: 'owned', width: 200, height: 200, content: target() });
+        return mode === 'shared' ? ui.VStack([target(), target()]) : target();
+      };
+    });
+    // For foreign ownership, the component using the leaked state is a sibling.
+    const content = mode === 'foreign' ? ui.VStack([Owner(), Child()]) : Owner();
+    const done = launch(ui, content); await assert.rejects(done, /GestureState|gestureState|setup failed/);
+    assert.equal(ui.__testing.gestureStats().active, 0); if (held) { assert.equal(cleanup, false); assert.throws(() => held.value, /disposed/); }
+  }
+});
+
+test('GestureState detaches, can be reattached after retirement, and resets on callback failure before stop', async () => {
+  for (const failure of ['none', 'callback', 'render', 'cleanup']) {
+    const h = await setup(), { ui } = h, attached = ui.State(true), failRender = ui.State(false); let held, disposed, stopped;
+    const Child = ui.Component((scope, held) => () => { if (failRender.value) throw new Error('render failure'); return ui.Text(String(held.value)).onLongPressGesture(() => { if (failure === 'callback') throw new Error('gesture failure'); }, { pressing: held }); });
+    const Owner = ui.Component(scope => {
+      held = scope.gestureState(); scope.onDispose(() => { disposed = held.value; if (failure === 'cleanup') throw new Error('cleanup failure'); });
+      return () => attached.value ? Child(held) : ui.Text('detached');
+    });
+    const done = launch(ui, Owner(), () => { stopped = held.value; }); await tick();
+    const node = () => [...h.nodes.values()].filter(n => n.props.press).at(-1), emit = (n, phase, pressing) => h.emit({ type: 'longPress', id: n.id, token: n.props.press, phase, pressing });
+    const old = node(); emit(old, 'pressing', true); assert.equal(held.value, true); attached.value = false; await tick(); assert.equal(held.value, false); assert.equal(ui.__testing.gestureStats().attached, 0);
+    attached.value = true; await tick(); const current = node(); assert.notEqual(current.props.press, old.props.press); emit(old, 'pressing', true); assert.equal(held.value, false); emit(current, 'pressing', true); assert.equal(held.value, true);
+    if (failure === 'callback') { emit(current, 'performed'); await assert.rejects(done, /gesture failure/); }
+    else if (failure === 'render') { failRender.value = true; await assert.rejects(done, /render failure/); }
+    else if (failure === 'cleanup') { h.emit({ type: 'stop' }); await assert.rejects(done, /cleanup failure/); }
+    else { h.emit({ type: 'stop' }); await done; }
+    assert.equal(stopped, false); assert.equal(disposed, false); assert.deepEqual(ui.__testing.gestureStats(), { active: 0, attached: 0, dependencies: 0 });
+  }
+});
+
 test('long press validates copied options, strips callbacks and delivers current untracked synchronous phase handlers', async () => {
   for (const priority of ['normal', 'simultaneous']) {
     const h = await setup(), { ui } = h, version = ui.State(0), value = ui.State(false); const calls = [];

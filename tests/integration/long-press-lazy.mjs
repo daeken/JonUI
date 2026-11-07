@@ -6,10 +6,10 @@ const shown = State(false), ids = State(Array.from({ length: 60 }, (_, id) => id
 const models = new Map(), events = []; let setups = 0, disposals = 0;
 const scroll = end => test.request('debug.scroll', { index: 0, x: horizontal ? end : 0, y: horizontal ? 0 : end });
 const Row = Component((scope, id) => {
-  setups++; const hits = scope.state(0), pressing = scope.state(false); models.set(id, { hits, pressing }); let retired = false; scope.onDispose(() => { retired = true; disposals++; });
-  return () => { const current = revision.value; return Text(`Row ${id}: ${hits.value}`).frame({ width: grid || horizontal ? 110 : 220, height: horizontal ? 60 : 44 }).contentShape('rectangle')
-    .onLongPressGesture(() => { assert.equal(retired, false); hits.value++; events.push([id, 'perform', current]); }, { priority, minimumDuration: 0.05, maximumDistance: 10, onPressingChanged: value => {
-      assert.equal(retired, false); pressing.value = value; events.push([id, value, current]);
+  setups++; const hits = scope.state(0), pressing = scope.gestureState(); models.set(id, { hits, pressing }); let retired = false; scope.onDispose(() => { assert.equal(pressing.value, false); retired = true; disposals++; });
+  return () => { const current = revision.value; return Text(`Row ${id}: ${hits.value} ${pressing.value ? 'held' : 'idle'}`).frame({ width: grid || horizontal ? 110 : 220, height: horizontal ? 60 : 44 }).contentShape('rectangle')
+    .onLongPressGesture(() => { assert.equal(retired, false); hits.value++; events.push([id, 'perform', current]); }, { pressing, priority, minimumDuration: 0.05, maximumDistance: 10, onPressingChanged: value => {
+      assert.equal(retired, false); assert.equal(pressing.value, value); events.push([id, value, current]);
       if (value && mutation.value === 'scroll') scroll(1e6);
       if (value && mutation.value === 'remove') ids.value = ids.value.filter(value => value !== id);
     } }); };
@@ -44,18 +44,18 @@ async function hold(id, seconds = 0.12, move) {
 await until(() => snapshot().nodes.length > 0, 'base'); const baseline = test.stats(), surfaces = snapshot().layoutSurfaceCount; shown.value = true; test.flush(); await until(() => setups === 60 && visible(0), 'partial native realization');
 const first = node(0), model = models.get(0); assert.ok(!visible(59));
 let result = await hold(0); assert.deepEqual(result.map(e => e[1]), [true, 'perform', false]);
-mutation.value = 'scroll'; result = await hold(0); mutation.value = 'none'; assert.ok(!result.some(e => e[1] === 'perform'), 'an unrealized native row must cancel its old countdown'); await until(() => visible(59) && !layout().frames.some(f => f.id === first.id), 'first row unrealized'); assert.equal(model.hits.value, 1); assert.equal(disposals, 0);
+mutation.value = 'scroll'; result = await hold(0); mutation.value = 'none'; assert.ok(!result.some(e => e[1] === 'perform'), 'an unrealized native row must cancel its old countdown'); await until(() => visible(59) && !layout().frames.some(f => f.id === first.id), 'first row unrealized'); assert.equal(model.hits.value, 1); assert.equal(disposals, 0); assert.equal(model.pressing.value, false);
 assert.throws(() => test.request('debug.tap', { id: first.id, hold: 0.1 }), /not laid out|outside visible viewport/);
 revision.value = 1; test.flush(); result = await hold(59); assert.deepEqual(result, [[59, true, 1], [59, 'perform', 1], [59, false, 1]]);
 scroll(0); await until(() => visible(0), 'first row returns'); assert.equal(models.get(0), model); assert.equal(node(0).props.press, first.props.press); result = await hold(0); assert.deepEqual(result.map(e => e[1]), [true, 'perform', false]); assert.equal(model.hits.value, 2); assert.equal(model.pressing.value, false);
 result = await hold(0, 0.015); assert.deepEqual(result.map(e => e[1]), [true, false]); result = await hold(0, 0.12, { x: 30, y: 0, after: 0.01 }); assert.deepEqual(result.map(e => e[1]), [true, false]);
 mutation.value = 'remove'; result = await hold(0); mutation.value = 'none'; assert.ok(!result.some(e => e[1] === 'perform')); await until(() => disposals === 1 && !node(0), 'held logical row removed');
-shown.value = false; test.flush(); await until(() => disposals === setups && layout().scrolls.length === 0 && snapshot().liveViews === snapshot().nodes.length, 'owner retired'); assert.deepEqual(test.stats(), baseline); assert.equal(snapshot().layoutSurfaceCount, surfaces);
+shown.value = false; test.flush(); await until(() => disposals === setups && layout().scrolls.length === 0 && snapshot().liveViews === snapshot().nodes.length, 'owner retired'); assert.deepEqual(test.stats(), baseline); assert.equal(test.gestureStats().active, 0); assert.equal(snapshot().layoutSurfaceCount, surfaces);
 ids.value = Array.from({ length: 20 }, (_, id) => id); test.flush();
 for (let i = 0; i < 20; i++) {
   shown.value = true; test.flush(); await until(() => visible(0), `mount ${i}`); assert.equal(models.get(0).hits.value, 0);
   mutation.value = 'scroll'; result = await hold(0); mutation.value = 'none'; assert.ok(!result.some(e => e[1] === 'perform')); await until(() => visible(19), 'scrolled end'); result = await hold(19, i % 2 ? 0.015 : 0.1); assert.deepEqual(result.map(e => e[1]), i % 2 ? [true, false] : [true, 'perform', false]);
-  shown.value = false; test.flush(); await until(() => disposals === setups && layout().scrolls.length === 0 && snapshot().liveViews === snapshot().nodes.length, `remove ${i}`); assert.deepEqual(test.stats(), baseline); assert.equal(snapshot().pointerTimerCount, 0); assert.equal(snapshot().layoutSurfaceCount, surfaces);
+  shown.value = false; test.flush(); await until(() => disposals === setups && layout().scrolls.length === 0 && snapshot().liveViews === snapshot().nodes.length, `remove ${i}`); assert.deepEqual(test.stats(), baseline); assert.equal(test.gestureStats().active, 0); assert.equal(snapshot().pointerTimerCount, 0); assert.equal(snapshot().layoutSurfaceCount, surfaces);
 }
 assert.equal(setups, 460); assert.equal(disposals, setups); test.request('debug.close'); await app; assert.equal(snapshot().liveCells, 0); assert.equal(snapshot().liveViews, 0); assert.equal(snapshot().pointerTimerCount, 0); assert.deepEqual(test.stats(), { actions: 0, cells: 0, dependencies: 0 });
 console.log(`PASS lazy long press ${mode}: actual held recognition/cancel after scrolling, native-disappearance countdown invalidation, retained local state/token and fresh reappearance, early release/movement, held removal and 20 owner lifetimes without activation`);

@@ -26,6 +26,7 @@ const textEditings = new Map();
 const appearances = new Map();
 const taps = new Map();
 const longPresses = new Map();
+const gestureStates = new Set(), gestureProjections = new WeakMap();
 const windowViews = new Map();
 const viewMarker = Symbol('JonUI.View');
 const bindingMarker = Symbol('JonUI.Binding');
@@ -36,6 +37,22 @@ function focusProjection(value) {
   if (!projection) throw new TypeError('Expected an owned FocusBinding');
   if (projection.owner.disposed) throw new Error('Cannot use a disposed FocusBinding');
   return projection;
+}
+function gestureProjection(value) {
+  const state = gestureProjections.get(value);
+  if (!state) throw new TypeError('Expected an owned GestureState');
+  if (state.disposed || state.owner.disposed) throw new Error('Cannot use a disposed GestureState');
+  return state;
+}
+function updateGestureState(state, value) {
+  if (!state || state.disposed || state.value === value) return;
+  state.value = value; invalidate(state); schedule();
+}
+function retireLongPress(token) {
+  const entry = longPresses.get(token); longPresses.delete(token);
+  if (entry?.state && entry.state.mounted === entry.id) {
+    entry.state.mounted = null; updateGestureState(entry.state, false);
+  }
 }
 const supportedKinds = new Set(['text', 'image', 'spacer', 'divider', 'vstack', 'hstack', 'lazyvstack', 'lazyhstack', 'lazyvgrid', 'lazyhgrid', 'scroll', 'form', 'section', 'slider', 'stepper', 'picker', 'datepicker', 'button', 'toggle', 'textfield', 'securefield', 'texteditor', 'webview', 'split', 'list', 'foreach', 'dynamic', 'component', 'modifier']);
 // UTC instants spanning years 0001 through 9999, in Unix milliseconds.
@@ -420,11 +437,12 @@ class ViewValue {
   onSpatialTapGesture(callback, options = {}) { return tapModifier(this, 'onSpatialTapGesture', callback, options); }
   onLongPressGesture(callback, options = {}) {
     if (typeof callback !== 'function') throw new TypeError('onLongPressGesture expects a function');
-    const { minimumDuration = 0.5, maximumDistance = 10, priority = 'normal', onPressingChanged } = layoutOptions(options, ['minimumDuration', 'maximumDistance', 'priority', 'onPressingChanged'], 'onLongPressGesture');
+    const { minimumDuration = 0.5, maximumDistance = 10, priority = 'normal', pressing, onPressingChanged } = layoutOptions(options, ['minimumDuration', 'maximumDistance', 'priority', 'pressing', 'onPressingChanged'], 'onLongPressGesture');
     layoutNumber(minimumDuration, 'minimumDuration', true); layoutNumber(maximumDistance, 'maximumDistance', true);
     layoutEnum(priority, ['normal', 'simultaneous'], 'long press priority');
     if (onPressingChanged !== undefined && typeof onPressingChanged !== 'function') throw new TypeError('onPressingChanged expects a function');
-    return this.modifier('onLongPressGesture', { minimumDuration, maximumDistance, priority, observesPressing: !!onPressingChanged, onLongPress: callback, onPressingChanged });
+    if (pressing !== undefined) gestureProjection(pressing);
+    return this.modifier('onLongPressGesture', { minimumDuration, maximumDistance, priority, observesPressing: !!onPressingChanged || !!pressing, tracksPressing: !!pressing, pressingState: pressing, onLongPress: callback, onPressingChanged });
   }
   focused(binding) {
     const projection = focusProjection(binding);
@@ -467,7 +485,7 @@ function windowRoot(mounted) {
   return 0;
 }
 function initializeComponent(mounted) {
-  const owned = { cells: new Set(), computations: new Set(), effects: new Set(), propsSignal: { dependents: new Set() }, nextEffectIndex: 0, cleanups: [], initializing: true, disposed: false, render: null };
+  const owned = { cells: new Set(), computations: new Set(), gestures: new Set(), effects: new Set(), propsSignal: { dependents: new Set() }, nextEffectIndex: 0, cleanups: [], initializing: true, disposed: false, render: null };
   owned.windowRoot = windowRoot(mounted);
   liveDependencies.add(owned.propsSignal);
   mounted.component = owned;
@@ -506,6 +524,18 @@ function initializeComponent(mounted) {
       assertNotComputing('allocate State');
       if (!owned.initializing || owned.disposed) throw new Error('Component state must be allocated during setup');
       return createState(initialValue, owned);
+    },
+    gestureState() {
+      assertNotComputing('allocate GestureState');
+      if (!owned.initializing || owned.disposed) throw new Error('Allocate GestureState during component setup');
+      if (arguments.length) throw new TypeError('gestureState takes no arguments; its initial value is false');
+      const state = { owner: owned, value: false, dependents: new Set(), mounted: null, disposed: false };
+      const projection = Object.freeze({ get value() {
+        if (state.disposed) throw new Error('Cannot read a disposed GestureState');
+        readDependency(state); return state.value;
+      } });
+      gestureProjections.set(projection, state); gestureStates.add(state); owned.gestures.add(state); liveDependencies.add(state);
+      return projection;
     },
     computed(callback) {
       assertNotComputing('allocate Computed values');
@@ -811,6 +841,7 @@ function throwFailures(failures) {
 function disposeComponent(owned) {
   if (!owned || owned.disposed) return;
   owned.disposed = true;
+  for (const state of owned.gestures) updateGestureState(state, false);
   liveDependencies.delete(owned.propsSignal); invalidate(owned.propsSignal); owned.propsSignal.dependents.clear();
   for (const id of owned.cells) cells.get(id)?.dispose();
   owned.cells.clear();
@@ -821,6 +852,10 @@ function disposeComponent(owned) {
   for (const cleanup of owned.cleanups.reverse()) {
     try { untracked(cleanup); } catch (error) { failures.push(error); }
   }
+  for (const state of owned.gestures) {
+    state.disposed = true; state.mounted = null; liveDependencies.delete(state); invalidate(state); state.dependents.clear(); gestureStates.delete(state);
+  }
+  owned.gestures.clear();
   for (const observer of [...owned.computations]) disposeComputed(observer);
   owned.cleanups = []; owned.render = null;
   throwFailures(failures);
@@ -1315,7 +1350,7 @@ function unmount(mounted) {
   textEditings.delete(mounted.editingToken);
   appearances.delete(mounted.appearanceToken);
   taps.delete(mounted.tapToken);
-  longPresses.delete(mounted.longPressToken);
+  retireLongPress(mounted.longPressToken);
   for (const cell of mounted.dependencies) cell.dependents.delete(mounted);
   try { unmountAll(mounted.children); } catch (error) { failures.push(error); }
   try { disposeComponent(mounted.component); } catch (error) { failures.push(error); }
@@ -1330,6 +1365,13 @@ function reconcile(previous, value, key, parent = null) {
     let ancestor = parent;
     while (ancestor && ancestor.component !== owner) ancestor = ancestor.parent;
     if (!ancestor) throw new Error('Focused views must be descendants of their controller component');
+  }
+  if (value.props.pressingState) {
+    const owner = gestureProjection(value.props.pressingState).owner;
+    if (windowRoot({ parent, key }) !== owner.windowRoot) throw new Error('GestureState must share its component window root');
+    let ancestor = parent;
+    while (ancestor && ancestor.component !== owner) ancestor = ancestor.parent;
+    if (!ancestor) throw new Error('Gestures must be descendants of their GestureState component');
   }
   if (previous && (previous.value.kind !== value.kind ||
       (previous.value.kind === 'modifier' && (previous.value.props.name === 'window') !== (value.props.name === 'window')) ||
@@ -1418,14 +1460,17 @@ function finishEvaluation(mounted, children) {
   });
   unmountAll(old.values());
   if (value.kind === 'modifier' && value.props.name === 'window') windowViews.set(mounted.id, mounted);
-  const { body, fallback, rows, row, action, onMessage, onError, api, onSubmit, onEditingChanged, onAppearance, onTap, onLongPress, onPressingChanged, focusBinding, definition, setup, componentProps, ...props } = value.props;
-  if (props.name !== 'onLongPressGesture' || mounted.longPressDuration !== props.minimumDuration || mounted.longPressDistance !== props.maximumDistance || mounted.longPressPriority !== props.priority || mounted.longPressObserves !== props.observesPressing || !onLongPress) {
-    longPresses.delete(mounted.longPressToken); mounted.longPressToken = undefined;
+  const { body, fallback, rows, row, action, onMessage, onError, api, onSubmit, onEditingChanged, onAppearance, onTap, onLongPress, onPressingChanged, pressingState, focusBinding, definition, setup, componentProps, ...props } = value.props;
+  const gesture = pressingState === undefined ? undefined : gestureProjection(pressingState);
+  if (gesture?.mounted != null && gesture.mounted !== mounted.id) throw new Error('A GestureState can attach to only one mounted gesture');
+  if (props.name !== 'onLongPressGesture' || mounted.longPressDuration !== props.minimumDuration || mounted.longPressDistance !== props.maximumDistance || mounted.longPressPriority !== props.priority || mounted.longPressObserver !== !!onPressingChanged || mounted.longPressState !== gesture || !onLongPress) {
+    retireLongPress(mounted.longPressToken); mounted.longPressToken = undefined;
   }
   if (value.kind === 'modifier' && props.name === 'onLongPressGesture') {
     mounted.longPressToken ??= nextLongPress++;
-    mounted.longPressDuration = props.minimumDuration; mounted.longPressDistance = props.maximumDistance; mounted.longPressPriority = props.priority; mounted.longPressObserves = props.observesPressing;
-    longPresses.set(mounted.longPressToken, { id: mounted.id, callback: onLongPress, pressing: onPressingChanged }); props.press = mounted.longPressToken;
+    mounted.longPressDuration = props.minimumDuration; mounted.longPressDistance = props.maximumDistance; mounted.longPressPriority = props.priority; mounted.longPressObserver = !!onPressingChanged; mounted.longPressState = gesture;
+    if (gesture) gesture.mounted = mounted.id;
+    longPresses.set(mounted.longPressToken, { id: mounted.id, callback: onLongPress, pressing: onPressingChanged, state: gesture }); props.press = mounted.longPressToken;
   }
   if (mounted.tapCount !== props.count || mounted.tapPriority !== props.priority || mounted.tapMode !== props.name || !onTap) {
     taps.delete(mounted.tapToken); mounted.tapToken = undefined;
@@ -1546,6 +1591,7 @@ function shutdown(error, partialMounts = []) {
   if (stopped) return;
   stopped = true;
   let failure = error;
+  for (const state of gestureStates) updateGestureState(state, false);
   try { stop?.onStop?.(); } catch (caught) { failure ??= caught; }
   try { unmountAll([...(root ? [root] : []), ...partialMounts]); } catch (caught) { failure ??= caught; } finally { root = null; }
   focusListeners.clear(); focusWatch = null;
@@ -1605,10 +1651,13 @@ bridge.listen(json => {
     }
     else if (event.type === 'longPress') {
       const entry = longPresses.get(event.token);
-      if (!entry || entry.id !== event.id || !['performed', 'pressing'].includes(event.phase) || (event.phase === 'pressing' && typeof event.pressing !== 'boolean')) return;
+      if (!entry || entry.id !== event.id || !['performed', 'pressing', 'reset'].includes(event.phase) || (event.phase === 'pressing' && typeof event.pressing !== 'boolean') || (event.phase === 'reset' && event.pressing !== undefined)) return;
+      if (event.phase === 'reset') { updateGestureState(entry.state, false); return; }
       const callback = event.phase === 'performed' ? entry.callback : entry.pressing;
-      if (!callback) return;
-      const result = taskStorage.run(undefined, () => untracked(() => event.phase === 'performed' ? callback() : callback(event.pressing)));
+      const result = taskStorage.run(undefined, () => untracked(() => {
+        if (event.phase === 'pressing') updateGestureState(entry.state, event.pressing);
+        return callback ? event.phase === 'performed' ? callback() : callback(event.pressing) : undefined;
+      }));
       if (result && typeof result.then === 'function') {
         Promise.resolve(result).catch(() => {});
         throw new TypeError('Long-press callbacks must be synchronous; use scope.task for asynchronous work');
@@ -1673,6 +1722,7 @@ export const __testing = process.env.JONUI_TEST === '1' ? Object.freeze({
   webRequestStats: () => ({ apis: webAPIs.size, pending: [...webAPIs.values()].reduce((n, entry) => n + entry.runs.size, 0) }),
   taskStats: () => ({ pending: pendingTasks.size }),
   effectStats: () => ({ active: effects.size, pending: pendingEffects.size }),
+  gestureStats: () => ({ active: gestureStates.size, attached: [...gestureStates].filter(state => state.mounted !== null).length, dependencies: [...gestureStates].reduce((n, state) => n + state.dependents.size, 0) }),
   computedStats: () => ({ active: computations.size, dependencies: [...computations].reduce((n, observer) => n + observer.dependencies.size, 0) }),
   focusStats: () => ({ listeners: focusListeners.size, watching: focusWatch !== null }),
   availabilityStats: () => ({ names: availabilityWatches.size, listeners: [...availabilityWatches.values()].reduce((n, watch) => n + watch.entries.size, 0) }),

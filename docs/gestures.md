@@ -251,3 +251,45 @@ The offscreen control driver can deliver a requested 10 ms hold after roughly
 resolve that delay and is not retained. Control early-release tests use a 0.5 s
 threshold and assert that actual native phase durations end before it. They do
 not claim exact synthetic or hardware timing.
+
+
+## Owned pressing state
+
+Use setup-only `scope.gestureState()` for a read-only boolean that automatically
+returns to false. Pass it as the `pressing` option of one descendant long press:
+
+```ts
+const held = scope.gestureState(), count = scope.state(0);
+return () => Text(held.value ? 'Holding' : 'Ready')
+  .onLongPressGesture(() => { count.value++; }, { pressing: held });
+```
+
+The initial value is false; view, Computed and effect reads track changes. There
+is no public setter, native Binding or native state cell. The native pressing
+phase updates the value before an optional `onPressingChanged` callback runs.
+Recognizing the action leaves it true until the native press ends or cancels.
+Normal control competition still reports pressing even when the long-press action
+loses; normal and simultaneous modes share this state contract.
+
+End/cancel, disabling, native disappearance, attachment/configuration replacement,
+logical removal and shutdown reset the state. Lazy/sheet disappearance resets it
+without disposing logical state or changing its token; a new visible press can
+set it true again. Retirement resets are internal state changes and do not
+synthesize `onPressingChanged(false)` notifications. Changes to observer presence, configuration, or attached pressing
+state retire the token; old events cannot update the new attachment.
+Live values reset before the app stop hook and are false during owner cleanup; reads after owner
+disposal throw. A later owner instance starts with fresh false state.
+
+One GestureState can attach to one mounted long press within descendants of its
+component and its logical window root. Sharing across gestures, unrelated owners
+or owned window roots is rejected. Descendant components may use it. Detach and
+commit before attaching a retained state at another mounted identity; keyed
+reordering preserves an existing attachment. Changing the GestureState option
+resets the previous state, then attaches the new one. State stays alive until its
+component is disposed, including when temporarily detached from a gesture.
+
+This is a boolean long-press subset, not generic SwiftUI `@GestureState` or an
+arbitrary Gesture/updating API. Input coalescing, drag values, animation/reset
+transactions and explicit cancellation reasons remain future work. It follows
+native disappearance, not general partial clipping or occlusion. Offscreen
+Command-event tests retain the hardware/inactive-pointer limits above.

@@ -1528,6 +1528,53 @@ transient gesture state/reset semantics, then general composition. High priority
 explicit cancellation reasons, clipping/occlusion and hardware/unmodified inactive
 delivery remain open.
 
+
+Owned boolean gesture-state increment (2026-11-07): setup-only
+`scope.gestureState()` returns a branded, frozen, read-only `GestureState` with
+false initial value. Pass it as `onLongPressGesture(action, { pressing: held })`.
+View, Computed and effect reads track its value without a native scalar cell or
+public writable Binding. Native pressing updates the value before an optional
+pressing observer, including normal control competition; recognition itself does
+not end the hold. Normal/simultaneous modes keep their existing action semantics.
+
+End/cancel, disable, native disappearance, configuration/observer-presence/state
+replacement, attachment removal, owner disposal and shutdown reset to false.
+Native disappearance resets logical state without disposing its owner/token;
+private reset events never synthesize observer notifications. Existing current
+callback replacement retains the token. Reset/retirement events validate live
+node/configuration identity; old events cannot write a replacement attachment.
+Live values reset before the app stop hook and remain readable as false during
+owner cleanup; post-disposal reads throw. Setup/render/cleanup failure paths
+release projections, dependencies and exclusive attachments. Test-only gesture
+resource counters cover active/attached/dependency counts separately from native
+cells and callback registrations.
+
+A state attaches to one mounted descendant long press in its component's logical
+window root. Forged values, shared attachments and foreign/cross-root owners are
+rejected. Detach and commit before reusing it at another identity. Descendant
+components may use it; keyed reordering/current handlers preserve its attachment.
+Changing the pressing state resets the previous one, and a fresh component owner
+starts false. The demo uses automatic state instead of manually writing a flag.
+
+Validation: native build, 193 unit/compiler cases, 11 coverage workflow tests,
+both type checkers and API classification pass. Thirty-four focused offscreen
+native gates pass, including observer-free pressing/effects, held detachment/state
+replacement and reset before release, reattachment and 20 lifetimes. Both modes'
+main/config/observer/priority guards, owned-window/sheet disappearance/close,
+all-four-lazy retained state/reappearance, callback failures and held shutdown
+pass with automatic state and cleanup assertions. Normal/simultaneous Button/
+Toggle/nested composition, zero thresholds, keyed/field identity, disabling and
+20 lifetimes pass with tracked state. Ordinary/spatial tap priority, spatial/shape/
+tap/window/layout/appearance/shortcut/contract regression gates pass too.
+
+This remains a boolean long-press subset, not generic SwiftUI GestureState or
+arbitrary updating/composed Gesture values. No event coalescing, reset animation
+transaction, explicit cancel reasons or general clipping/occlusion policy is added.
+The recorded nested high-priority arbitration and AppKit mixed-sheet close crash
+remain unresolved; no full-suite pass is claimed. Keep gestures/animation unchecked.
+Next independent increment: define typed Gesture values and composition ownership,
+including conflict/reset mappings, before adding high-rate drag/animation APIs.
+
 ## 3. Application and operating-system integration
 
 Button Command shortcuts completed (2026-11-07), continuing keyboard navigation:

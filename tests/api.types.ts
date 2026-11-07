@@ -564,3 +564,19 @@ Text('Invalid').onLongPressGesture(() => {}, { priority: 'exclusive' });
 Text('Invalid').onLongPressGesture(async () => {}, { priority: 'simultaneous' });
 // @ts-expect-error Simultaneous pressing observers must also be synchronous.
 Text('Invalid').onLongPressGesture(() => {}, { priority: 'simultaneous', onPressingChanged: async () => {} });
+
+Component(scope => {
+  const pressing = scope.gestureState();
+  const active: boolean = pressing.value;
+  // @ts-expect-error GestureState is read-only.
+  pressing.value = true;
+  // @ts-expect-error No arbitrary initial value in the boolean pressing subset.
+  scope.gestureState(true);
+  // @ts-expect-error No native writable binding.
+  pressing.binding;
+  return () => Text(String(pressing.value)).onLongPressGesture(() => {}, { pressing, priority: 'simultaneous' });
+});
+// @ts-expect-error Only an owned GestureState can be attached.
+Text('Invalid').onLongPressGesture(() => {}, { pressing: State(false) });
+// @ts-expect-error Forged read-only records are not owned GestureState.
+Text('Invalid').onLongPressGesture(() => {}, { pressing: { value: false } });

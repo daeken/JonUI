@@ -3,7 +3,7 @@ import { Button, Component, Picker, Text, Toggle, VStack, runApp } from 'jonui';
 
 const Demo = Component(scope => {
   const singles = scope.state(0), doubles = scope.state(0), actions = scope.state(0), taps = scope.state(0), disabled = scope.state(false);
-  const longs = scope.state(0), longActions = scope.state(0), pressing = scope.state(false), together = scope.state(true);
+  const longs = scope.state(0), longActions = scope.state(0), pressing = scope.gestureState(), together = scope.state(true);
   const priority = scope.state<'normal' | 'high' | 'simultaneous'>('normal');
   const point = scope.state<TapLocation>({ x: 0, y: 0 });
   const shape = scope.state<'rectangle' | 'circle' | 'ellipse' | 'capsule'>('rectangle');
@@ -27,7 +27,7 @@ const Demo = Component(scope => {
     Toggle('Recognize holds together with Button actions', { isOn: together.binding }),
     Button(`Holds: ${longs.value} · actions: ${longActions.value} · ${pressing.value ? 'pressing' : 'idle'}`, () => { longActions.value++; })
       .frame({ width: 360, height: 60 }).contentShape(shape.value)
-      .onLongPressGesture(() => { longs.value++; }, { priority: together.value ? 'simultaneous' : 'normal', onPressingChanged: value => { pressing.value = value; } }),
+      .onLongPressGesture(() => { longs.value++; }, { priority: together.value ? 'simultaneous' : 'normal', pressing }),
     Text('Hit shapes change the padded labels’ interaction area without drawing or clipping.').font('caption'),
   ], { spacing: 20 })
     .padding(20);

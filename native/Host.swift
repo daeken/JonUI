@@ -101,12 +101,13 @@ private func validateLayout(_ kind: String, _ props: [String: Any]) throws {
     case "modifier":
         switch props["name"] as? String {
         case "onLongPressGesture":
-            try keys(["name", "minimumDuration", "maximumDistance", "priority", "observesPressing", "press"])
+            try keys(["name", "minimumDuration", "maximumDistance", "priority", "observesPressing", "tracksPressing", "press"])
             guard let priority = props["priority"] as? String, ["normal", "simultaneous"].contains(priority),
                   let duration = props["minimumDuration"].flatMap(layoutNumber), duration >= 0,
                   let distance = props["maximumDistance"].flatMap(layoutNumber), distance >= 0,
                   let token = props["press"].flatMap(layoutNumber), token > 0, token.rounded() == token, token < Double(Int.max),
-                  let observes = props["observesPressing"] as? NSNumber, CFGetTypeID(observes) == CFBooleanGetTypeID() else { throw BridgeError("Invalid long press gesture") }
+                  let observes = props["observesPressing"] as? NSNumber, CFGetTypeID(observes) == CFBooleanGetTypeID(),
+                  let tracks = props["tracksPressing"] as? NSNumber, CFGetTypeID(tracks) == CFBooleanGetTypeID(), (!tracks.boolValue || observes.boolValue) else { throw BridgeError("Invalid long press gesture") }
         case "onTapGesture", "onSpatialTapGesture":
             try keys(["name", "count", "priority", "tap"])
             guard let priority = props["priority"] as? String, ["normal", "high", "simultaneous"].contains(priority),
@@ -347,6 +348,7 @@ private struct NativeLongPressGesture: View {
     let token: Int
     let pressingChanged: (Int, Bool) -> Void
     let performed: (Int) -> Void
+    let reset: (Int) -> Void
     @Environment(\.isEnabled) private var enabled
     @State private var recognitionToken: Int?
     @State private var pressingActive = false
@@ -374,7 +376,8 @@ private struct NativeLongPressGesture: View {
         .simultaneousGesture(simultaneous, including: enabled && priority == "simultaneous" ? .all : .subviews)
         // Lazy/sheet disappearance can retain the logical owner and its token.
         // A native countdown from that old presentation must not perform later.
-        .onDisappear { recognitionToken = nil; pressingActive = false; pendingZeroRecognition = nil }
+        .onChange(of: enabled) { _, value in if !value { reset(token) } }
+        .onDisappear { recognitionToken = nil; pressingActive = false; pendingZeroRecognition = nil; reset(token) }
     }
 }
 
@@ -781,7 +784,8 @@ private struct NativeView: View {
                 let id = box.id, token = box.props["press"] as? Int ?? 0
                 return AnyView(NativeLongPressGesture(content: child(), minimumDuration: Double(box.number("minimumDuration") ?? 0.5), maximumDistance: box.number("maximumDistance") ?? 10, priority: box.string("priority"), token: token,
                     pressingChanged: { [weak host] started, pressing in host?.longPress(id, token: started, pressing: pressing) },
-                    performed: { [weak host] started in host?.longPress(id, token: started) }))
+                    performed: { [weak host] started in host?.longPress(id, token: started) },
+                    reset: { [weak host] started in host?.resetLongPress(id, token: started) }))
             case "onSpatialTapGesture":
                 let id = box.id, count = box.props["count"] as? Int ?? 1, token = box.props["tap"] as? Int ?? 0
                 return AnyView(NativeSpatialTapGesture(content: child(), count: count, priority: box.string("priority"), tapped: { [weak host] point in host?.tap(id, token: token, count: count, location: point) }))
@@ -1165,6 +1169,12 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
             event["pressing"] = pressing
         }
         emit(event)
+    }
+    // Reset owned transient state without synthesizing a pressing observer callback.
+    func resetLongPress(_ id: Int, token: Int) {
+        guard !stopping, let box = liveNode(id), box.kind == "modifier", box.string("name") == "onLongPressGesture",
+              box.props["press"] as? Int == token, box.props["tracksPressing"] as? Bool == true else { return }
+        emit(["type": "longPress", "id": id, "token": token, "phase": "reset"])
     }
     func textSubmit(_ id: Int, token: Int) {
         guard !stopping, let box = liveNode(id), ["textfield", "securefield"].contains(box.kind),

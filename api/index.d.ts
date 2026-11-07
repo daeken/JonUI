@@ -3,6 +3,7 @@ declare const bindingBrand: unique symbol;
 declare const viewBrand: unique symbol;
 declare const focusTargetBrand: unique symbol;
 declare const focusBindingBrand: unique symbol;
+declare const gestureStateBrand: unique symbol;
 declare const focusWindowBrand: unique symbol;
 /** Opaque weak native responder handle; capture from an already focused control. */
 export interface FocusTarget { readonly [focusTargetBrand]: true }
@@ -52,6 +53,12 @@ export interface Computed<T> {
 }
 /** Lazy cached JSON derivation. Allocate outside reactive callbacks; app-owned. */
 export function Computed<T>(derive: () => T, ...validation: StateValidation<T>): Computed<T>;
+
+/** Component-owned read-only boolean pressing state. Long-press ownership automatically resets it to false. */
+export interface GestureState {
+  readonly [gestureStateBrand]: true;
+  readonly value: boolean;
+}
 
 export interface TaskContext {
   readonly signal: AbortSignal;
@@ -119,6 +126,8 @@ export interface ComponentScope<Props = unknown> {
   effect(callback: () => void | (() => void)): () => void;
   /** Allocate during setup; automatically disposed when this instance unmounts. */
   state<T>(initialValue: T, ...validation: StateValidation<T>): State<T>;
+  /** Setup-only false-initialized pressing state; attach to one descendant long press in this window root. */
+  gestureState(): GestureState;
   /** Setup-only lazy derivation, automatically disposed on unmount. */
   computed<T>(derive: () => T, ...validation: StateValidation<T>): Computed<T>;
   /** Setup-only focus controller. Initial null is passive; resume or remount after context retirement. */
@@ -188,7 +197,7 @@ export interface View {
   onSpatialTapGesture<Result>(callback: (location: TapLocation) => Result, options?: { count?: 1 | 2; priority?: "normal" | "high" | "simultaneous" }, ...validation: SynchronousCallbackValidation<Result>): View;
   /** Native recognition plus optional pressing notifications; seconds/points. Retirement does not guarantee a final false notification; use scope.onDispose for cleanup. */
   onLongPressGesture<Result, PressingResult = void>(callback: () => Result, options?: {
-    minimumDuration?: number; maximumDistance?: number; priority?: "normal" | "simultaneous"; onPressingChanged?: (pressing: boolean) => PressingResult;
+    minimumDuration?: number; maximumDistance?: number; priority?: "normal" | "simultaneous"; pressing?: GestureState; onPressingChanged?: (pressing: boolean) => PressingResult;
   }, ...validation: SynchronousCallbackValidation<Result | PressingResult>): View;
   /** Attach an owned focus projection to a supported control through single-child modifiers; native availability/eligibility still apply. */
   focused(binding: FocusBinding): View;
