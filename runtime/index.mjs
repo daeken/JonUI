@@ -410,6 +410,14 @@ class ViewValue {
     if (this.props.focusName !== undefined && !this.props.focusBinding && this.props.focusName !== projection.name) throw new TypeError('focused conflicts with explicit focusName');
     return new ViewValue(this.kind, { ...this.props, focusName: projection.name, focusBinding: binding }, this.children);
   }
+  keyboardShortcut(key, ...unsupported) {
+    if (this.kind === 'modifier' && this.children.length === 1) return new ViewValue(this.kind, this.props, [this.children[0].keyboardShortcut(key, ...unsupported)]);
+    if (this.kind !== 'button') throw new TypeError('keyboardShortcut requires one Button');
+    if (typeof key !== 'string' || !/^[a-z0-9]$/.test(key)) throw new TypeError('Shortcut key must be one lowercase ASCII letter or digit');
+    if (unsupported.length) throw new TypeError('keyboardShortcut currently supports the default command modifier only');
+    const shortcut = Object.freeze({ key });
+    return new ViewValue(this.kind, { ...this.props, shortcut }, this.children);
+  }
   tag(value) { itemKey(value); return this.modifier('tag', { value }); }
   sheet({ isPresented, content }) { return new ViewValue('modifier', { name: 'sheet', state: binding(isPresented) }, [this, content]); }
   window(options) {

@@ -181,8 +181,13 @@ private func validateInput(_ kind: String, _ props: [String: Any]) throws {
     }
     switch kind {
     case "button":
-        try keys(["title", "focusName"])
+        try keys(["title", "focusName", "shortcut"])
         guard props["title"] is String else { throw BridgeError("Button title must be a string") }
+        if let raw = props["shortcut"] {
+            guard let shortcut = raw as? [String: Any], Set(shortcut.keys) == Set(["key"]),
+                  let key = shortcut["key"] as? String, key.utf8.count == 1, let scalar = key.unicodeScalars.first,
+                  (97...122).contains(scalar.value) || (48...57).contains(scalar.value) else { throw BridgeError("Invalid keyboard shortcut") }
+        }
     case "toggle":
         try keys(["title", "state", "focusName"])
         guard props["title"] is String else { throw BridgeError("Toggle title must be a string") }
@@ -593,7 +598,11 @@ private struct NativeView: View {
             }
         case "button":
             let id = box.id, host = self.host
-            return focusHosted(AnyView(Button(box.string("title")) { [weak host] in host?.action(id) }))
+            let button = Button(box.string("title")) { [weak host] in host?.action(id) }
+            if let shortcut = box.props["shortcut"] as? [String: Any], let key = shortcut["key"] as? String {
+                return focusHosted(AnyView(button.keyboardShortcut(KeyEquivalent(Character(key)), modifiers: .command)))
+            }
+            return focusHosted(AnyView(button))
         case "toggle": return focusHosted(AnyView(Toggle(box.string("title"), isOn: boolBinding())))
         case "textfield", "securefield", "texteditor": return textInputView()
         case "webview": return AnyView(EmbeddedWebView(box: box, props: box.props, host: host))
@@ -884,6 +893,7 @@ private final class JonUIApplication: NSApplication {
         return host.handleTraversalKey(event, in: window)
     }
     override func sendEvent(_ event: NSEvent) {
+        if let host = delegate as? Host, host.handleShortcutTestEvent(event) { return }
         if routeTraversalEvent(event) { return }
         super.sendEvent(event)
     }
@@ -928,6 +938,9 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
     var stopping = false
     var disposed = false
     var exitStatus: Int32 = 0
+    private var nextShortcutTest = 1
+    private var shortcutTestEvents: [TimeInterval: Int] = [:]
+    private var shortcutTestResults: [Int: [String: Any]] = [:]
     let testing = ProcessInfo.processInfo.environment["JONUI_TEST"] == "1"
     var layoutTesting: Bool { testing && ProcessInfo.processInfo.environment["JONUI_TEST_LAYOUT"] == "1" }
     var layoutFrames: [Int: CGRect] = [:]
@@ -959,6 +972,13 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
         catch { ju_runtime_abort("Cannot encode native event: \(error)") }
     }
     fileprivate func liveNode(_ id: Int) -> ViewBox? { retiredWindowNodes.contains(id) ? nil : nodes[id] }
+    fileprivate func handleShortcutTestEvent(_ event: NSEvent) -> Bool {
+        guard testing, let id = shortcutTestEvents.removeValue(forKey: event.timestamp) else { return false }
+        let handled = !stopping && event.window === currentFocusWindow() && (event.window?.performKeyEquivalent(with: event) ?? false)
+        shortcutTestResults[id] = ["done": true, "handled": handled, "flags": event.modifierFlags.rawValue,
+            "currentFlags": NSApp.currentEvent?.modifierFlags.rawValue ?? 0]
+        return true
+    }
     func action(_ id: Int) {
         guard !stopping, liveNode(id)?.kind == "button" else { return }
         emit(["type": "action", "id": id])
@@ -1010,6 +1030,7 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
         window?.contentView = nil
         root = nil; nodes.removeAll(); cells.removeAll(); webViews.removeAll(); hostedControls.removeAll(); layoutFrames.removeAll()
         retiredWindowNodes.removeAll()
+        shortcutTestEvents.removeAll(); shortcutTestResults.removeAll()
     }
     func stopped(_ status: Int32) {
         exitStatus = status; stopping = true; dispose()
@@ -1803,6 +1824,24 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
         case "debug.closeWindow" where testing:
             guard let id = message["id"] as? Int, let window = ownedWindows[id]?.window else { throw BridgeError("Unknown test window") }
             window.performClose(nil); return [:]
+        case "debug.shortcut" where testing:
+            guard let window = currentFocusWindow(), let key = message["key"] as? String else { throw BridgeError("Invalid test shortcut") }
+            let flags: NSEvent.ModifierFlags = .command
+            let codes: [String: UInt16] = ["a": 0, "s": 1, "d": 2, "f": 3, "h": 4, "g": 5, "z": 6, "x": 7, "c": 8, "v": 9, "b": 11,
+                "q": 12, "w": 13, "e": 14, "r": 15, "y": 16, "t": 17, "1": 18, "2": 19, "3": 20, "4": 21, "6": 22, "5": 23,
+                "9": 25, "7": 26, "8": 28, "0": 29, "o": 31, "u": 32, "i": 34, "p": 35, "l": 37, "j": 38, "k": 40, "n": 45, "m": 46]
+            let id = nextShortcutTest; nextShortcutTest += 1
+            let timestamp = TimeInterval(id) / 1000000
+            guard let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags, timestamp: timestamp,
+                windowNumber: window.windowNumber, context: nil, characters: key,
+                charactersIgnoringModifiers: key, isARepeat: false, keyCode: codes[key] ?? 0) else { throw BridgeError("Cannot create test shortcut") }
+            shortcutTestEvents[timestamp] = id; shortcutTestResults[id] = ["done": false]
+            NSApp.postEvent(event, atStart: false); return ["id": id]
+        case "debug.shortcutResult" where testing:
+            let id = try integer(message["id"])
+            guard let result = shortcutTestResults[id] else { throw BridgeError("Unknown shortcut test") }
+            if result["done"] as? Bool == true { shortcutTestResults.removeValue(forKey: id) }
+            return result
         case "debug.availabilityWatch" where testing:
             return ["watches": availabilityWatches.count, "notifications": availabilityNotifications.count, "scheduled": availabilityScheduled]
         case "debug.focusWatch" where testing:

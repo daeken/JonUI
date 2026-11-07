@@ -29,6 +29,26 @@ Status meanings:
 
 ## Current review
 
+- Button Command shortcut review (2026-11-07): View.keyboardShortcut accepts one
+  lowercase ASCII letter/digit on a Button through single-child modifiers. Only
+  an immutable key descriptor crosses the bridge; native SwiftUI Command handling
+  reuses the action ID/current handler and disabled/lifetime rules without new
+  production tokens/cells/interceptors. Native queued event-loop dispatch verifies
+  handled results and callbacks, named hosts, text focus, keyed/property updates,
+  disabled/removal, sheet/root isolation and 20 lifetimes; failure disposes once.
+  Build, 177 unit/compiler cases and both type checkers pass. Full validation is
+  recorded in TODO. The first full native run hit the recorded AppKit sheet-close
+  SIGSEGV after 54 passing scenarios (UC::DriverCore/NSMoveHelper/SheetBridge stack);
+  focused focus-sheets recheck passes 20 lifetimes. Full recheck passed 71 scenarios
+  before focus-mixed-sheet hit the same teardown signature. Remaining gates are
+  passing independently after mixed-sheet also reproduced the crash on focused
+  recheck: all 32 remaining gates pass, giving 103/104 passing across partitioned
+  runs, with mixed-sheet blocked. Build, 177 unit/compiler cases, both type
+  checkers and API classification pass; no clean full-suite pass is claimed.
+  No framework fix is claimed.
+  Explicit modifier combinations are deferred after inconsistent
+  offscreen shifted/unshifted matching; no modifier-selection API or hardware/
+  IME/menu-conflict/repeat/special-key parity is claimed.
 - Owned independent roots review (2026-11-07): View.window uses a boolean binding
   and copied title/initial dimensions. Presented content scopes mount separately;
   native close publishes false, retires native documents/adapters immediately and
@@ -309,7 +329,7 @@ Status meanings:
 | Image | Partial | System-symbol name; no image-loading state. | SF Symbols verified; asset/file/data images, rendering modes and resizable images remain. <!-- api: Image --> |
 | Label | Missing | Title/icon content; usually stateless. | Add title/icon composition and label styles. |
 | AsyncImage | Missing | URL plus loading/success/failure phase. | Cancellation, cache policy, errors, placeholder and owner cleanup. |
-| Button | Partial | Node action/current handler; optional third-argument focusName or owned projection opts into bounded hosting. | Action/lifecycle, naming/availability/session cleanup verified; no public target on current SDK, so positive focus/capture/Tab remain gated. Roles/styles/shortcuts/physical interaction remain. <!-- api: Button --> |
+| Button | Partial | Node action/current handler, optional named/projected bounded hosting and native Command shortcut descriptor. | Actions, shortcut recognition/disabled/removal/sheet/root cleanup verified; no public focus target on current SDK, so focus/capture/Tab remain gated. Roles/styles/explicit shortcut modifiers/physical pointer interaction remain. <!-- api: Button --> |
 | Toggle | Partial | Scalar boolean Binding; optional focusName/owned projection and public NSButton/NSSwitch lookup. | Binding/naming/session cleanup verified; current custom-drawn surface absent, positive focus/capture/Tab unverified. Styles/labels/physical keyboard/pointer coverage remain. <!-- api: Toggle --> |
 | Slider | Partial | Scalar number Binding, bounds/step; optional focusName/owned projection and public NSSlider lookup. | Rendering/native binding, naming/session cleanup verified; current custom-drawn surface absent. Positive focus/capture/Tab, physical action/accessibility remain open. <!-- api: Slider, NumericInputOptions --> |
 | Stepper | Partial | Scalar number Binding, bounds/step; named/projected focus registration. | Real NSStepper actions, name/disabled gates and cleanup verified; successful full-keyboard-access focus, formatter and styles remain. <!-- api: Stepper --> |
@@ -514,7 +534,7 @@ Status meanings:
 | MagnifyGesture / RotationGesture | Missing | Scale/angle phase and anchor. | Trackpad/touch availability and cancellation. |
 | SpatialTapGesture / SpatialEventGesture | Platform gate | Location/phase, spatial input identity. | Availability and hardware-specific input codecs. |
 | Hover / continuous hover | Missing | Hover phase/location. | Native event ownership and pointer tracking cleanup. |
-| Key input / keyboardShortcut | Missing | Key/modifier event and handling result. | Native shortcut/command scopes and text/IME safety; Tab cycle opt-in already supported. |
+| Key input / keyboardShortcut | Partial (JonUI) | Button-only native Command shortcut for one lowercase ASCII letter/digit; immutable descriptor/current Node action. | Queued native key-equivalent recognition, handled/disabled/removal, text focus, named hosts, sheet/root isolation and cleanup verified. Explicit modifiers, special/unmodified keys, menu scopes/conflicts, repeat/localization/IME/hardware validation remain. <!-- api: View.keyboardShortcut --> |
 | Focus arrow-key routing | Missing | Optional non-editing event routing. | Explicit Focus.move exists; do not steal native caret/IME/browser keys. |
 | Drag/drop / draggable / dropDestination | Missing | Typed transferable payload, hover and async load state. | Platform data policy, validation and cancellation. |
 | Swipe actions / context actions | Missing | Row identity, action role and completion. | Native List/Table integration. |
@@ -608,7 +628,7 @@ can still bypass local enforcement; this is not server-side branch protection.
 Repository instructions require the same review for contributors and automation.
 
 <!-- coverage-review:generated -->
-Review baseline (checkout HEAD before commit): `915bde05c4433fca8d949d6bfeb82a6c8ab44460`.
+Review baseline (checkout HEAD before commit): `15519120763bfee8d6b2696e6f875431445aef92`.
 
-Staged source-tree SHA-256 (excluding this catalog): `5c7886e9715bed13e3f469313eb4936b482c57b787921cec01f00bac9c56baa7`.
+Staged source-tree SHA-256 (excluding this catalog): `65ec90f55eaec6af603c01858ee74efbc797819880a89fa7dcf7045e41a9118a`.
 <!-- /coverage-review:generated -->

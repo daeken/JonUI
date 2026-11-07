@@ -179,6 +179,8 @@ export interface View {
   onDisappear<Result>(callback: () => Result, ...validation: SynchronousCallbackValidation<Result>): View;
   /** Attach an owned focus projection to a supported control through single-child modifiers; native availability/eligibility still apply. */
   focused(binding: FocusBinding): View;
+  /** Button-only native Command shortcut; key is one lowercase ASCII letter/digit. Explicit modifier combinations are not supported yet. */
+  keyboardShortcut(key: string): View;
   tag(id: ItemID): View;
   sheet(options: { isPresented: Binding<boolean>; content: View }): View;
   /** Owned independent root; closing disposes its content scopes and sets isPresented false. Dimensions apply on creation. */

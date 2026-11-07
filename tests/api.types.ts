@@ -22,6 +22,12 @@ const enabled = State<boolean>(true);
 const title = State<string>("Hello");
 const selected = State<string | null>(null);
 Button('Next', Focus.next); Button('Previous', Focus.previous); Button('Clear focus', Focus.clear);
+Button('Shortcut', () => {}).keyboardShortcut('k');
+Button('Wrapped shortcut', () => {}).padding(4).keyboardShortcut('k');
+// @ts-expect-error Explicit modifier options are not supported in the initial command-only API.
+Button('Invalid shortcut', () => {}).keyboardShortcut('k', { modifiers: ['alt'] });
+// @ts-expect-error Shortcut keys are strings.
+Button('Invalid key', () => {}).keyboardShortcut(1);
 Text('Main').window({ isPresented: enabled.binding, title: 'Owned', width: 400, height: 300, content: Text('Other root') });
 // @ts-expect-error Presentation requires a boolean binding.
 Text('Main').window({ isPresented: title.binding, title: 'Owned', width: 400, height: 300, content: Text('Other root') });

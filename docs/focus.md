@@ -39,6 +39,10 @@ a final editing-exit callback. Focus commands allocate no cells or callbacks.
 
 ## Directional commands
 
+For Button actions that request focus, [Command shortcuts](shortcuts.md) can call
+the same Focus/controller APIs. Shortcut recognition uses SwiftUI's native Button
+path and leaves the existing Return/Tab navigation APIs in place.
+
 `Focus.move('left' | 'right' | 'up' | 'down')` moves from the current eligible
 native responder to a visible geometric neighbor and returns a boolean. It
 returns false when there is no eligible current responder, no neighbor in that

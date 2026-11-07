@@ -1210,6 +1210,51 @@ recorded AppKit sheet-close gaps remain open.
 
 ## 3. Application and operating-system integration
 
+Button Command shortcuts completed (2026-11-07), continuing keyboard navigation:
+`Button(...).keyboardShortcut(key)` accepts one lowercase ASCII letter/digit and
+uses SwiftUI's native Command key equivalent. It works through single-child
+modifiers and named bounded hosts. A copied/frozen key descriptor crosses the
+bridge; functions stay in the existing current-action table. Native validation
+rejects malformed descriptors before graph mutation. No production key interceptor,
+event monitor, callback token or state cell is added. Changing/removing the key,
+disabled ancestors, logical owner disposal and window/sheet scoping use existing
+native/lifecycle paths. Root-scoped focus requests can run from the callback.
+
+The initial API deliberately rejects options and explicit modifiers. Concrete
+validation blocker: offscreen SwiftUI matching did not consistently distinguish
+shifted/unshifted same-letter chords, including queued current-event flags and
+physical key-code probes. No modifier-selection API is shipped or claimed verified.
+Default Command letters/digits are independently implemented and verified; special/
+unmodified keys, layout/localization, hardware IME, menu conflicts/scopes and repeat
+policy remain future work. Do not change keyboard preferences or fake eligibility
+to claim those paths pass.
+
+Validation: native build, 177 unit/compiler cases and Deno/TypeScript pass. Focused
+native actual key-equivalent handling verifies callbacks and native handled status,
+text focus preservation, current handlers/keyed reorder, property changes, named
+hosts, disabled ancestors, unhandled removed/unmatched chords, sheet isolation,
+same-chord independent roots and 20 owner lifetimes at baseline resources. A real
+shortcut callback failure stops/disposes once. Test events traverse AppKit's event
+loop with matching current flags; test-only pending/results retire on consumption/
+shutdown. The demo adds Command-1/2 focus and Command-S Save.
+The initial full native run passed 54 scenarios before focus-sheets crashed with
+SIGSEGV. The 2026-11-07 05:37:55 -0600 report matches the previously recorded
+UC::DriverCore::continueProcessing → NSMoveHelper._doAnimation →
+NSSheetMoveHelper.closeSheet → SwiftUI SheetBridge/NSHostingView teardown stack.
+This is a recurrence of the recorded platform failure, not a claimed fix. Focused
+focus-sheets recheck passes all 20 owner cycles. The full recheck passed 71
+scenarios before focus-mixed-sheet crashed with the same recorded sheet teardown
+signature. The focused mixed-sheet recheck also SIGSEGVs with the same recorded stack
+(2026-11-07 05:44:17 -0600 report). It is now a concrete full-suite blocker. Gates
+after that scenario pass all 32 checks independently, including native shortcuts
+and callback failure. Together with the second run's 71 passes, 103 of 104
+scenarios pass across partitioned runs; mixed-sheet is the blocker. Native build,
+177 unit/compiler cases, both type checkers and API classification pass. No clean
+uninterrupted full-suite pass or framework fix is claimed. Keep broad focus and
+richer menus/commands items unchecked.
+Next independent priority: native tap gesture callbacks; explicit modifier support
+needs a reliable platform/layout validation contract first. See docs/shortcuts.md.
+
 - [x] Support multiple windows with independent roots and explicit window ownership.
 - [ ] Add richer menus, commands, and keyboard shortcuts.
 - [ ] Add native open/save dialogs and document lifecycle support.

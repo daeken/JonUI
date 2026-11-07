@@ -38,6 +38,8 @@ def run(entry, case='', failure=None, driver=None, timeout=30, layout=False):
         assert all(result.stdout.count(marker) == 1 for marker in ['RPC_SCOPE_DISPOSE', 'RPC_STOP']), (result.stdout, result.stderr)
     if entry.endswith('focus-subscribe-error.mjs'):
         assert all(result.stdout.count(marker) == 1 for marker in ['FOCUS_SCOPE_DISPOSE', 'FOCUS_STOP']), (result.stdout, result.stderr)
+    if entry.endswith('shortcuts-error.mjs'):
+        assert all(result.stdout.count(marker) == 1 for marker in ['SHORTCUT_DISPOSE', 'SHORTCUT_STOP']), (result.stdout, result.stderr)
     if entry.endswith('focus-selection-error.mjs'):
         assert result.stdout.count('SELECTION_FAILURE_CLEANUP') == 1, (result.stdout, result.stderr)
     if entry.endswith('appearance-error.mjs'):
@@ -170,3 +172,5 @@ run('tests/integration/focus-window.mjs', timeout=90)
 run('tests/integration/windows.mjs', timeout=90)
 for mode, message in [('duplicate', 'Duplicate focus name'), ('cross', 'share their controller window root'), ('setup', 'intentional window setup'), ('cleanup', 'intentional window cleanup')]:
     run('tests/integration/windows-error.mjs', case=mode, failure=message)
+run('tests/integration/shortcuts.mjs', timeout=90)
+run('tests/integration/shortcuts-error.mjs', failure='intentional shortcut action failure')

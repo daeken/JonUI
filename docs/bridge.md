@@ -954,6 +954,25 @@ document replacement. Native coverage keeps one controller/model through sheet
 and parent resumption, rejects an earlier task's writes, repeats 20 observer
 resumes and disposes 20 owners with queued resume/request work at baseline resources.
 
+Button keyboard shortcuts add an immutable `{ key }` descriptor to the existing
+Button node. Keys are single lowercase ASCII letters/digits; options/modifier
+arguments are rejected in this Command-only increment. The native input validator
+checks exact keys and ASCII range before graph mutation. Rendering uses the native
+SwiftUI Button.keyboardShortcut(KeyEquivalent, modifiers: .command) path, including
+inside named bounded hosts. Existing action IDs/current handlers, disabled
+environment and owner retirement apply; no new production callback/state/key
+interceptor or registry is added. Removing the descriptor/owner removes recognition.
+
+The native test hook posts synthetic key events through NSApplication's real event
+loop and calls NSWindow.performKeyEquivalent while checking current-event flags.
+Only registered test events are intercepted, with pending/results cleared on
+consumption/disposal; production event routing is unchanged. Tests assert native
+handled results plus Node callbacks, including false for disabled/removed chords,
+text focus, keyed/current-handler identity, named hosts, sheets/root isolation and
+20 owners. Callback failure verifies one stop/disposal. Modifier selection remains
+deferred: shifted/unshifted same-letter dispatch was inconsistent offscreen; no
+working custom modifier contract is claimed from those probes. See shortcuts.md.
+
 Owned windows are modifier nodes with a boolean cell, copied title/initial size,
 base child and an optional content child. Node tracks the presentation cell on the
 modifier itself and reconciles content only while true. Native validation permits

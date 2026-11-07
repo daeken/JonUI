@@ -582,6 +582,24 @@ test('owned availability subscription validation, purity, callback failures and 
   }
 });
 
+test('Button shortcuts snapshot canonical native descriptors and preserve current action identity', async () => {
+  const h = await setup(), { ui } = h, key = ui.State('k'), version = ui.State(0), enabled = ui.State(true); const hits = [];
+  const original = ui.Button('Original', () => {}).keyboardShortcut('k'); assert.deepEqual(original.props.shortcut, { key: 'k' }); assert.ok(Object.isFrozen(original.props.shortcut));
+  const done = launch(ui, ui.View(() => { const current = version.value; const button = ui.Button('Action', () => hits.push(current)); return (enabled.value ? button.padding(2).keyboardShortcut(key.value) : button).disabled(false); })); await tick();
+  const button = () => [...h.nodes.values()].filter(n => n.kind === 'button').at(-1); const id = button().id; assert.deepEqual(button().props.shortcut, { key: 'k' }); assert.ok(!('action' in button().props));
+  h.emit({ type: 'action', id }); version.value = 1; key.value = 'j'; await tick(); assert.equal(button().id, id); h.emit({ type: 'action', id }); assert.deepEqual(hits, [0, 1]);
+  enabled.value = false; await tick(); assert.equal(button().props.shortcut, undefined); h.emit({ type: 'stop' }); await done; assert.deepEqual(ui.__testing.stats(), { actions: 0, cells: 0, dependencies: 0 });
+});
+
+test('Button shortcuts reject malformed keys/modifiers/options and unsupported targets before transport', async () => {
+  const h = await setup(), { ui } = h; const button = ui.Button('Action', () => {}), unsupported = [ui.Text('text'), ui.VStack([]), ui.Toggle('toggle', { isOn: ui.State(false).binding })], before = h.calls.length;
+  for (const key of ['', 'K', 'enter', ' ', '\n', 'é', '🦊', 1, null]) assert.throws(() => button.keyboardShortcut(key), /Shortcut key/);
+  for (const extra of [null, {}, { modifiers: ['command'] }]) assert.throws(() => button.keyboardShortcut('k', extra), /default command modifier only/);
+  assert.throws(() => button.keyboardShortcut('k', { unknown: true }), /default command modifier only/);
+  for (const view of unsupported) assert.throws(() => view.keyboardShortcut('k'), /requires one Button/);
+  assert.equal(h.calls.length, before);
+});
+
 test('owned windows conditionally mount independent content scopes and cancel them on close', async () => {
   const h = await setup(), { ui } = h, shown = ui.State(false); let setups = 0, disposals = 0, canceled = 0, local;
   const Owner = ui.Component(scope => { setups++; local = scope.state('fresh'); scope.onDispose(() => { disposals++; }); scope.task(task => { task.onCancel(() => { canceled++; }); }); return () => ui.Text(local.value); });

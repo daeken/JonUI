@@ -192,6 +192,10 @@ root. Closing updates the binding and disposes its content scopes; reopening
 starts fresh local state. Names and owned focus controllers are root-scoped.
 See [owned windows](docs/windows.md) and `bin/jonui examples/windows/app.ts` for
 two editors sharing app data.
+`Button('Save', save).keyboardShortcut('s')` adds a native Command shortcut.
+The initial API accepts lowercase ASCII letters/digits and works through
+single-child modifiers. See [Button shortcuts](docs/shortcuts.md) and
+`bin/jonui examples/shortcuts/app.ts` for focus requests and disabled Save handling.
 Owned controllers can inspect availability too: `focus.availability(name)` for a
 named controller, `focus.availability()` for a boolean target, or
 `focus.availability(id)` for a typed selection. Snapshots preserve intent and
