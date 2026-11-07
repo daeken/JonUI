@@ -29,12 +29,22 @@ Status meanings:
 
 ## Current review
 
+- Focus review (2026-11-07): opt-in captured Tab/Shift-Tab cycles now work in
+  the active single sheet, including mixed text/date/WebKit controls. An owned
+  NSApplication dispatcher filters to the active window without replacing
+  framework sheet delegates. Focus/sheet rows remain Partial; declarative focus,
+  nested sheets, keyboard-access, WebKit IME and assistive focus still need work.
+  Focused offscreen sheet tests verify actual application-dispatched cycles,
+  wrap/reset, stale-target rejection, native composition/modifier bypass and
+  20 focused owner retirements per scenario. Native build, all 67 offscreen native
+  scenarios, 110 unit tests, Deno/TypeScript and API classification pass for the
+  application-dispatch change.
 - Maintenance review (2026-11-07): widget/state status rows are unchanged.
   Commit-review enforcement now covers ordinary/amended commits, merges,
   cherry-picks, patch imports, rebases, and `commit --no-verify`. Eleven real-Git
   tests verify rejection/recovery, cached-tree safety, baseline metadata,
-  classification, idempotence and preservation of unstaged edits. No native,
-  runtime or TypeScript declaration changes in this increment.
+  classification, idempotence and preservation of unstaged edits. That maintenance
+  increment left native/runtime/type behavior unchanged.
 - Initial comprehensive inventory of the current TypeScript API, native bridge,
   examples and tests, including known limitations. All public exported symbols
   and View/Focus/ComponentScope members have explicit classification markers.
@@ -53,7 +63,7 @@ Status meanings:
 ## Next implementation checks
 
 - [ ] Finish generation-safe declarative focus requests and remaining named controls.
-- [ ] Complete nested/custom-routing sheet and keyboard-access/IME/AX coverage.
+- [ ] Complete nested-sheet and keyboard-access/IME/AX coverage.
 - [ ] Add ZStack, Group, Label and common missing containers/indicators.
 - [ ] Add general image/resource loading and typed colors/shapes.
 - [ ] Add menus/toolbars/commands, tabs/navigation paths and table/outline models.
@@ -183,7 +193,7 @@ Status meanings:
 
 | Widget / capability | Status | State / binding contract | Remaining work / evidence |
 | --- | --- | --- | --- |
-| sheet | Partial | Boolean presentation Binding and content. | Native sheets, mixed-widget focus/RPC/owner teardown verified; item-based, nested and custom-routing cases remain. <!-- api: View.sheet --> |
+| sheet | Partial | Boolean presentation Binding and content. | Single-sheet mixed-widget focus/RPC, opt-in Tab routing and owner teardown verified; item-based and nested cases remain. <!-- api: View.sheet --> |
 | popover | Missing | Boolean/item Binding, anchor and dismissal. | Native positioning, window ownership, focus and cleanup. |
 | fullScreenCover | Platform gate | Boolean/item Binding and presentation content. | Availability/platform semantics; ownership and dismissal. |
 | alert | Missing | Boolean/item Binding, message and actions. | Roles, text input, default/cancel and queued presentation policy. |
@@ -230,7 +240,7 @@ Status meanings:
 | SceneStorage | Missing | Per-scene restorable state. | Requires scene ownership and persistence/version policy. |
 | FocusState | Missing | Desired/actual boolean or optional named target Binding. | Earlier two-way boolean experiment was removed due stale-observation races; design generation-safe declarative requests. |
 | Focus commands | Partial | Native next/previous/clear plus four-axis geometric move. | Real text/date/WebKit/sheet/directional paths verified; full keyboard-access and optional non-editing arrow routing remain. <!-- api: Focus, Focus.next, Focus.previous, Focus.clear, Focus.move --> |
-| Captured / named focus | Partial | Weak opaque physical target or exact UTF-8 name. | Text/date/WebKit names and captures verified; buttons/toggles/slider/stepper/picker registration and eligibility remain. <!-- api: FocusTarget, Focus.capture, Focus.request, Focus.requestNamed, Focus.setTraversal --> |
+| Captured / named focus | Partial | Weak opaque physical target or exact UTF-8 name; optional active-window Tab cycle. | Text/date/WebKit names, captures and single-sheet application-dispatched Tab cycles verified; buttons/toggles/slider/stepper/picker registration and eligibility remain. <!-- api: FocusTarget, Focus.capture, Focus.request, Focus.requestNamed, Focus.setTraversal --> |
 | focusSection | Partial | Native grouping without a new state cell. | Native grouping/geometry/captures verified; wider control/hardware coverage remains. <!-- api: View.focusSection --> |
 | FocusedValue / FocusedBinding / FocusedObject | Missing | Active responder/scene scoped values and actions. | Requires responder-scoped propagation and ownership. |
 | GestureState | Missing | Transient gesture phase state with reset on end/cancel. | Gesture recognition, event coalescing and owner cleanup. |
@@ -362,7 +372,7 @@ can still bypass local enforcement; this is not server-side branch protection.
 Repository instructions require the same review for contributors and automation.
 
 <!-- coverage-review:generated -->
-Review baseline (checkout HEAD before commit): `8a3a63b07e725ff0ccc9c2aec5144a3ab82cb58b`.
+Review baseline (checkout HEAD before commit): `9c58190568e60f26ed8ff4007dab5a1e8920e68a`.
 
-Staged source-tree SHA-256 (excluding this catalog): `10af9e0a46c3777e08de155fac67e2ae40e6468facd01a4abb99e9a4ec658657`.
+Staged source-tree SHA-256 (excluding this catalog): `365aa6b557d3c5ad727574ed22e223e08c1b6b15621cc5da4af6916a6f6d4bdf`.
 <!-- /coverage-review:generated -->

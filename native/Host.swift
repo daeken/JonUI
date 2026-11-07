@@ -801,12 +801,22 @@ private final class LauncherWindow: NSWindow {
     // key/main status from the user's application.
     override func makeKey() { if !offscreen { super.makeKey() } }
     override func makeMain() { if !offscreen { super.makeMain() } }
-    override func sendEvent(_ event: NSEvent) {
-        if let host = delegate as? Host, host.handleTraversalKey(event, in: self) { return }
-        super.sendEvent(event)
-    }
     override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect {
         offscreen ? frameRect : super.constrainFrameRect(frameRect, to: screen)
+    }
+}
+
+// The application owns dispatch before both launcher and SwiftUI-owned sheet
+// windows. Keep opt-in routing here instead of replacing framework delegates.
+@objc(JonUIApplication)
+private final class JonUIApplication: NSApplication {
+    func routeTraversalEvent(_ event: NSEvent) -> Bool {
+        guard let window = event.window, let host = delegate as? Host else { return false }
+        return host.handleTraversalKey(event, in: window)
+    }
+    override func sendEvent(_ event: NSEvent) {
+        if routeTraversalEvent(event) { return }
+        super.sendEvent(event)
     }
 }
 
@@ -1107,7 +1117,7 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
         return current === best || current.isDescendant(of: best)
     }
     func handleTraversalKey(_ event: NSEvent, in window: NSWindow) -> Bool {
-        guard !stopping, window === self.window, window.attachedSheet == nil, focusTabNavigation,
+        guard !stopping, window === currentFocusWindow(), focusTabNavigation,
               event.type == .keyDown, event.keyCode == 48,
               event.modifierFlags.intersection([.command, .control, .option]).isEmpty else { return false }
         // Let the input method handle completion/candidate selection while a
@@ -1146,10 +1156,6 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 ids.append(id)
             }
             guard ids.allSatisfy({ id in focusTargets[id]?.view.map { eligibleFocusView($0, in: window) } ?? false }) else { return ["configured": false] }
-            // SwiftUI owns a sheet's NSWindow and event dispatcher. Command
-            // cycles are supported there; custom Tab routing stays main-window
-            // local without global monitors or replacing framework delegates.
-            if !ids.isEmpty, message["tabNavigation"] as? Bool == true, window !== self.window { return ["configured": false] }
             focusTraversal = ids; focusTabNavigation = !ids.isEmpty && (message["tabNavigation"] as? Bool ?? false)
             return ["configured": true]
         case "focus.capture":
@@ -1306,7 +1312,7 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
         case "dispose": stopping = true; dispose(); return [:]
         case "debug.snapshot" where testing:
             return ["nodes": nodes.values.sorted { $0.id < $1.id }.map { ["id": $0.id, "kind": $0.kind, "props": $0.props, "children": $0.children.map(\.id)] as [String: Any] },
-                    "states": cells.map { ["id": $0.key].merging($0.value.snapshot()) { _, new in new } }, "liveViews": ViewBox.live, "liveCells": Cell.live, "webViewCount": webViews.count, "textInputCount": hostedControls.filter { ["textfield", "securefield", "texteditor"].contains(nodes[$0.key]?.kind ?? "") }.count, "hostedControlCount": hostedControls.count, "mainThread": Thread.isMainThread, "windowVisible": window?.isVisible ?? false, "sheetPresented": window?.attachedSheet != nil]
+                    "states": cells.map { ["id": $0.key].merging($0.value.snapshot()) { _, new in new } }, "liveViews": ViewBox.live, "liveCells": Cell.live, "webViewCount": webViews.count, "textInputCount": hostedControls.filter { ["textfield", "securefield", "texteditor"].contains(nodes[$0.key]?.kind ?? "") }.count, "hostedControlCount": hostedControls.count, "applicationEventRouting": NSApp is JonUIApplication, "mainThread": Thread.isMainThread, "windowVisible": window?.isVisible ?? false, "sheetPresented": window?.attachedSheet != nil]
         case "debug.controls" where testing:
             return ["controls": numericControls().enumerated().map { index, control in
                 ["index": index, "kind": control is NSSlider ? "slider" : "stepper", "value": control.doubleValue] as [String: Any]
@@ -1418,7 +1424,14 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
             let type: NSEvent.EventType = message["keyUp"] as? Bool == true ? .keyUp : .keyDown
             guard let event = NSEvent.keyEvent(with: type, location: .zero, modifierFlags: flags, timestamp: ProcessInfo.processInfo.systemUptime,
                 windowNumber: window.windowNumber, context: nil, characters: flags.contains(.shift) ? "\u{19}" : "\t", charactersIgnoringModifiers: flags.contains(.shift) ? "\u{19}" : "\t", isARepeat: false, keyCode: 48) else { throw BridgeError("Cannot construct test Tab") }
-            let before = interceptedTabs; window.sendEvent(event)
+            guard let app = NSApp as? JonUIApplication else { throw BridgeError("No application event router") }
+            let before = interceptedTabs
+            if message["applicationDispatch"] as? Bool == true { app.sendEvent(event) }
+            else if !app.routeTraversalEvent(event) {
+                // A non-key offscreen window cannot rely on NSApplication's
+                // ordinary key-window dispatch. Keep native fallback local.
+                window.sendEvent(event)
+            }
             return ["intercepted": interceptedTabs != before]
         case "debug.markedText" where testing:
             guard let editor = currentFocusWindow()?.firstResponder as? NSTextView else { throw BridgeError("No focused text editor") }
@@ -1590,7 +1603,9 @@ struct JonUI {
         let root = ProcessInfo.processInfo.environment["JONUI_ROOT"] ?? URL(fileURLWithPath: CommandLine.arguments[0]).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().path
         let bootstrap = root + "/runtime/bootstrap.mjs"
         guard FileManager.default.fileExists(atPath: bootstrap) else { fputs("jonui: cannot find runtime; set JONUI_ROOT\n", stderr); exit(2) }
-        let app = NSApplication.shared
+        guard let app = JonUIApplication.shared as? JonUIApplication else {
+            fputs("jonui: application event router was not initialized\n", stderr); exit(2)
+        }
         app.setActivationPolicy(.regular)
         let host = Host(); app.delegate = host
         let menu = NSMenu(), application = NSMenuItem(); menu.addItem(application)

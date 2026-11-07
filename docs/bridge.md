@@ -488,11 +488,14 @@ keyed identity, outside/single-target cycles, invalid input, lazy cache retireme
 and 20 configured mount/unmount cycles with baseline resource counts.
 
 `tabNavigation: true` enables window-local Tab/Shift-Tab routing through the same
-weak cycle. LauncherWindow.sendEvent delegates eligible Tab key-down messages to
-the host, which checks marked-text composition and target eligibility before
-making the next native responder first. Command/Control/Option shortcuts, key-up,
-marked text, disabled/retired cycles, and all other events pass to NSWindow.
+weak cycle. The bundle's `NSPrincipalClass` is the owned `JonUIApplication`
+subclass. Its `sendEvent` override delegates eligible Tab key-down messages for
+the active window/sheet to the host, which checks marked-text composition and
+target eligibility before making the next native responder first.
+Command/Control/Option shortcuts, key-up, marked text, disabled/retired cycles,
+and all other events pass to `super.sendEvent` for ordinary AppKit dispatch.
 Native resignation refusal consumes that traversal key without retrying.
+This uses the documented [NSApplication dispatch extension point](https://developer.apple.com/documentation/appkit/nsapplication/sendevent(_:)).
 
 Mode flags are type-checked on both sides and committed only with a valid full
 target list. Default/false and empty configurations disable routing; invalid
@@ -506,7 +509,7 @@ lazy cache retirement, and 20 non-key window mount/unmount cycles.
 Native validation checks keys and child count before committing; NativeView
 applies SwiftUI's `.focusSection()` directly to its child. It adds no cells,
 callbacks, responder registry, or event interception. SwiftUI owns native grouping;
-an enabled explicit captured Tab cycle still takes precedence in the window
+an enabled explicit captured Tab cycle still takes precedence in the application
 dispatcher. Tests compare native forward/reverse grouped and geometric order,
 unchanged frames, Unicode/keyed/captured identity, reset from custom routing,
 empty sections, atomic validation, and 20 focused owner mount/unmount cycles.
@@ -548,12 +551,14 @@ window, before layout and key-loop preparation. A weak focus-context reference
 detects window switches and retires captured identities/cycles independently of
 logical graph edits. This prevents requesting a parent control behind a modal
 sheet and discards dismissed-sheet targets on the next parent-window operation.
-Command cycles support the active sheet. Nonempty custom Tab configurations return
-false there before replacing a valid command cycle; empty resets still succeed.
-LauncherWindow skips custom routing whenever it has an attached sheet, and SwiftUI's
-sheet dispatcher keeps native Tab handling. No framework delegates are replaced.
+Command cycles and opt-in Tab routing support the active sheet. The owned
+application dispatcher filters to that window without replacing SwiftUI's sheet
+delegates. Empty resets restore native sheet handling; invalid/stale target lists
+leave the configured cycle/mode intact. Parent-window events are never routed
+through the active sheet's cycle.
 Tests inspect actual sheet responders plus the parent window, verify Return/Unicode,
-native Tab/multiline behavior, bounded captures, rejected custom routing,
+application-dispatched Tab/Shift-Tab, native Tab/multiline reset, bounded captures,
+marked-text/modifier bypass and atomic stale-target rejection,
 disabled/keyed identity, context retirement with unchanged logical handles, and
 20 focused owner removals returning views/cells/callbacks/targets to baseline.
 
@@ -632,8 +637,9 @@ date/WebKit controls, visible lazy targets, sheets, cycle fallback, DOM selectio
 keyed identity, atomic directions, and 20 owner retirements.
 
 Mixed-sheet integration covers plain/secure/editor/date/WebKit responders in one
-real AppKit sheet. It verifies captures/command cycles, native DOM Tab boundaries
-and unsupported custom routing, actual text/newline/date actions, disabled/passive
+real AppKit sheet. It verifies captures/command cycles, application-dispatched
+mixed-control Tab/Shift-Tab and wrapping, native DOM Tab boundaries after reset,
+actual text/newline/date actions, disabled/passive
 browser eligibility, keyed identity, snapshot/selection preservation, and retained
 logical state/handles through dismissal/reopening. The test-only `debug.dates`
 and `debug.date` adapters enumerate/act in the active sheet (otherwise main

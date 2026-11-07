@@ -426,7 +426,8 @@ capture/request, and command cycles stay inside the active sheet, preventing
 movement behind its modal boundary. Detecting a different window context retires
 captures/cycles even with unchanged logical view handles; the context reference
 is weak. Dismissed-sheet targets reject restoration on the next parent operation.
-Custom Tab routing remains main-window-only: nonempty opt-in configurations in a
+At this checkpoint, custom Tab routing was main-window-only (superseded by the
+2026-11-07 single-sheet routing increment below): nonempty opt-in configurations in a
 sheet return false without replacing a valid command cycle; empty resets succeed.
 The parent dispatcher ignores routing while a sheet is attached. Sheet windows
 retain native Tab/Shift-Tab and multiline insertion with no framework delegate
@@ -646,10 +647,34 @@ pass with the policy applied. The animated framework path
 remains a platform limitation, rather than a claimed production crash fix. The existing
 110 unit tests and Deno/TypeScript surface are unchanged by this test-adapter/
 integration increment. This closes the mixed text/date/WebKit single-sheet
-coverage gap. Nested sheets, custom sheet Tab routing, additional non-text
+coverage gap. Custom sheet Tab routing was still open at this checkpoint and is
+implemented in the increment below. Nested sheets, additional non-text
 keyboard-access paths, declarative bindings, optional arrow-event routing,
 WebKit IME/accessibility, and the recorded intermittent sheet-animation crash
 remain open. Keep the broad focus/navigation item unchecked.
+
+Single-sheet captured Tab routing (2026-11-07): the owned `JonUIApplication`
+subclass now routes eligible Tab/Shift-Tab events before AppKit dispatches to
+launcher or SwiftUI-owned sheet windows. The bundle declares that principal
+class and startup verifies it. The host filters to the active focus window,
+preserving parent isolation and context retirement. No framework window delegate,
+global monitor or key-view links are replaced. Unhandled production events pass
+to AppKit's application dispatcher. The sheet example can enable a named-field
+captured cycle and reset native traversal.
+
+Focused offscreen gates pass for text-only and mixed text/date/WebKit sheets.
+Handled Tab/Shift-Tab events exercise the actual application `sendEvent` override,
+including wrapping, multiline non-insertion and mixed-control responder changes.
+Composition/shortcut/key-up bypass and native reset use window-local default
+dispatch in the test adapter because these windows deliberately remain non-key.
+Atomic stale-target rejection preserves the active mode. Existing tests retain
+disabled/keyed identity, dismissal/reopen model preservation, parent isolation,
+RPC cancellation and 20 pending focused owner retirements per sheet scenario.
+Validation: native build, all 67 offscreen native integration scenarios, 110
+runtime/compiler unit tests, Deno/TypeScript checks and API classification pass.
+Keep the broad focus/navigation item unchecked: nested sheets,
+generation-safe declarative bindings, remaining named
+controls, real keyboard/IME/AX and non-text keyboard-access paths remain open.
 
 ## 3. Application and operating-system integration
 

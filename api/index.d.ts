@@ -185,7 +185,7 @@ export const Focus: {
   readonly request: (target: FocusTarget) => boolean;
   /** Focus a realized named text input, date picker, or WebView in the active window. False when unavailable. */
   readonly requestNamed: (name: string) => boolean;
-  /** Cycle for next/previous; Tab routing is main-window-only. [] restores native behavior. False keeps a valid prior cycle. */
+  /** Cycle for next/previous and optional Tab in the active window/sheet. [] restores native behavior. False keeps a valid prior cycle. */
   readonly setTraversal: (targets: readonly FocusTarget[], options?: { tabNavigation?: boolean }) => boolean;
 };
 export function Toggle(title: string, options: { isOn: Binding<boolean> }): View;

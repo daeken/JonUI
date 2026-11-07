@@ -73,7 +73,13 @@ const targets = {};
 for (const name of ['before', 'date', 'web', 'editor', 'after']) { assert.equal(Focus.requestNamed(`sheet-${name}`), true); targets[name] = Focus.capture(); assert.ok(targets[name]); }
 const order = ['before', 'date', 'web', 'editor', 'after'].map(name => targets[name]); assert.equal(Focus.setTraversal(order), true);
 Focus.clear(); Focus.next(); assert.deepEqual(status().fields, [fieldIndex(false)]); Focus.next(); assert.equal(dateFocused(), true); Focus.next(); assert.equal(focus().focused, true); Focus.next(); assert.deepEqual(status().editors, [0]); Focus.previous(); assert.equal(focus().focused, true);
-assert.equal(Focus.setTraversal(order, { tabNavigation: true }), false); assert.deepEqual(test.request('debug.focusTraversal'), { count: 5, tabNavigation: false });
+assert.equal(Focus.setTraversal(order, { tabNavigation: true }), true); assert.deepEqual(test.request('debug.focusTraversal'), { count: 5, tabNavigation: true });
+Focus.request(targets.before); assert.equal(test.request('debug.tab', { applicationDispatch: true }).intercepted, true); assert.equal(dateFocused(), true);
+assert.equal(test.request('debug.tab', { applicationDispatch: true }).intercepted, true); assert.equal(focus().focused, true);
+assert.equal(test.request('debug.tab', { applicationDispatch: true }).intercepted, true); assert.deepEqual(status().editors, [0]);
+assert.equal(test.request('debug.tab', { modifiers: ['shift'], applicationDispatch: true }).intercepted, true); assert.equal(focus().focused, true);
+Focus.request(targets.after); assert.equal(test.request('debug.tab', { applicationDispatch: true }).intercepted, true); assert.deepEqual(status().fields, [fieldIndex(false)]);
+assert.equal(test.request('debug.tab', { modifiers: ['shift'], applicationDispatch: true }).intercepted, true); assert.deepEqual(status().fields, [fieldIndex(true)]);
 assert.equal(Focus.setTraversal([], { tabNavigation: true }), true);
 Focus.request(targets.before); test.request('debug.field', { index: fieldIndex(false), value: 'Sheet 日本 🦊 café', submit: true });
 await until(() => submits.length === 1 && dateFocused(), 'Return snapshot before named date focus'); assert.deepEqual(submits, ['Sheet 日本 🦊 café']);

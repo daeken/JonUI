@@ -135,7 +135,7 @@ or removing view handles retires saved captures; value updates/keyed reorder kee
 them. The example includes Remember/Restore actions.
 `Focus.setTraversal(targets)` configures a captured-target cycle for Next/Previous
 commands and Return handlers; `[]` restores native order. Add
-`{ tabNavigation: true }` to route the main window's Tab/Shift-Tab through that
+`{ tabNavigation: true }` to route the active window or sheet's Tab/Shift-Tab through that
 cycle too. Modifier shortcuts and marked-text composition retain native handling.
 Structural edits retire the cycle and routing with its captures.
 Apply `.focusSection()` to each container to group its descendants for native
@@ -147,8 +147,8 @@ interaction. Dynamic flags belong in a tracked `View` body. Unavailable captured
 targets reject restoration, and a cycle containing one falls back to native order.
 Focus commands and captures follow the active sheet when one is attached, keeping
 movement out of the parent window. A detected window-context switch retires saved
-targets and cycles. Try `bin/jonui examples/focus-sheets/app.ts`; sheet cycles support
-commands, while their Tab handling stays native.
+targets and cycles. Try `bin/jonui examples/focus-sheets/app.ts`; its Tab-between-fields
+button enables sheet routing, and Native order restores platform handling.
 
 `DatePicker` binds Unix milliseconds with date/time components, optional bounds,
 native styles, and named time zones. The example includes a UTC appointment

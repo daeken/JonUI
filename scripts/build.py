@@ -77,7 +77,7 @@ def main():
             "CFBundleIdentifier": "dev.jonui.launcher", "CFBundleExecutable": "jonui",
             "CFBundlePackageType": "APPL", "CFBundleVersion": "1",
             "CFBundleShortVersionString": "0.0.0", "LSMinimumSystemVersion": "14.0",
-            "NSHighResolutionCapable": True, "NSPrincipalClass": "NSApplication"}
+            "NSHighResolutionCapable": True, "NSPrincipalClass": "JonUIApplication"}
     (bundle / "Info.plist").write_bytes(plistlib.dumps(info))
     print(f"Built {bundled_binary}", flush=True)
 

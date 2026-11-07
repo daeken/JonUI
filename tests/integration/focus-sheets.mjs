@@ -34,6 +34,7 @@ async function until(predicate, name) {
 const tab = reverse => test.request('debug.tab', { modifiers: reverse ? ['shift'] : [] }).intercepted;
 const nodeIDs = () => snapshot().nodes.map(n => n.id).sort((a, b) => a - b);
 await until(s => s.states.length === 8 && fields().length === 1 && !context().sheet, 'mounted main window');
+assert.equal(snapshot().applicationEventRouting, true);
 test.request('debug.focus', { field: 0 }); const parent = Focus.capture(); assert.ok(parent);
 assert.equal(Focus.setTraversal([parent], { tabNavigation: true }), true); const originalIDs = nodeIDs();
 presented.value = true;
@@ -56,9 +57,22 @@ assert.deepEqual(handles(), { targets: 3, live: 3 }); assert.deepEqual(context()
 const order = [note, plain, secure]; assert.equal(Focus.setTraversal(order), true);
 Focus.clear(); Focus.next(); assert.deepEqual(status().editors, [0]);
 Focus.next(); assert.deepEqual(status().fields, [index(false)]); Focus.previous(); assert.deepEqual(status().editors, [0]);
-assert.equal(Focus.setTraversal(order, { tabNavigation: true }), false, 'unsupported sheet Tab mode preserves command cycle');
-assert.deepEqual(cycle(), { count: 3, tabNavigation: false });
-assert.equal(Focus.setTraversal([parent]), false); assert.deepEqual(cycle(), { count: 3, tabNavigation: false });
+assert.equal(Focus.setTraversal(order, { tabNavigation: true }), true);
+assert.deepEqual(cycle(), { count: 3, tabNavigation: true });
+const sheetTab = reverse => test.request('debug.tab', { modifiers: reverse ? ['shift'] : [], applicationDispatch: true }).intercepted;
+Focus.request(note); test.request('debug.editor', { index: 0, value: 'cycle tabs' });
+await until(() => model.note.value === 'cycle tabs', 'editor value before routed sheet Tab');
+assert.equal(sheetTab(), true); assert.deepEqual(status().fields, [index(false)]);
+assert.equal(sheetTab(true), true); assert.deepEqual(status().editors, [0]);
+assert.equal(model.note.value, 'cycle tabs', 'opt-in sheet Tab leaves the editor without inserting text');
+assert.equal(test.request('debug.markedText', { value: 'に' }).marked, true);
+assert.equal(tab(), false, 'marked-text sheet composition bypasses custom routing'); test.request('debug.markedText');
+for (const modifiers of [['command'], ['control'], ['option']]) {
+  Focus.request(note); assert.equal(test.request('debug.tab', { modifiers }).intercepted, false);
+}
+Focus.request(note);
+assert.equal(test.request('debug.tab', { keyUp: true }).intercepted, false);
+assert.equal(Focus.setTraversal([parent]), false); assert.deepEqual(cycle(), { count: 3, tabNavigation: true });
 assert.equal(Focus.setTraversal([], { tabNavigation: true }), true); assert.deepEqual(cycle(), { count: 0, tabNavigation: false });
 Focus.request(plain); assert.equal(tab(), false); await until(() => status().fields[0] === index(true), 'native sheet Tab');
 assert.equal(tab(true), false); await until(() => status().fields[0] === index(false), 'native sheet Shift-Tab');
@@ -99,4 +113,4 @@ for (let i = 0; i < 20; i++) {
 assert.equal(setups, 21); assert.equal(disposals, setups); assert.equal(mainName.value, 'parent'); assert.deepEqual(submits, ['Sheet 🦊 café']);
 test.request('debug.close'); await app;
 assert.deepEqual(test.stats(), { actions: 0, cells: 0, dependencies: 0 }); assert.equal(snapshot().liveCells, 0);
-console.log('PASS active sheet focus: native plain/secure/editor commands and captures, parent isolation/context retirement, Return/Unicode ordering, command cycles/native Tab and multiline reset, atomic unsupported routing, disabled/keyed identity and 20 focused owner mount/unmount cycles without activation');
+console.log('PASS active sheet focus: native plain/secure/editor commands and captures, parent isolation/context retirement, Return/Unicode ordering, app-dispatched Tab cycles and native multiline reset, atomic stale-target routing, disabled/keyed identity and 20 focused owner mount/unmount cycles without activation');

@@ -247,9 +247,9 @@ Focus.setTraversal([name, notes, secret], { tabNavigation: true });
 ```
 
 Here `name`, `notes`, and `secret` are already captured FocusTargets. Unmodified
-Tab and Shift-Tab key-down events in the JonUI main window follow that explicit
-order and wrap, including entry from cleared/unlisted focus. A multiline editor
-leaves for the next target instead of inserting Tab while routing is enabled.
+Tab and Shift-Tab key-down events in the active JonUI window or sheet follow
+that explicit order and wrap, including entry from cleared/unlisted focus. A
+multiline editor leaves for the next target instead of inserting Tab while routing is enabled.
 A one-target cycle preserves its existing editing session. A responder that
 refuses to resign keeps focus; the same key is not retried through another path.
 
@@ -257,8 +257,9 @@ Command/Control/Option-modified Tab, key-up events, and responders with marked
 text pass through to native handling. This lets shortcuts and input-method
 composition/candidate selection continue normally. Routing is window-local; it
 uses neither global event monitors nor rewritten next-key-view links and does
-not activate/key the window. Sheet cycles support commands and retain native
-Tab handling. WebKit input-method/composition remains separate coverage work.
+not activate/key the window. An application-owned dispatcher handles the opt-in
+before window dispatch, including SwiftUI-owned sheets. Unhandled events continue
+through AppKit. WebKit input-method/composition remains separate coverage work.
 
 Use `Focus.setTraversal(order, { tabNavigation: false })` or omit the option to
 keep only command traversal; omitting it also disables a prior opt-in. Use `[]`
@@ -421,7 +422,7 @@ marked-text bypass is automated.
 Before every focus operation, the host follows the main window's
 [attachedSheet](https://developer.apple.com/documentation/appkit/nswindow/attachedsheet)
 chain and selects the deepest attached window. Next/Previous/Clear, capture/request,
-and command traversal cycles operate within that window. A captured parent target
+and traversal cycles operate within that window. A captured parent target
 cannot restore focus behind a modal sheet. No operation activates the app or makes
 a window key. Native plain/secure/multiline controls are verified in a single
 SwiftUI sheet; nested sheets remain a coverage gap.
@@ -432,21 +433,21 @@ between a sheet and its parent. The host remembers the context weakly, so it
 does not retain dismissed windows or their content. After dismissal, the next
 operation selects the parent and rejects previously captured sheet targets.
 
-`Focus.setTraversal(order)` supports command cycles inside a sheet. The sheet's
-native Tab/Shift-Tab and multiline Tab insertion remain available independently.
-Nonempty `{ tabNavigation: true }` configurations return false in sheets and
-preserve an existing valid command cycle. An empty array still resets the cycle
-successfully, including with that flag. Custom Tab routing remains in the main
-window's own dispatcher; it ignores parent-window events while a sheet is attached.
-No framework window delegates or global event monitors are installed.
+`Focus.setTraversal(order)` supports command cycles inside a sheet. Add
+`{ tabNavigation: true }` to route its Tab/Shift-Tab through that same cycle.
+The application dispatcher filters events to the active focus window, so parent
+events cannot traverse behind the sheet. Resetting with `[]` restores native
+Tab/Shift-Tab and multiline Tab insertion. Invalid or stale targets preserve the
+existing valid cycle and mode. No framework window delegates or global event
+monitors are installed.
 
 ```sh
 bin/jonui examples/focus-sheets/app.ts
 ```
 
-The example remembers inputs on Return and supports Next/Previous/Clear and a
-remembered command cycle inside the sheet. Sheet content retains normal logical
-scope ownership: dismissing the presentation preserves models while its declaration
+The example remembers inputs on Return and supports Next/Previous/Clear and
+an opt-in Tab cycle between its named fields inside the sheet. Sheet content
+retains normal logical scope ownership: dismissing the presentation preserves models while its declaration
 is mounted. Removing the owner releases scoped cells/callbacks and dismisses a
 focused sheet; stored targets then become unavailable.
 
@@ -527,7 +528,7 @@ the animated framework path remains a separate limitation.
 
 Mixed-sheet tests combine plain/secure text inputs, a multiline editor, DatePicker,
 and a two-input WebView in the same real AppKit sheet. They verify command cycles
-and captures, atomic rejection of unsupported sheet Tab routing, native forward/
+and captures, application-dispatched Tab/Shift-Tab cycles and wrapping, native forward/
 reverse Tab entry and exit through the DOM, inherited disabled and passive browser
 eligibility, actual Return/Unicode/newline/date edits, snapshot delivery without
 selection loss, and keyed identity. A parent date remains unchanged while actual
@@ -538,8 +539,12 @@ Sheet dismissal/reopening preserves its logical owner's state and handles;
 presentation visibility is separate from component ownership. Reload and logical
 owner removal cancel pending browser RPC. The mixed-sheet gate removes 20 focused
 owners with pending calls and verifies retired views/cells/names/callbacks/requests,
-aborted signals, and suppressed late shared-state/focus work. Nested sheets,
-custom sheet Tab routing, and additional non-text keyboard-access paths remain open.
+aborted signals, and suppressed late shared-state/focus work. Nested sheets
+and additional non-text keyboard-access paths remain open. Sheet text tests also
+cover marked-text/modifier bypass, stale-target rejection and multiline reset.
+Handled cycle events pass through the actual application `sendEvent` override;
+unhandled test events use window-local native dispatch because offscreen windows
+are deliberately non-key. Real keyboard/IME behavior still needs manual coverage.
 
 Named tests verify first focus, exact Unicode IDs, case sensitivity, no capture
 allocation over repeated requests, preserved DOM selection, rename/reassignment/
