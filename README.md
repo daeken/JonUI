@@ -132,6 +132,10 @@ form navigation; see [native focus](docs/focus.md) for ordering and cleanup rule
 `Focus.currentName()` reads the actual eligible responder's declared name, or
 null for cleared/unnamed focus, in the active window or sheet. It is a synchronous
 snapshot; it does not subscribe or establish a two-way focus binding.
+`Focus.availabilityNamed(name)` reports missing, unrealized, inactive-window,
+unavailable or ready status without requesting focus. It lets callers check a
+named target before an explicit retry; it does not scroll or subscribe. See
+[named target availability](docs/focus.md#named-target-availability).
 `Focus.subscribe(name => ...)` observes coalesced name changes. Return its cleanup
 from `scope.effect` for component ownership; task subscriptions cancel with their
 task. See [focus subscriptions](docs/focus.md#focus-change-subscriptions) for delivery

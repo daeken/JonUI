@@ -1290,6 +1290,17 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
             if focused() { return ["focused": true] }
             let accepted = window.makeFirstResponder(view)
             return ["focused": accepted && focused()]
+        case "focus.availability":
+            let window = try prepareFocusWindow()
+            guard let name = message["name"] as? String, !name.isEmpty else { throw BridgeError("Focus name must be a nonempty string") }
+            guard let id = namedFocusNodes[Data(name.utf8)] else { return ["availability": "missing"] }
+            let surface: NSView?
+            if nodes[id]?.kind == "webview", let coordinator = webViews[id], coordinator.active { surface = coordinator.view }
+            else if let coordinator = hostedControls[id], coordinator.active { surface = coordinator.view }
+            else { surface = nil }
+            guard let surface, let ownerWindow = surface.window else { return ["availability": "unrealized"] }
+            guard ownerWindow === window else { return ["availability": "inactiveWindow"] }
+            return ["availability": namedFocusView(id, in: window) == nil ? "unavailable" : "ready"]
         case "focus.currentName":
             let window = try prepareFocusWindow()
             return ["name": currentFocusName(in: window) as Any? ?? NSNull()]

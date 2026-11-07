@@ -17,6 +17,7 @@ async function setup() {
       if (message.op === 'web.claim') result = { accepted: focus.rpcActive !== false };
       if (message.op === 'focus.named') result = { focused: focus.focused };
       if (message.op === 'focus.currentName') result = { name: focus.name };
+      if (message.op === 'focus.availability') result = focus.availabilityError ? { error: focus.availabilityError } : { availability: focus.availability ?? 'ready' };
       if (message.op === 'focus.watch') result = focus.watchError ? { error: focus.watchError } : { name: focus.name, sequence: 0, context: focus.context ?? 1, generation: 0 };
       if (message.op === 'focus.snapshot') result = focus.snapshotError ? { error: focus.snapshotError } : { accepted: true, observation: { token: message.token, sequence: ++focus.sequence, context: focus.context ?? 1, generation: focus.generation ?? 0, name: focus.name } };
       if (message.op === 'focus.direction') result = { moved: focus.focused };
@@ -293,6 +294,39 @@ test('focus subscriptions share a session, reject stale events and preserve exac
   h.emit({ type: 'focusChanged', token: newToken, sequence: 1, context: 1, generation: 0, name: 'fresh' }); await tick(); assert.equal(first.at(-1), 'fresh');
   c(); h.emit({ type: 'stop' }); await done;
   const count = h.calls.length; ui.Focus.subscribe(() => assert.fail())(); assert.equal(h.calls.length, count);
+});
+
+test('named focus availability validates exact names and reads snapshots without issuing movement or retaining resources', async () => {
+  const h = await setup(), { ui } = h, done = launch(ui, ui.Text('availability'));
+  const baseline = ui.__testing.stats(), before = h.calls.length;
+  for (const name of ['', 1, true, null, {}, '\ud800']) assert.throws(() => ui.Focus.availabilityNamed(name), /Focus names/);
+  assert.equal(h.calls.length, before);
+  for (const availability of ['missing', 'unrealized', 'inactiveWindow', 'unavailable', 'ready']) {
+    h.focus.availability = availability;
+    for (const name of ['café', 'cafe\u0301']) {
+      assert.equal(ui.Focus.availabilityNamed(name), availability);
+      assert.deepEqual(h.calls.at(-1), { op: 'focus.availability', name });
+    }
+  }
+  assert.deepEqual(ui.__testing.stats(), baseline); assert.deepEqual(ui.__testing.focusStats(), { listeners: 0, watching: false });
+  assert.equal(h.calls.some(c => c.focusRequest), false);
+  h.focus.availabilityError = 'mounted window required'; assert.throws(() => ui.Focus.availabilityNamed('target'), /mounted window/);
+  h.emit({ type: 'stop' }); await done; const count = h.calls.length;
+  assert.equal(ui.Focus.availabilityNamed({}), null); assert.equal(h.calls.length, count);
+});
+
+test('availability snapshots enforce render/computed purity and suppress canceled task queries before validation', async () => {
+  const h = await setup(), { ui } = h, shown = ui.State(true); let release, result = 'pending';
+  const Owner = ui.Component(scope => {
+    scope.effect(() => { assert.equal(ui.Focus.availabilityNamed('target'), 'ready'); });
+    scope.task(async () => { await new Promise(resolve => { release = resolve; }); result = ui.Focus.availabilityNamed({}); });
+    return () => { assert.throws(() => ui.Focus.availabilityNamed('target'), /Read native focus availability outside view bodies/); return ui.Text('owner'); };
+  });
+  const done = launch(ui, ui.View(() => shown.value ? Owner() : ui.Text('removed'))); await tick();
+  const derived = ui.Computed(() => ui.Focus.availabilityNamed('target')); assert.throws(() => derived.value, /Computed callbacks cannot read native focus availability/);
+  shown.value = false; await tick(); const count = h.calls.length; release(); await tick();
+  assert.equal(result, null); assert.equal(h.calls.length, count);
+  h.emit({ type: 'stop' }); await done; assert.deepEqual(ui.__testing.stats(), { actions: 0, cells: 0, dependencies: 0 });
 });
 
 test('focus subscription failure rolls back resources and listeners can remove siblings or add listeners during delivery', async () => {

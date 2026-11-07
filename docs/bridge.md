@@ -632,6 +632,27 @@ new-control focus/capture/Tab path is claimed verified. Those branches are teste
 conditionally when real eligibility is available; tests neither change preferences
 nor override platform key-view flags. Slider/Button/Toggle targeting remains open.
 
+`Focus.availabilityNamed` sends `focus.availability` through the ordinary request
+path, without a focusRequest stamp. After normal active-window preparation, lookup
+uses the exact UTF-8 name registry. Missing names return missing. Absent/inactive
+coordinators or detached surfaces return unrealized; attached hosting/browser
+surfaces in another window return inactiveWindow. Otherwise the existing
+namedFocusView resolver determines ready versus unavailable. No separate raw
+control resolver or duplicated eligibility policy is introduced. The temporary
+surface reference lives only during the request; no registry, subscription or
+resource is added. Unavailable intentionally groups no supported native surface
+with disabled/hidden/keyboard-ineligible states. Realization precedes the window
+comparison, because an unrealized adapter has no physical window identity.
+
+Queries perform no responder operation, scrolling or desired writes, and consume
+no movement generation. Existing context preparation can retire captures/cycles
+when the active window changed, as with currentName. Render/computed purity and
+canceled/post-shutdown guards run before name validation. Native integration
+covers exact names, text/date/choice/WebKit gates, missing and unrealized names,
+actual lazy scrolling followed by an explicit retained-intent retry, active-sheet
+isolation, passive query behavior and 20 owner lifetimes. Same-context query loops
+preserve captures/cycles, focus/intent, request generations, viewport and resources.
+
 `Focus.move(direction)` sends `focus.direction` with one of four spatial directions.
 After layout/key-loop recalculation, the host resolves a shared field editor to
 its control and normalizes internal WebKit responders to the browser container.

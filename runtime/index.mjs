@@ -929,6 +929,10 @@ export const Focus = Object.freeze({
     if (!canMoveFocus()) return false;
     return requestFocus('focus.named', { name: focusName(name) }).focused;
   },
+  availabilityNamed(name) {
+    if (!canMoveFocus('read native focus availability')) return null;
+    return request('focus.availability', { name: focusName(name) }).availability;
+  },
   currentName() {
     if (!canMoveFocus('read native focus')) return null;
     return request('focus.currentName').name;

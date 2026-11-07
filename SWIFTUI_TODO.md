@@ -29,6 +29,19 @@ Status meanings:
 
 ## Current review
 
+- Named availability review (2026-11-07): `Focus.availabilityNamed` exposes a
+  synchronous named-target snapshot (missing/unrealized/inactiveWindow/unavailable/
+  ready), reusing native ownership/eligibility with no movement generation or
+  new resources. It preserves explicit retry/resume policy and makes no viewport
+  visibility or responder-acceptance guarantee. Two unit cases bring the total
+  to 144; native build, Deno/TypeScript and the focused offscreen gate pass mixed
+  controls, exact names, real lazy realization plus explicit retry, sheet/context
+  isolation and 20 owner lifetimes. Same-context focus/intent/captures/cycles/
+  viewport/generations stay unchanged. All 79 offscreen native scenarios, 144
+  unit tests, native build, Deno/TypeScript and API classification pass. The
+  recorded AppKit sheet-close crash did not recur; no fix is claimed. Broader
+  automatic realization/physical-window policy, owned availability helpers and
+  existing keyboard-access/IME/AX/nested-sheet/platform gaps remain open.
 - Stepper/Picker focus review (2026-11-07): both accept focusName and projected
   `.focused` bindings using a bounded native host for named/unnamed controls.
   Public NSStepper/NSPopUpButton/NSSegmentedControl lookup preserves native
@@ -348,6 +361,7 @@ Status meanings:
 | Typed focus selection controller | Partial (JonUI) | Fixed unique string/number domain; separate nullable intent/observation; opaque target bindings and passive resume. | Literal inference, runtime validation, typed/independent identity, text/date/WebKit, conditional/global clear, task leases and owner cleanup verified; dynamic/object domains and general SwiftUI overloads remain. <!-- api: SelectionFocusController, ComponentScope.focusSelection --> |
 | focused projection | Partial (JonUI) | Boolean actual getter and deferred true/conditional-false request, attached to one named input. | Text/secure/editor/date/WebKit focus verified; Stepper/Picker wiring and unavailable gates verified, successful focus still gated. Modifier/owner/Unicode blur/cleanup covered; containers and remaining native controls unsupported. <!-- api: FocusBinding, View.focused --> |
 | Native focus observation | Partial (JonUI) | Nullable named responder snapshots and coalesced subscriptions; generation-stamped movement acknowledgements; observations do not write intent. | Text/date/WebKit/single-sheet observation, generation/sequence/context guards and cleanup verified; broader controls/IME/AX remain. <!-- api: Focus.subscribe --> |
+| Named focus availability | Partial (JonUI) | Synchronous logical/native attachment and eligibility snapshot, without movement or subscription. | Exact names, missing/unrealized/inactive/unavailable/ready states, lazy explicit retry, unchanged focus/intent/generation/viewport and cleanup verified; owned-ID helpers, subscriptions/automatic policies remain. <!-- api: FocusAvailability, Focus.availabilityNamed --> |
 | Focus commands | Partial | Native next/previous/clear plus four-axis geometric move. | Real text/date/WebKit/sheet/directional paths verified; full keyboard-access and optional non-editing arrow routing remain. <!-- api: Focus, Focus.next, Focus.previous, Focus.clear, Focus.move --> |
 | Captured / named focus | Partial | Weak opaque physical target or exact UTF-8 name; currentName snapshot; optional active-window Tab cycle. | Text/date/WebKit focus/captures/Tab verified; Stepper/Picker names and unavailable gates verified, successful eligibility remains gated. Button/Toggle/Slider registration remains. <!-- api: FocusTarget, Focus.capture, Focus.request, Focus.requestNamed, Focus.currentName, Focus.setTraversal --> |
 | focusSection | Partial | Native grouping without a new state cell. | Native grouping/geometry/captures verified; wider control/hardware coverage remains. <!-- api: View.focusSection --> |
@@ -481,7 +495,7 @@ can still bypass local enforcement; this is not server-side branch protection.
 Repository instructions require the same review for contributors and automation.
 
 <!-- coverage-review:generated -->
-Review baseline (checkout HEAD before commit): `e02fe94effb5c7ee6bd4945465efa4487a7c8a9d`.
+Review baseline (checkout HEAD before commit): `a77bcb2a6889447b840c01960d2b00f78581b101`.
 
-Staged source-tree SHA-256 (excluding this catalog): `d30f86fb8bb1419d0e94414ae52fc43d816c02e5a9bb7a516bb72f338dc9d60f`.
+Staged source-tree SHA-256 (excluding this catalog): `ca28ff74b74138c25b600ad2fd5b091739bae2fcec1175c1adf11daf0d8146f6`.
 <!-- /coverage-review:generated -->

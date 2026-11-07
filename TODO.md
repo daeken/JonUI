@@ -942,6 +942,34 @@ keyboard access verification, object/dynamic selection domains, general
 overloads, physical windows, IME/AX/nested sheets and the recorded intermittent
 AppKit sheet-close crash remain open.
 
+Named focus availability completed (2026-11-07): `Focus.availabilityNamed(name)`
+returns a synchronous missing/unrealized/inactiveWindow/unavailable/ready snapshot,
+or null for canceled/post-shutdown callers. It reuses the native name registry,
+adapter attachment and existing target eligibility, with no additional retained
+resources. Queries enforce render/computed purity and do not issue focus movement,
+consume request generations, scroll, retry intent or resume an owner. Normal
+pending layout/context preparation still applies. Unrealized precedes inactive
+window because no native owner-window identity exists yet. Unavailable groups
+disabled/hidden/ineligible/unsupported-style targets; ready cannot guarantee
+responder acceptance. Lazy caches may remain realized outside the viewport.
+
+The focus example can inspect Demo secret without moving focus. Validation:
+144 runtime/compiler cases, native build, Deno/TypeScript and focused offscreen
+mixed text/date/choice/WebKit checks pass. Repeated same-context queries preserve
+actual focus, desired intent, captures/cycles, request generation and resources;
+the actual viewport rectangle stays unchanged.
+The native gate covers exact Unicode rename, disabled/hidden/passive targets,
+actual lazy scrolling followed by explicit retained-intent retry, sheet isolation
+without resumption and 20 owner lifetimes at baseline resources. All 79 offscreen
+native scenarios and API classification pass. The recorded AppKit sheet-close
+crash did not recur; no fix is claimed. Next: per-controller boolean/typed-ID
+availability without exposing generated names; realization subscriptions and
+automatic scrolling/retry remain open. Keep the broad focus item unchecked.
+Button/Toggle/Slider public targeting,
+physical-window ownership/resumption, full keyboard access verification,
+object/dynamic selections, general overloads, IME/AX/nested sheets and the recorded
+AppKit sheet-close crash remain open.
+
 ## 3. Application and operating-system integration
 
 - [ ] Support multiple windows with independent roots and explicit window ownership.

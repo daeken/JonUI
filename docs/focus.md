@@ -535,6 +535,55 @@ style/disabled/sheet gates, passive resume and repeated cleanup are verified.
 The forms example includes **Focus theme** and **Focus amount** and reports when
 the target is unavailable for keyboard focus.
 
+## Named target availability
+
+`Focus.availabilityNamed(name): FocusAvailability | null` reads a synchronous
+layout/eligibility snapshot without requesting focus. Use it in an action, effect
+or current task to decide when an explicit named request is appropriate:
+
+```ts
+const availability = Focus.availabilityNamed('search');
+if (availability === 'ready') {
+  const accepted = Focus.requestNamed('search');
+  // Still handle false: the responder may refuse or availability may change.
+}
+```
+
+| Result | Meaning | Possible next step |
+| --- | --- | --- |
+| `missing` | No registered logical name in the current app graph. | Insert the target or correct its name. |
+| `unrealized` | The name exists, but its active native adapter has no attached hosting/browser surface. | Let the view appear or scroll normally, then check again. |
+| `inactiveWindow` | A realized surface is attached to a window other than the active window/sheet. | Return to the appropriate context before requesting focus. |
+| `unavailable` | The surface is in the active context but has no supported eligible native target. | Check enabled/hidden state, keyboard access, style or WebView Tab eligibility. |
+| `ready` | The current native target passes the same eligibility checks as a named request. | Make an explicit request and handle its boolean result. |
+
+Names use the existing nonempty, exact-Unicode validation. A valid query before
+a window is mounted throws; canceled tasks and queries after shutdown return
+null without native work. Render bodies and computed derivations cannot query
+native availability. This is a snapshot, not tracked State or a subscription;
+save its result in application State if it needs to be displayed. There is no
+polling, timer, scrolling, lazy-row creation by name or automatic focus retry.
+Normal pending layout is processed, so visible native content may finish realizing.
+Native lazy caches can keep offscreen targets realized; the result does not prove
+that a control is visible in the scroll viewport.
+
+The query does not issue a focus command, consume a request generation, allocate
+captures/watchers/cells, change controller intent or resume a retired controller.
+Captures/cycles in the same context remain intact; normal context-switch retirement
+still applies when preparing the active window. An unrealized target has no native
+window to compare, so `unrealized` takes precedence over `inactiveWindow`. A cached
+dismissed sheet may report either state depending on whether its surface remains
+attached. `unavailable` deliberately groups disabled, hidden, keyboard-ineligible
+and unsupported-style surfaces rather than guessing their cause.
+
+After native scrolling realizes a lazy target, a ready snapshot alone leaves
+retained controller intent unrequested. Call `request(name)` explicitly to retry;
+after context retirement, resume the owner explicitly too. A ready snapshot does
+not guarantee that the current responder will resign or the target will accept.
+This query addresses explicit names; per-controller boolean/typed-ID availability
+helpers and realization subscriptions remain future work. The focus example's
+**Check demo secret availability** button shows a snapshot without moving focus.
+
 ## Command traversal cycles
 
 `Focus.setTraversal(targets)` configures an explicit cycle of captured responders

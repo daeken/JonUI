@@ -5,6 +5,8 @@ declare const focusTargetBrand: unique symbol;
 declare const focusBindingBrand: unique symbol;
 /** Opaque weak native responder handle; capture from an already focused control. */
 export interface FocusTarget { readonly [focusTargetBrand]: true }
+/** Snapshot of a named target's logical/native availability; ready does not guarantee responder acceptance. */
+export type FocusAvailability = 'missing' | 'unrealized' | 'inactiveWindow' | 'unavailable' | 'ready';
 /** Boolean projection: native observation on read, deferred request on write. */
 export interface FocusBinding {
   readonly [focusBindingBrand]: true;
@@ -231,8 +233,10 @@ export const Focus: {
   readonly capture: () => FocusTarget | null;
   /** False when the target is stale, unavailable, or refuses first responder. */
   readonly request: (target: FocusTarget) => boolean;
-  /** Focus a realized named text input, date picker, or WebView in the active window. False when unavailable. */
+  /** Focus a realized supported named control in the active window. False when unavailable. */
   readonly requestNamed: (name: string) => boolean;
+  /** Layout/eligibility snapshot without requesting focus. Null for canceled callers/after shutdown. */
+  readonly availabilityNamed: (name: string) => FocusAvailability | null;
   /** Current eligible responder's declared name in the active window; null for unnamed/cleared focus. A snapshot, not a tracked State. */
   readonly currentName: () => string | null;
   /** Coalesced actual-name changes, without initial replay. Return cleanup from an effect; task subscriptions cancel automatically. */

@@ -151,6 +151,9 @@ WebView({ url: "https://example.com" });
 
 const ScopedCounter = Component<{ label: string }>((scope, initial) => {
   const selectionFocus = scope.focusSelection([1, '1', 'editor'], 1);
+  const availability: import('jonui').FocusAvailability | null = Focus.availabilityNamed('target'); void availability;
+  // @ts-expect-error Availability names must be strings.
+  Focus.availabilityNamed(1);
   selectionFocus.desired.value = 'editor'; selectionFocus.request(null); selectionFocus.resume();
   TextField('Selected', { text: title.binding }).focused(selectionFocus.binding('1'));
   const selectedID: 1 | '1' | 'editor' | null = selectionFocus.actual.value; void selectedID;

@@ -9,6 +9,14 @@ const editing = (label: string) => (active: boolean) => {
   if (active) status.value = `Editing ${label}`;
   else if (status.value === `Editing ${label}`) status.value = 'No text input focused';
 };
+const inspectSecret = () => {
+  const availability = Focus.availabilityNamed('secret');
+  status.value = availability === 'ready' ? 'Demo secret can receive keyboard focus'
+    : availability === 'unavailable' ? 'Enable the demo secret field before requesting focus'
+    : availability === 'inactiveWindow' ? 'Return to the main window to focus Demo secret'
+    : availability === 'unrealized' ? 'Demo secret has not been realized yet'
+    : availability === 'missing' ? 'Demo secret is no longer registered' : 'Focus check unavailable';
+};
 await runApp({ title: 'JonUI native focus navigation', width: 560, height: 560, content: VStack([
   HStack([Button('Next', Focus.next), Button('Previous', Focus.previous), Button('Clear focus', Focus.clear)]),
   HStack(['name', 'secret', 'notes'].map(target => Button(`Focus ${target}`, () => { status.value = Focus.requestNamed(target) ? `Focused ${target}` : `${target} unavailable`; }))),
@@ -27,6 +35,7 @@ await runApp({ title: 'JonUI native focus navigation', width: 560, height: 560, 
   }),
   TextField('Name — Return remembers and advances focus', { text: name.binding, focusName: 'name', onSubmit: () => { saved = nameTarget = Focus.capture(); Focus.next(); }, onEditingChanged: editing('name') }),
   Toggle('Disable demo secret', { isOn: secretDisabled.binding }),
+  Button('Check demo secret availability', inspectSecret),
   View(() => SecureField('Demo secret — Return remembers and advances', { text: secret.binding, focusName: 'secret', onSubmit: () => { secretTarget = Focus.capture(); Focus.next(); }, onEditingChanged: editing('demo secret') }).disabled(secretDisabled.value)),
   TextEditor({ text: notes.binding, focusName: 'notes', onEditingChanged: editing('notes') }).frame({ height: 120 }),
   View(() => Text(status.value)),
