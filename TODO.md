@@ -764,6 +764,38 @@ desired state separate from observed state and bind requests to owner/context
 lifetime; no public two-way Binding or FocusState is shipped in this increment.
 The previously recorded keyboard-access/IME/AX/nested-sheet gaps remain open.
 
+Owned focus controller completed (2026-11-07): setup-only `scope.focus` exposes
+tracked validated desired intent and read-only actual/retired computations. Two
+owned effects establish a fresh active-context snapshot and apply requests after
+view commit. Initial null is passive; an initial name attempts once. Explicit
+request(name) retries unchanged names or clears with null. Native movement and
+availability update actual without writing desired or causing focus feedback.
+Unavailable targets keep the desired value and require an explicit retry.
+
+The controller binds generations to its initial watch session/window context.
+Context-only observations and native rejection retire it permanently, clear
+actual and stop its observer. Retired desired data remains editable; requests
+cannot affect a new sheet or resume on the parent automatically. Remount starts
+a fresh controller. Owner cleanup releases four cells, two effects, two computed
+values and its shared-watch subscription; canceled/disposed work cannot issue
+late requests. The new example demonstrates modal retirement and a reset that
+preserves app-owned form values. General projected/boolean FocusState bindings,
+safe context resumption and availability/realization-aware policy remain open.
+
+Focused native validation passes for passive activation, initial named requests
+over 20 mounts, native text/date/WebKit, repeated/failed requests, desired/actual
+isolation, Unicode editor bindings, keyed identity, modal retirement and 20 pending/
+canceled owner lifetimes with baseline resources. Five runtime cases (123 total)
+cover validation/read-only state, timing, context-only retirement, native context
+rejection before notification, multiple controllers without feedback, keyed
+ownership, canceled work, purity and snapshot-failure cleanup. Deno/TypeScript
+checks pass. Final validation: native build, all 71 offscreen native integration
+scenarios, 123 unit tests, Deno/TypeScript checks and API classification pass.
+Keep the broad focus item
+unchecked; next define context resumption and a projected binding contract without
+reintroducing observation-to-desired feedback. Hardware/IME/AX/nested-sheet gaps
+remain recorded above.
+
 ## 3. Application and operating-system integration
 
 - [ ] Support multiple windows with independent roots and explicit window ownership.

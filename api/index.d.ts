@@ -47,6 +47,15 @@ export interface TaskContext {
   /** Lifetime cleanup, including after completion; late registration runs immediately. */
   onCancel(cleanup: () => void): () => void;
 }
+/** One component-owned active-window context; retires permanently on a context switch. */
+export interface FocusController {
+  /** Tracked intent; observations never write it. No native scalar Binding. */
+  readonly desired: Pick<State<string | null>, 'value' | 'subscribe'>;
+  readonly actual: Computed<string | null>;
+  readonly retired: Computed<boolean>;
+  /** Queue an after-commit request, including repeated names or explicit null/clear. */
+  request(name: string | null): void;
+}
 export interface ComponentScope<Props = unknown> {
   /** Track synchronous inputs and abort previous runs on change, stop or unmount. */
   task(callback: (task: TaskContext) => void | Promise<void>): () => void;
@@ -58,6 +67,8 @@ export interface ComponentScope<Props = unknown> {
   state<T>(initialValue: T, ...validation: StateValidation<T>): State<T>;
   /** Setup-only lazy derivation, automatically disposed on unmount. */
   computed<T>(derive: () => T, ...validation: StateValidation<T>): Computed<T>;
+  /** Setup-only focus controller. Initial null is passive; remount to start a fresh context after retirement. */
+  focus(initialName?: string | null): FocusController;
   /** Runs once on unmount, in reverse registration order, including setup failure. */
   onDispose(cleanup: () => void): void;
 }

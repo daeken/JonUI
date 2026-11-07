@@ -17,14 +17,18 @@ async function setup() {
       if (message.op === 'web.claim') result = { accepted: focus.rpcActive !== false };
       if (message.op === 'focus.named') result = { focused: focus.focused };
       if (message.op === 'focus.currentName') result = { name: focus.name };
-      if (message.op === 'focus.watch') result = focus.watchError ? { error: focus.watchError } : { name: focus.name, sequence: 0, context: 1, generation: 0 };
+      if (message.op === 'focus.watch') result = focus.watchError ? { error: focus.watchError } : { name: focus.name, sequence: 0, context: focus.context ?? 1, generation: 0 };
+      if (message.op === 'focus.snapshot') result = focus.snapshotError ? { error: focus.snapshotError } : { accepted: true, observation: { token: message.token, sequence: ++focus.sequence, context: focus.context ?? 1, generation: focus.generation ?? 0, name: focus.name } };
       if (message.op === 'focus.direction') result = { moved: focus.focused };
       if (message.op === 'focus.traversal') result = { configured: focus.configured };
       if (message.focusRequest) {
-        if (message.op === 'focus.named' && focus.focused) focus.name = message.name;
-        if (message.op === 'focus.move' && message.direction === 'clear') focus.name = null;
-        result.focusAccepted = true;
-        result.observation = { token: message.focusRequest.token, generation: message.focusRequest.generation, sequence: ++focus.sequence, context: 1, name: focus.name };
+        const accepted = message.focusRequest.context === undefined || message.focusRequest.context === (focus.context ?? 1);
+        if (accepted && message.op === 'focus.named' && focus.focused) focus.name = message.name;
+        if (accepted && message.op === 'focus.move' && message.direction === 'clear') focus.name = null;
+        result.focusAccepted = accepted;
+        focus.generation = message.focusRequest.generation;
+        if (!accepted) result.focused = result.moved = false;
+        result.observation = { token: message.focusRequest.token, generation: message.focusRequest.generation, sequence: ++focus.sequence, context: focus.context ?? 1, name: focus.name };
       }
       if (message.op === 'state.create') {
         result = { value: message.value, revision: 0 }; states.set(message.id, result);
@@ -359,6 +363,84 @@ test('focus delivery skips outdated siblings after reentrant requests and does n
   const roundTrip = []; ui.Focus.requestNamed('e'); const stopRoundTrip = ui.Focus.subscribe(name => roundTrip.push(name));
   ui.Focus.requestNamed('d'); await tick(); assert.deepEqual(roundTrip, ['d'], 'new listener sees a change even when older listeners coalesce a round trip');
   stop(); stopJoined(); stopRoundTrip(); h.emit({ type: 'stop' }); await done;
+});
+
+test('scoped focus controllers separate tracked intent from actual focus and apply requests after commit', async () => {
+  const h = await setup(), { ui } = h; h.focus.name = 'parent'; h.focus.focused = true; let focus;
+  const Owner = ui.Component(scope => { focus = scope.focus(); return () => ui.Text(`${focus.desired.value}:${focus.actual.value}:${focus.retired.value}`); });
+  const done = launch(ui, Owner()); await tick();
+  assert.equal(focus.actual.value, 'parent'); assert.equal(focus.desired.value, null); assert.equal(focus.retired.value, false);
+  assert.ok(Object.isFrozen(focus)); assert.ok(Object.isFrozen(focus.desired)); assert.equal(focus.desired.binding, undefined);
+  assert.throws(() => { focus.actual.value = 'bad'; }, TypeError); assert.throws(() => { focus.retired.value = true; }, TypeError);
+  assert.ok(!h.calls.some(c => c.op === 'focus.move' || c.op === 'focus.named'), 'initial null is passive');
+  focus.request('a'); assert.equal(focus.desired.value, 'a'); assert.equal(focus.actual.value, 'parent'); await tick();
+  assert.equal(focus.actual.value, 'a'); assert.equal(h.calls.filter(c => c.op === 'focus.named').at(-1).focusRequest.context, 1);
+  focus.request('a'); await tick(); assert.equal(h.calls.filter(c => c.op === 'focus.named').length, 2, 'same-name retry is explicit');
+  const route = h.calls.filter(c => c.focusRequest).at(-1).focusRequest;
+  h.emit({ type: 'focusChanged', token: route.token, sequence: ++h.focus.sequence, context: 1, generation: route.generation, name: 'user-selected' }); await tick();
+  assert.equal(focus.actual.value, 'user-selected'); assert.equal(focus.desired.value, 'a'); assert.equal(h.calls.filter(c => c.op === 'focus.named').length, 2);
+  focus.desired.value = 'b'; await tick(); assert.equal(focus.actual.value, 'b');
+  focus.request(null); await tick(); assert.equal(focus.actual.value, null); assert.equal(focus.desired.value, null);
+  const before = h.calls.length;
+  for (const name of ['', 1, true, {}, '\ud800']) { assert.throws(() => focus.request(name), /Focus names/); assert.throws(() => { focus.desired.value = name; }, /Focus names/); }
+  assert.equal(h.calls.length, before);
+  h.emit({ type: 'stop' }); await done; assert.deepEqual(ui.__testing.stats(), { actions: 0, cells: 0, dependencies: 0 });
+});
+
+test('scoped focus controllers retire on context-only changes and cannot revive focus through desired writes', async () => {
+  const h = await setup(), { ui } = h; let focus;
+  const Owner = ui.Component(scope => { focus = scope.focus(); return () => ui.Text('owner'); });
+  const done = launch(ui, Owner()); await tick(); const token = h.calls.find(c => c.op === 'focus.watch').token;
+  h.emit({ type: 'focusChanged', token, sequence: ++h.focus.sequence, generation: 0, context: 2, name: null }); await tick();
+  assert.equal(focus.retired.value, true); assert.equal(focus.actual.value, null); assert.deepEqual(ui.__testing.focusStats(), { listeners: 0, watching: false });
+  const before = h.calls.filter(c => c.focusRequest).length; focus.request('other-window'); focus.desired.value = 'retained intent'; await tick();
+  assert.equal(focus.desired.value, 'retained intent'); assert.equal(h.calls.filter(c => c.focusRequest).length, before);
+  h.emit({ type: 'stop' }); await done;
+});
+
+test('scoped focus requests reject a changed native context before its observation arrives', async () => {
+  const h = await setup(), { ui } = h; h.focus.focused = true; h.focus.name = 'parent'; let focus;
+  const Owner = ui.Component(scope => { focus = scope.focus(); return () => ui.Text('owner'); });
+  const done = launch(ui, Owner()); await tick(); h.focus.context = 2;
+  focus.request('sheet'); await tick(); assert.equal(h.focus.name, 'parent'); assert.equal(focus.desired.value, 'sheet');
+  assert.equal(focus.actual.value, null); assert.equal(focus.retired.value, true); assert.deepEqual(ui.__testing.focusStats(), { listeners: 0, watching: false });
+  h.emit({ type: 'stop' }); await done;
+});
+
+test('keyed focus controllers preserve identity, avoid feedback and dispose canceled owner work', async () => {
+  const h = await setup(), { ui } = h; h.focus.focused = true;
+  const shown = ui.State(true), reverse = ui.State(false), models = new Map(), gates = []; let setups = 0, disposed = 0;
+  const Owner = ui.Component((scope, id) => {
+    setups++; const focus = scope.focus(id); models.set(id, focus); scope.onDispose(() => { disposed++; });
+    scope.task(async () => { await new Promise(resolve => gates.push(resolve)); focus.request('late'); focus.desired.value = 'late'; });
+    return () => ui.Text(focus.actual.value ?? 'none');
+  });
+  const done = launch(ui, ui.View(() => shown.value ? ui.ForEach(reverse.value ? ['b', 'a'] : ['a', 'b'], { id: id => id }, id => Owner(id)) : ui.Text('hidden')));
+  await tick(); const original = models.get('a'); assert.equal(h.calls.filter(c => c.op === 'focus.named').length, 2);
+  assert.equal(original.desired.value, 'a'); assert.equal(models.get('b').desired.value, 'b'); assert.equal(original.actual.value, 'b');
+  reverse.value = true; await tick(); assert.equal(models.get('a'), original); assert.equal(setups, 2); assert.equal(h.calls.filter(c => c.op === 'focus.named').length, 2);
+  shown.value = false; await tick(); const before = h.calls.length; gates.forEach(resolve => resolve()); await tick();
+  assert.equal(h.calls.length, before); assert.equal(disposed, 2); assert.deepEqual(ui.__testing.focusStats(), { listeners: 0, watching: false }); assert.equal(h.states.size, 2);
+  h.emit({ type: 'stop' }); await done;
+});
+
+test('focus controllers enforce setup/render/computed purity and clean up snapshot failures', async () => {
+  const h = await setup(), { ui } = h; let focus, escaped;
+  const Owner = ui.Component(scope => {
+    escaped = scope; const before = h.calls.length; assert.throws(() => scope.focus(1), /Focus names/); assert.equal(h.calls.length, before);
+    focus = scope.focus(); return () => {
+      assert.throws(() => focus.request('bad'), /outside view bodies/); assert.throws(() => { focus.desired.value = 'bad'; }, /outside view bodies/);
+      return ui.Text('owner');
+    };
+  });
+  const done = launch(ui, Owner()); await tick(); assert.throws(() => escaped.focus(), /during component setup/);
+  const derived = ui.Computed(() => focus.request('bad')); assert.throws(() => derived.value, /Computed callbacks cannot request scoped focus/);
+  h.emit({ type: 'stop' }); await done;
+  const failed = await setup(); failed.focus.snapshotError = 'snapshot unavailable';
+  const Failing = failed.ui.Component(scope => { scope.focus(); return () => failed.ui.Text('owner'); });
+  const app = launch(failed.ui, Failing()); await assert.rejects(app, /snapshot unavailable/);
+  assert.deepEqual(failed.ui.__testing.focusStats(), { listeners: 0, watching: false }); assert.deepEqual(failed.ui.__testing.stats(), { actions: 0, cells: 0, dependencies: 0 });
+  assert.ok(failed.calls.some(c => c.op === 'focus.unwatch'));
 });
 
 test('disabled validates flags before transport and property changes preserve scoped bindings/actions', async () => {

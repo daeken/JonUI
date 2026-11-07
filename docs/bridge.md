@@ -764,6 +764,39 @@ stale sessions and atomic malformed-stamp rejection. Runtime tests cover queued
 gains, consecutive requests, acknowledgement floors, stale generations and
 reentrant/joining listeners. No desired state is written by these observations.
 
+`scope.focus` owns a desired-name cell, actual-name cell, retirement cell and
+attempt counter, plus two effects and two read-only computations. Desired exposes
+tracked value/subscription operations with focus-name validation, without a scalar
+Binding. The activation effect subscribes to internal metadata and uses
+`focus.snapshot { token }` to obtain a fresh observation barrier. That operation
+checks the active watch token, advances observation sequence and resolves name/
+context without moving focus or consuming a request generation. It seeds actual
+and captures the session/context for the controller.
+
+The request effect tracks desired intent and explicit attempt revision. It runs
+after view commit, skips initial null, and uses the existing request protocol with
+the captured context. Actual observations never write desired intent or retrigger
+that effect. Unavailable targets are one attempt, preserving desired state and
+reporting the native result. An explicit repeated request advances the attempt
+counter without requiring a different desired value.
+
+Internal metadata subscribers also receive context-only changes when the nullable
+name is unchanged; public name-only subscriptions retain their duplicate filtering.
+A controller retires on a session/context mismatch or a rejected context-bound
+acknowledgement. Retirement clears actual, stops its subscription and disables
+requests permanently. Desired may still change as local data. Owner disposal
+releases private cells/effects/computations and cancels pending work through the
+normal scope lifecycle. Snapshot failure stops the newly registered observer
+before propagating the error. No new native controller registry, responder,
+capture ID, timer or input interceptor is allocated.
+
+This provides an owned context session, with explicit remount after modal context
+changes. It does not automatically resume an old physical window or implement
+SwiftUI projected FocusState bindings. Native tests verify passive activation,
+initial named requests, mixed text/date/WebKit focus, desired/actual isolation,
+repeated/failed requests, availability, keyed identity, modal retirement and 20
+pending/canceled owner lifetimes with baseline resources.
+
 An experimental two-way boolean FocusState adapter was discarded:
 late framework observations could revive an obsolete blur request, so it is not
 part of the public API or native graph validation. SwiftUI accessibility identifiers

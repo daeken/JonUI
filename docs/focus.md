@@ -168,6 +168,58 @@ and notification registrations. Listener failures follow the normal callback
 error path and stop the app with owner cleanup. Delivery is untracked; it does
 not add dependencies to the effect that registered the listener.
 
+## Owned focus controllers
+
+Allocate `scope.focus(initialName?)` during component setup. Its `desired.value`
+is tracked, writable intent; `actual.value` is a read-only tracked snapshot.
+Native Tab/click movement updates actual focus without changing desired focus or
+automatically requesting it again. The controller's names use the same app-wide
+namespace and native eligibility as `Focus.requestNamed`.
+
+```ts
+const Form = Component(scope => {
+  const name = scope.state('');
+  const focus = scope.focus();
+  return () => VStack([
+    TextField('Name', { text: name.binding, focusName: 'name' }),
+    Button('Request Name', () => focus.request('name')),
+    Text(`Actual: ${focus.actual.value ?? 'none'}`),
+  ]);
+});
+```
+
+Requests run after the Node view transaction commits. Changing `desired.value`
+queues a request; `request(name)` also queues a fresh attempt when the desired
+name is unchanged. `request(null)` explicitly clears. Initial null/omitted names
+are passive and preserve existing focus; an initial non-null name gets one
+after-commit attempt. Unavailable/unrealized targets leave desired intent intact
+and report the actual native responder; retry explicitly once eligible. There
+is no polling or automatic refocus when user movement or availability changes.
+
+Each controller captures the active window context through a fresh native
+snapshot on its first post-commit effect. Its `actual` can reflect any named
+control in that context, including controls declared by another component.
+Every request is generation-stamped and bound to the captured context. A context
+change permanently sets read-only `retired.value` to true, clears actual to null
+and releases its observation subscription. A request racing ahead of the context
+notification is rejected by the native context guard. Parent-controller requests
+cannot move focus into a new sheet. Returning to the parent does not resume that
+controller; remount its owner to start a new context.
+
+Retired controllers retain editable desired intent for display but issue no
+further focus requests. `request` after retirement is inert. Unmount/setup failure
+releases all controller cells, effects, computations and subscriptions; late
+requests/writes from canceled tasks or disposed owners are ignored. Read-only
+computed views follow normal scoped Computed disposal rules. Render/computed
+focus writes and allocation outside setup are rejected.
+
+The controller exposes no scalar `binding` for desired focus. General SwiftUI
+`focused` bindings, boolean variants, context resumption and realization-aware
+policies remain future work. Controllers created in a parent context before a
+sheet appears retire when that sheet becomes active; this is not a sheet
+appearance hook. Try `bin/jonui examples/focus-controller/app.ts` for requests,
+actual/desired display, modal retirement and a reset preserving form values.
+
 ## Captured responder targets
 
 `Focus.capture()` returns an opaque `FocusTarget` for the current eligible native

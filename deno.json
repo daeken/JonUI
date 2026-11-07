@@ -6,7 +6,7 @@
     "strict": true
   },
   "tasks": {
-    "check": "deno check examples/landmarks/app.ts examples/playground/app.ts examples/web-controls/app.ts examples/web-rpc/app.ts examples/forms/app.ts examples/lazy-list/app.ts examples/lazy-grid/app.ts examples/focus/app.ts examples/focus-direction/app.ts examples/focus-sections/app.ts examples/focus-sheets/app.ts tests/api.types.ts"
+    "check": "deno check examples/landmarks/app.ts examples/playground/app.ts examples/web-controls/app.ts examples/web-rpc/app.ts examples/forms/app.ts examples/lazy-list/app.ts examples/lazy-grid/app.ts examples/focus/app.ts examples/focus-direction/app.ts examples/focus-sections/app.ts examples/focus-sheets/app.ts examples/focus-controller/app.ts tests/api.types.ts"
   },
   "nodeModulesDir": "auto"
 }

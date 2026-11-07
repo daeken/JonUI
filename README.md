@@ -139,6 +139,10 @@ and initial-snapshot rules.
 Observed movement acknowledges its result before returning, so queued older
 focus events cannot overwrite a newer clear or request. Delivery stays coalesced
 and asynchronous; declarative two-way focus bindings remain future work.
+`scope.focus()` owns tracked desired focus, read-only actual focus and a retirement
+flag. Its requests run after view commits and remain bound to one active-window
+context. See [owned focus controllers](docs/focus.md#owned-focus-controllers) and
+`bin/jonui examples/focus-controller/app.ts` for modal retirement and reset.
 `Focus.capture()` remembers the current native responder as a weak opaque target;
 `Focus.request(target)` restores it while its identity remains available. Adding
 or removing view handles retires saved captures; value updates/keyed reorder keep

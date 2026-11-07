@@ -1279,6 +1279,10 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
         case "focus.currentName":
             let window = try prepareFocusWindow()
             return ["name": currentFocusName(in: window) as Any? ?? NSNull()]
+        case "focus.snapshot":
+            let token = try integer(message["token"])
+            guard token == focusWatchToken else { return ["accepted": false] }
+            return ["accepted": true, "observation": try focusAcknowledgement()]
         case "focus.watch":
             let token = try integer(message["token"]), window = try prepareFocusWindow()
             guard token > lastFocusWatchToken else { throw BridgeError("Focus observation token must increase") }

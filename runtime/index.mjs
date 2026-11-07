@@ -442,6 +442,57 @@ function initializeComponent(mounted) {
       if (!owned.initializing || owned.disposed) throw new Error('Allocate scoped Computed during component setup');
       return createComputed(callback, owned);
     },
+    focus(initialName = null) {
+      assertNotComputing('allocate focus controllers');
+      if (!owned.initializing || owned.disposed) throw new Error('Allocate focus controllers during component setup');
+      if (initialName !== null) focusName(initialName);
+      const desired = scope.state(initialName), actual = scope.state(null), retired = scope.state(false), revision = scope.state(0);
+      let context, token, ready = false, first = true, unsubscribe = () => {};
+      function retire() {
+        ready = false; retired.value = true; actual.value = null; unsubscribe();
+      }
+      scope.effect(() => {
+        unsubscribe = subscribeFocus(sample => {
+          if (!ready) return;
+          if (sample.token !== token || sample.context !== context) { retire(); return; }
+          actual.value = sample.name;
+        }, true);
+        try {
+          const sample = request('focus.snapshot', { token: focusWatch.token }).observation;
+          if (!sample) throw new Error('Focus observation session expired');
+          receiveFocusChange(sample);
+          token = sample.token; context = sample.context; ready = true; actual.value = sample.name;
+        } catch (error) { unsubscribe(); throw error; }
+        return () => { ready = false; unsubscribe(); };
+      });
+      scope.effect(() => {
+        const name = desired.value, attempt = revision.value, ended = retired.value;
+        if (!ready || ended) return;
+        if (first) { first = false; if (name === null && attempt === 0) return; }
+        if (focusWatch?.token !== token) { retire(); return; }
+        const result = requestFocus(name === null ? 'focus.move' : 'focus.named', name === null ? { direction: 'clear' } : { name }, context);
+        const sample = result.observation;
+        if (!sample || result.focusAccepted === false || sample.context !== context || sample.token !== token) { retire(); return; }
+        actual.value = sample.name;
+      });
+      const selection = Object.freeze({
+        get value() { return desired.value; },
+        set value(name) {
+          if (owned.disposed || !canMoveFocus('write desired focus')) return;
+          if (name !== null) focusName(name);
+          desired.value = name;
+        },
+        subscribe: listener => desired.subscribe(listener),
+      });
+      return Object.freeze({
+        desired: selection, actual: scope.computed(() => actual.value), retired: scope.computed(() => retired.value),
+        request(name) {
+          if (owned.disposed || !canMoveFocus('request scoped focus') || untracked(() => retired.value)) return;
+          if (name !== null) focusName(name);
+          desired.value = name; revision.value = untracked(() => revision.value) + 1;
+        },
+      });
+    },
     onDispose(cleanup) {
       assertNotComputing('register component cleanup');
       if (!owned.initializing || owned.disposed) throw new Error('Register component cleanup during setup');
@@ -661,21 +712,37 @@ function receiveFocusChange(event) {
     try {
       taskStorage.run(undefined, () => untracked(() => {
         for (const entry of [...focusListeners]) {
-          if (focusWatch !== watch || watch.sequence !== sequence || !focusListeners.has(entry) || entry.name === name) continue;
-          entry.name = name;
-          if (!entry.task) entry.callback(name);
-          else if (taskIsCurrent(entry.task)) taskStorage.run(entry.task, () => entry.callback(name));
+          if (focusWatch !== watch || watch.sequence !== sequence || !focusListeners.has(entry) || entry.name === name && (!entry.metadata || entry.context === watch.context)) continue;
+          entry.name = name; entry.context = watch.context;
+          const value = entry.metadata ? { token: watch.token, context: watch.context, name } : name;
+          if (!entry.task) entry.callback(value);
+          else if (taskIsCurrent(entry.task)) taskStorage.run(entry.task, () => entry.callback(value));
         }
       }));
     } catch (error) { fail(error); }
   });
 }
-function requestFocus(op, args = {}) {
+function requestFocus(op, args = {}, context) {
   const watch = focusWatch;
   if (!watch) return request(op, args);
-  const result = request(op, { ...args, focusRequest: { token: watch.token, generation: ++watch.requestGeneration } });
+  const result = request(op, { ...args, focusRequest: { token: watch.token, generation: ++watch.requestGeneration, ...(context === undefined ? {} : { context }) } });
   if (focusWatch === watch && result.observation) receiveFocusChange(result.observation);
   return result;
+}
+function subscribeFocus(callback, metadata = false) {
+  if (!canMoveFocus('subscribe to native focus')) return () => {};
+  if (typeof callback !== 'function') throw new TypeError('Expected a focus listener');
+  const entry = { callback, metadata, task: taskStorage.getStore(), unregister: () => {} };
+  const unsubscribe = () => stopFocusListener(entry);
+  focusListeners.add(entry);
+  if (!focusWatch) {
+    const watch = { token: nextFocusWatch++, requestGeneration: 0 }; focusWatch = watch;
+    try { Object.assign(watch, request('focus.watch', { token: watch.token })); }
+    catch (error) { focusListeners.delete(entry); focusWatch = null; throw error; }
+  }
+  entry.name = focusWatch.name; entry.context = focusWatch.context;
+  if (entry.task) entry.unregister = registerTaskCleanup(entry.task, unsubscribe);
+  return unsubscribe;
 }
 function focusName(value) {
   if (typeof value !== 'string' || !value.length || !value.isWellFormed()) throw new TypeError('Focus names must be nonempty well-formed strings');
@@ -720,19 +787,7 @@ export const Focus = Object.freeze({
     return request('focus.currentName').name;
   },
   subscribe(callback) {
-    if (!canMoveFocus('subscribe to native focus')) return () => {};
-    if (typeof callback !== 'function') throw new TypeError('Expected a focus listener');
-    const entry = { callback, task: taskStorage.getStore(), unregister: () => {} };
-    const unsubscribe = () => stopFocusListener(entry);
-    focusListeners.add(entry);
-    if (!focusWatch) {
-      const watch = { token: nextFocusWatch++, requestGeneration: 0 }; focusWatch = watch;
-      try { Object.assign(watch, request('focus.watch', { token: watch.token })); }
-      catch (error) { focusListeners.delete(entry); focusWatch = null; throw error; }
-    }
-    entry.name = focusWatch.name;
-    if (entry.task) entry.unregister = registerTaskCleanup(entry.task, unsubscribe);
-    return unsubscribe;
+    return subscribeFocus(callback);
   },
   setTraversal(targets, options = {}) {
     if (!canMoveFocus()) return false;

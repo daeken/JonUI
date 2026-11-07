@@ -150,6 +150,18 @@ WebView({ html: "", data: () => 1 });
 WebView({ url: "https://example.com" });
 
 const ScopedCounter = Component<{ label: string }>((scope, initial) => {
+  const focus = scope.focus(); focus.desired.value = 'name'; focus.request(null);
+  const actual: string | null = focus.actual.value; const retired: boolean = focus.retired.value; void actual; void retired;
+  // @ts-expect-error Actual focus is readonly.
+  focus.actual.value = 'name';
+  // @ts-expect-error Retirement is readonly.
+  focus.retired.value = false;
+  // @ts-expect-error Desired focus is a nullable name.
+  focus.desired.value = 1;
+  // @ts-expect-error Controller intent is not a scalar native Binding.
+  void focus.desired.binding;
+  // @ts-expect-error Initial names are strings or null.
+  scope.focus(1);
   const count = scope.state<number>(0);
   const note = scope.state<string>(initial.label);
   scope.onDispose(() => { void note.value; });
