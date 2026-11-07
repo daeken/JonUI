@@ -182,6 +182,10 @@ named controller, `focus.availability()` for a boolean target, or
 `focus.availability(id)` for a typed selection. Snapshots preserve intent and
 retirement and keep generated names private. See
 [owned target availability](docs/focus.md#owned-target-availability).
+Controllers also provide `subscribeAvailability(...)` with the same target
+arguments plus a listener. These subscriptions end on retirement, resume or
+disposal; re-subscribe for the new session. See
+[session-owned subscriptions](docs/focus.md#session-owned-availability-subscriptions).
 `Focus.capture()` remembers the current native responder as a weak opaque target;
 `Focus.request(target)` restores it while its identity remains available. Adding
 or removing view handles retires saved captures; value updates/keyed reorder keep

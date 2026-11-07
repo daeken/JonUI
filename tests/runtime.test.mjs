@@ -510,6 +510,75 @@ test('availability listener failures and Promise returns clean up all shared reg
   }
 });
 
+test('owned availability subscriptions map private targets, share native watches and end on resume or owner disposal', async () => {
+  const h = await setup(), { ui } = h, shown = ui.State(true); let named, boolean, selection; const seen = { named: [], boolean: [], number: [], string: [], global: [] };
+  const Owner = ui.Component(scope => {
+    named = scope.focus(); boolean = scope.focusBoolean(); selection = scope.focusSelection([1, '1']); const text = scope.state('');
+    return () => ui.VStack([ui.TextField('Boolean', { text: text.binding }).focused(boolean.binding), ui.TextField('Number', { text: text.binding }).focused(selection.binding(1)), ui.TextField('String', { text: text.binding }).focused(selection.binding('1'))]);
+  });
+  const done = launch(ui, ui.View(() => shown.value ? Owner() : ui.Text('removed'))); await tick();
+  const stopGlobal = ui.Focus.subscribeAvailability('a', value => seen.global.push(value));
+  const stopNamed = named.subscribeAvailability('a', value => seen.named.push(value));
+  boolean.subscribeAvailability(value => seen.boolean.push(value)); selection.subscribeAvailability(1, value => seen.number.push(value)); selection.subscribeAvailability('1', value => seen.string.push(value));
+  named.resume(); await tick(); assert.deepEqual(seen.named, []); assert.deepEqual(seen.global, ['ready']);
+  assert.deepEqual(seen.boolean, ['ready']); assert.deepEqual(seen.number, ['ready']); assert.deepEqual(seen.string, ['ready']); stopNamed();
+  assert.deepEqual(ui.__testing.availabilityStats(), { names: 4, listeners: 4 });
+  const nodes = [...h.nodes.values()].filter(n => n.kind === 'textfield'), watches = h.calls.filter(c => c.op === 'focus.availability.watch');
+  for (const node of nodes) assert.ok(watches.some(w => w.name === node.props.focusName));
+  const fresh = []; named.subscribeAvailability('a', value => fresh.push(value)); await tick(); assert.deepEqual(fresh, ['ready']);
+  shown.value = false; await tick(); assert.deepEqual(ui.__testing.availabilityStats(), { names: 1, listeners: 1 });
+  const before = h.calls.length; named.subscribeAvailability({}, null)(); boolean.subscribeAvailability(null)(); selection.subscribeAvailability({}, null)(); assert.equal(h.calls.length, before);
+  stopGlobal(); h.emit({ type: 'stop' }); await done; assert.deepEqual(ui.__testing.stats(), { actions: 0, cells: 0, dependencies: 0 });
+});
+
+test('owned availability checks native context before delivery and retires without replay on window changes', async () => {
+  const h = await setup(), { ui } = h; let named, boolean; const seen = [];
+  const Owner = ui.Component(scope => { named = scope.focus(); boolean = scope.focusBoolean(); return () => ui.Text('owner'); });
+  const done = launch(ui, Owner()); await tick(); named.subscribeAvailability('a', value => seen.push(value)); await tick(); assert.deepEqual(seen, ['ready']);
+  const native = h.calls.find(c => c.op === 'focus.availability.watch'); h.focus.context = 2;
+  h.emit({ type: 'focusAvailability', token: native.token, sequence: 1, availability: 'inactiveWindow' }); await tick();
+  assert.deepEqual(seen, ['ready']); assert.equal(named.retired.value, true); assert.equal(boolean.retired.value, true, 'shared acknowledgement retires sibling controllers too');
+  assert.deepEqual(ui.__testing.availabilityStats(), { names: 0, listeners: 0 });
+  const before = h.calls.length; named.subscribeAvailability({}, null)(); assert.equal(h.calls.length, before);
+  named.resume(); named.subscribeAvailability('a', value => seen.push(`new:${value}`)); await tick(); assert.equal(named.retired.value, false); assert.equal(seen.at(-1), 'new:ready');
+  h.emit({ type: 'focusAvailability', token: native.token, sequence: 100, availability: 'ready' }); await tick(); assert.equal(seen.length, 2);
+  h.emit({ type: 'stop' }); await done;
+});
+
+test('owned availability subscription leases reject obsolete task registration and permit explicit self-resume', async () => {
+  const h = await setup(), { ui } = h; let named, release; const seen = [];
+  const Owner = ui.Component(scope => {
+    named = scope.focus();
+    scope.task(async () => {
+      named.subscribeAvailability('a', value => seen.push(`old:${value}`));
+      await new Promise(resolve => { release = resolve; });
+      named.subscribeAvailability({}, null)(); named.resume(); named.subscribeAvailability('a', value => seen.push(`new:${value}`));
+    });
+    return () => ui.Text('owner');
+  });
+  const done = launch(ui, Owner()); await tick(); assert.deepEqual(seen, ['old:ready']); named.resume(); await tick();
+  assert.deepEqual(ui.__testing.availabilityStats(), { names: 0, listeners: 0 }); release(); await tick(); assert.deepEqual(seen, ['old:ready', 'new:ready']);
+  assert.deepEqual(ui.__testing.availabilityStats(), { names: 1, listeners: 1 }); h.emit({ type: 'stop' }); await done;
+});
+
+test('owned availability subscription validation, purity, callback failures and snapshot errors clean up', async () => {
+  for (const mode of ['throw', 'promise', 'snapshot']) {
+    const h = await setup(), { ui } = h; let named, boolean, selection, disposed = 0;
+    const Owner = ui.Component(scope => {
+      named = scope.focus(); boolean = scope.focusBoolean(); selection = scope.focusSelection([1]); scope.onDispose(() => { disposed++; });
+      return () => { assert.throws(() => named.subscribeAvailability('a', () => {}), /outside view bodies/); return ui.Text('owner'); };
+    });
+    const done = launch(ui, Owner()); await tick();
+    const before = h.calls.length;
+    assert.throws(() => named.subscribeAvailability(null, () => {}), /Focus names/); assert.throws(() => boolean.subscribeAvailability(null), /availability listener/); assert.throws(() => selection.subscribeAvailability(null, () => {}), /non-null ID/); assert.throws(() => selection.subscribeAvailability('1', () => {}), /Unknown focus selection/); assert.equal(h.calls.length, before);
+    const computed = ui.Computed(() => boolean.subscribeAvailability(() => {})); assert.throws(() => computed.value, /Computed callbacks cannot subscribe/);
+    if (mode === 'snapshot') h.focus.snapshotError = 'availability context snapshot failed';
+    named.subscribeAvailability('a', () => { if (mode === 'promise') return Promise.reject(new Error('consumed rejection')); throw new Error('owned availability failed'); });
+    await assert.rejects(done, mode === 'snapshot' ? /context snapshot failed/ : mode === 'promise' ? /must be synchronous/ : /owned availability failed/);
+    assert.equal(disposed, 1); assert.deepEqual(ui.__testing.availabilityStats(), { names: 0, listeners: 0 }); assert.deepEqual(ui.__testing.stats(), { actions: 0, cells: 0, dependencies: 0 });
+  }
+});
+
 test('focus subscription failure rolls back resources and listeners can remove siblings or add listeners during delivery', async () => {
   const h = await setup(), { ui } = h; h.focus.watchError = 'no mounted window';
   assert.throws(() => ui.Focus.subscribe(() => {}), /no mounted window/);

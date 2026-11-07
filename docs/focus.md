@@ -677,10 +677,62 @@ explicit cleanup or app shutdown.
 The final listener removes its native name watch; the final name removes the
 shared window notification observers and invalidates queued native sampling.
 No target views or component scopes are retained by the native name registry.
-Named subscriptions are the first contract; boolean/typed owned subscription
-helpers and automatic focus retry remain open. Try
+For session-bound observation, use the owned helpers below. Automatic focus retry
+remains open. Try
 `bin/jonui examples/focus-availability/app.ts` to show/disable a target, open a
 sheet and stop/restart observation without moving focus automatically.
+
+## Session-owned availability subscriptions
+
+Owned controllers offer the same initial/coalesced statuses without exposing
+generated names:
+
+| Controller | Subscribe |
+| --- | --- |
+| Named | `focus.subscribeAvailability('notes', listener)` |
+| Boolean | `focus.subscribeAvailability(listener)` |
+| Typed selection | `focus.subscribeAvailability(1, listener)` |
+
+The returned stop function is idempotent. The controller also stops every one of
+its subscriptions on **retirement, resume or component disposal**, even when the
+caller did not put it in an effect. Task/RPC cleanup can end it earlier. Retired,
+disposed, canceled or obsolete-task registration returns a no-op before argument
+validation. Current subscriptions require valid non-null names/declared IDs and
+synchronous listeners. Boolean callbacks need no target argument.
+
+These subscriptions belong to one focus session. Resume never restarts them;
+subscribe again after resume, including in the same turn. An effect can express
+that rebinding explicitly:
+
+```ts
+scope.effect(() => {
+  if (focus.retired.value) { status.value = 'retired'; return; }
+  return focus.subscribeAvailability('notes', value => { status.value = value; });
+});
+```
+
+For boolean controllers omit `'notes'`; for typed selections use the declared ID.
+The boolean and typed selection examples use this pattern. Calling resume without
+a fresh subscription intentionally leaves observation stopped. Old tasks cannot
+re-register after another caller resumes that controller; a task can explicitly
+resume and register in its own fresh session. Stopping affects queued/future
+callbacks, not code already executing inside a listener.
+
+Before each delivery the helper checks its lease and a native focus-context
+snapshot. If the active context/session changed, the controller retires and drops
+the callback. The snapshot is forwarded to shared focus observation, so sibling
+controllers also learn a context change even if availability arrived first. No
+final inactive/missing event is promised for an ended session. A target in another
+window can still report inactiveWindow while the controller's own context remains
+unchanged. By contrast, the global subscription API follows context changes.
+
+Owned **snapshot queries** remain allowed on a current retired owner; owned
+**subscriptions** require a live/resuming session. Delivery can acknowledge actual
+focus through the existing observation channel, but it does not request focus,
+change desired intent, consume movement generations or resume a controller.
+Readiness values retain the global API's staleness/visibility limits. There is no
+automatic focus retry or extra native watcher protocol; exact names still share
+the global watch until the last listener stops.
 
 ## Appearance and focus readiness
 
@@ -691,8 +743,8 @@ eligible target. Disappearance also does not guarantee that a cached target was
 detached. These events do not resume a controller, replay intent, scroll or
 automatically retry focus. Use scoped tasks for cancellable work and onDispose
 for guaranteed cleanup, since disappearance after logical retirement is discarded.
-Named availability subscriptions are separate from appearance; owned subscription
-helpers and automatic retry policy remain open.
+Availability subscriptions are separate from appearance; automatic retry policy
+remains open.
 
 ## Command traversal cycles
 

@@ -66,6 +66,8 @@ export interface FocusController {
   request(name: string | null): void;
   /** Snapshot in the current native context; does not request focus or resume this owner. */
   availability(name: string): FocusAvailability | null;
+  /** Session-owned initial/coalesced status. Stops on retirement/resume/disposal; subscribe again after resume. */
+  subscribeAvailability<Result>(name: string, listener: (availability: FocusAvailability) => Result, ...validation: SynchronousCallbackValidation<Result>): () => void;
   /** Rebind after commit to the current context without replaying retained intent. New requests may follow in the same turn. */
   resume(): void;
   /** Project a named target; apply with view.focused() inside this controller's component subtree. */
@@ -80,6 +82,8 @@ export interface BooleanFocusController {
   request(focused: boolean): void;
   /** Inspect this opaque target without exposing its generated name. */
   availability(): FocusAvailability | null;
+  /** Session-owned status for this opaque target. */
+  subscribeAvailability<Result>(listener: (availability: FocusAvailability) => Result, ...validation: SynchronousCallbackValidation<Result>): () => void;
   resume(): void;
 }
 /** A fixed domain of string/numeric target IDs, with null representing no selection. */
@@ -90,6 +94,8 @@ export interface SelectionFocusController<T extends string | number> {
   request(value: T | null): void;
   /** Inspect a declared non-null ID without exposing its generated name. */
   availability(value: T): FocusAvailability | null;
+  /** Session-owned status for a declared non-null ID. */
+  subscribeAvailability<Result>(value: T, listener: (availability: FocusAvailability) => Result, ...validation: SynchronousCallbackValidation<Result>): () => void;
   resume(): void;
   binding(value: T): FocusBinding;
 }

@@ -692,8 +692,30 @@ Native coverage checks missing/realized/disabled/passive/lazy/context changes,
 exact Unicode sharing, effect/task ownership, RPC document cancellation, status
 State updates, no focus/retry/generation/capture mutation, 20 owner lifetimes and
 final native observer removal, including app-owned shutdown. Diagnostic snapshot
-counts remain readable after disposal for cleanup verification. Owned-controller
-subscription helpers/window leases and automatic retry remain separate work.
+counts remain readable after disposal for cleanup verification. Session-owned
+helpers are described below; automatic retry remains separate work.
+
+Owned subscribeAvailability helpers map named/boolean/typed targets to the same
+global watcher. Each controller holds stop functions for one lease. Retirement,
+resume, canceled resumption and owner disposal stop all of them; the global
+subscription's private stop hook removes owner tracking on task/RPC cleanup too.
+This adds no new native source/protocol/cells/effects. Registration guards suppress
+stale task/retired/disposed callers before validating names/IDs. Resuming callers
+can register immediately; delivery waits for the after-commit activation to bind
+the new context. Asynchronous initial replay prevents calling an unassigned stop
+function during registration.
+
+Delivery verifies the lease, readiness and caller, then reads focus.snapshot with
+the controller's observation token. The acknowledgement must be fed into shared
+focus observation before checking context mismatch: native sampling advances its
+context/sequence and could otherwise consume a transition without sibling
+controllers learning it. Mismatch retires the controller and drops delivery.
+Valid current-session callbacks use the global synchronous/error path. Snapshot
+acknowledgements consume observation sequences, not movement generations.
+Tests force availability-before-focus context ordering, verify sibling retirement,
+private numeric/string target mapping, resume-before-initial cancellation, explicit
+same-turn re-subscription, task/RPC lease/source cancellation, sheet/parent rebinding
+and 20 pending owner lifetimes, plus throw/Promise/snapshot failure cleanup.
 
 `Focus.move(direction)` sends `focus.direction` with one of four spatial directions.
 After layout/key-loop recalculation, the host resolves a shared field editor to

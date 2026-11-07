@@ -152,6 +152,13 @@ WebView({ url: "https://example.com" });
 const ScopedCounter = Component<{ label: string }>((scope, initial) => {
   const selectionFocus = scope.focusSelection([1, '1', 'editor'], 1);
   const selectedAvailability: import('jonui').FocusAvailability | null = selectionFocus.availability(1); void selectedAvailability;
+  const stopSelected = selectionFocus.subscribeAvailability(1, value => { const status: import('jonui').FocusAvailability = value; void status; }); void stopSelected;
+  // @ts-expect-error Subscription IDs cannot widen the domain.
+  selectionFocus.subscribeAvailability('other', () => {});
+  // @ts-expect-error Null is not a target.
+  selectionFocus.subscribeAvailability(null, () => {});
+  // @ts-expect-error Subscription callbacks are synchronous.
+  selectionFocus.subscribeAvailability(1, async () => {});
   // @ts-expect-error Availability queries cannot widen the selection domain.
   selectionFocus.availability('other');
   // @ts-expect-error Null is not an availability target.
@@ -188,6 +195,9 @@ const ScopedCounter = Component<{ label: string }>((scope, initial) => {
   void selectionFocus.desired.binding;
   const booleanFocus = scope.focusBoolean();
   const booleanAvailability: import('jonui').FocusAvailability | null = booleanFocus.availability(); void booleanAvailability;
+  booleanFocus.subscribeAvailability(value => { const status: import('jonui').FocusAvailability = value; void status; });
+  // @ts-expect-error Boolean subscriptions take no target argument.
+  booleanFocus.subscribeAvailability('name', () => {});
   // @ts-expect-error A boolean controller has exactly one opaque target.
   booleanFocus.availability('name');
   scope.focusBoolean(true);
@@ -211,6 +221,9 @@ const ScopedCounter = Component<{ label: string }>((scope, initial) => {
   booleanFocus.binding('name');
   const focus = scope.focus(); focus.desired.value = 'name'; focus.request(null); focus.resume();
   const namedAvailability: import('jonui').FocusAvailability | null = focus.availability('name'); void namedAvailability;
+  focus.subscribeAvailability('name', () => {});
+  // @ts-expect-error Named subscription targets are non-null strings.
+  focus.subscribeAvailability(null, () => {});
   // @ts-expect-error Availability queries require non-null names.
   focus.availability(null);
   const projected = focus.binding('name'); projected.value = true; const selected: boolean = projected.value; void selected;

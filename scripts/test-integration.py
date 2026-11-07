@@ -155,3 +155,6 @@ for mode, message in [('throw', 'intentional appearance failure'), ('disappear',
 run('tests/integration/availability-subscribe.mjs', timeout=60, layout=True)
 for mode, message in [('throw', 'intentional availability listener failure'), ('promise', 'must be synchronous')]:
     run('tests/integration/availability-subscribe-error.mjs', case=mode, failure=message)
+run('tests/integration/owned-availability-subscribe.mjs', timeout=60, layout=True)
+for mode, message in [('owned-throw', 'intentional availability listener failure'), ('owned-promise', 'must be synchronous')]:
+    run('tests/integration/availability-subscribe-error.mjs', case=mode, failure=message)

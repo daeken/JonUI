@@ -1065,6 +1065,41 @@ subscription helpers with explicit controller lifetime/context rules before
 automatic focus retry. Public Button/Toggle/Slider targeting, physical-window,
 full keyboard access, IME/AX/nested-sheet and recorded AppKit crash gaps remain.
 
+Owned availability subscriptions completed (2026-11-07): controllers expose
+`subscribeAvailability(name, listener)`, boolean `subscribeAvailability(listener)`
+and typed `subscribeAvailability(id, listener)` with generated names kept private.
+They share the global watch but belong to one controller lease/context. Retirement,
+resume, canceled activation and owner disposal stop subscriptions automatically;
+task/RPC cleanup removes owner tracking as well. Retired/stale/canceled/disposed
+registration is inert before validation. A fresh subscription can follow resume
+in the same turn; resume never restarts the old one. The demos use an effect
+depending on retired state to explicitly bind observation to a new session.
+
+Every delivery verifies lease/caller/readiness and the native focus snapshot.
+Acknowledgements must reach shared focus observation before a mismatch retires
+the owner, or native sampling could consume the window transition without sibling
+controllers learning it. The callbacks do not cross an ended context, resume an
+owner, change intent, request focus or consume movement generations. Observation
+sequences may advance. Global subscriptions still follow active-window changes;
+owned snapshot queries remain usable while retired. Native source/protocol and
+cell/effect counts are unchanged.
+
+Validation: 159 runtime/compiler cases and Deno/TypeScript pass. Focused
+offscreen native coverage passes private numeric/string/boolean mapping, async
+initial/shared watches, resume-before-initial cancellation, same-turn fresh
+subscription, per-controller task/RPC leases, document cancellation, lazy readiness
+without retry, sheet retirement and explicit parent/sheet re-subscription,
+automatic disposal without manual stop and 20 pending owner lifetimes at baseline
+resources. Unit tests force availability-before-focus delivery and confirm sibling
+retirement, plus throw/Promise/native snapshot failure cleanup. All 91 offscreen
+native scenarios pass, including owned listener error/Promise cleanup; API
+classification passes. The recorded AppKit sheet-close crash did not recur;
+no framework fix is claimed. Keep the broad focus item
+unchecked. Next: a cancellable explicit retry policy for retained unavailable/lazy
+targets, respecting session, caller and viewport/realization limits. Public
+Button/Toggle/Slider targeting, physical windows, keyboard/IME/AX/nested-sheet and
+the recorded AppKit sheet-close gaps remain open.
+
 ## 3. Application and operating-system integration
 
 - [ ] Support multiple windows with independent roots and explicit window ownership.

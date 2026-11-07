@@ -476,6 +476,12 @@ function initializeComponent(mounted) {
       let context, token, ready = false, first = true, resuming = false, baseline = null, lease = focusLeaseClock, requestTask = null, resumeTask = null, unsubscribe = () => {};
       let conditionalClear = null, pendingIntent = initialName !== null;
       const taskLeases = new WeakMap();
+      const availabilitySubscriptions = new Set();
+      function stopAvailabilitySubscriptions() {
+        const failures = [];
+        for (const stop of [...availabilitySubscriptions]) { try { stop(); } catch (error) { failures.push(error); } }
+        throwFailures(failures);
+      }
       const allowed = task => !task || task.focusEpoch >= lease || taskLeases.get(task) === lease;
       function canWrite(action) {
         if (owned.disposed || !canMoveFocus(action)) return false;
@@ -483,17 +489,18 @@ function initializeComponent(mounted) {
         return allowed(task);
       }
       function retire() {
-        ready = false; requestTask = null; conditionalClear = null; pendingIntent = false; retired.value = true; actual.value = null; unsubscribe();
+        ready = false; requestTask = null; conditionalClear = null; pendingIntent = false; retired.value = true; actual.value = null;
+        try { stopAvailabilitySubscriptions(); } finally { unsubscribe(); }
       }
       function queueIntent(name, onlyClear = null) {
         requestTask = taskStorage.getStore(); conditionalClear = onlyClear; pendingIntent = true;
         desired.value = name; revision.value = untracked(() => revision.value) + 1;
       }
-      scope.onDispose(() => { ready = false; requestTask = null; resumeTask = null; baseline = null; conditionalClear = null; pendingIntent = false; unsubscribe(); });
+      scope.onDispose(() => { ready = false; requestTask = null; resumeTask = null; baseline = null; conditionalClear = null; pendingIntent = false; try { stopAvailabilitySubscriptions(); } finally { unsubscribe(); } });
       scope.effect(() => {
         activation.value;
         const caller = resumeTask; resumeTask = null;
-        if (caller && !taskIsCurrent(caller)) { resuming = false; baseline = null; requestTask = null; conditionalClear = null; pendingIntent = false; retired.value = true; return; }
+        if (caller && !taskIsCurrent(caller)) { resuming = false; baseline = null; requestTask = null; conditionalClear = null; pendingIntent = false; retired.value = true; stopAvailabilitySubscriptions(); return; }
         unsubscribe = subscribeFocus(sample => {
           if (!ready) return;
           if (sample.token !== token || sample.context !== context) { retire(); return; }
@@ -549,8 +556,24 @@ function initializeComponent(mounted) {
           if (!canWrite('read scoped focus availability')) return null;
           return Focus.availabilityNamed(name);
         },
+        subscribeAvailability(name, callback) {
+          if (!canWrite('subscribe to scoped availability') || !resuming && untracked(() => retired.value)) return () => {};
+          focusName(name);
+          if (typeof callback !== 'function') throw new TypeError('Expected an availability listener');
+          const subscriptionLease = lease; let stop, ended = false;
+          stop = subscribeAvailability(name, value => {
+            if (ended || subscriptionLease !== lease || !ready || !canWrite('deliver scoped availability')) { stop(); return; }
+            const sample = request('focus.snapshot', { token }).observation;
+            if (sample) receiveFocusChange(sample);
+            if (!sample || sample.token !== token || sample.context !== context) { retire(); return; }
+            return callback(value);
+          }, () => { ended = true; availabilitySubscriptions.delete(stop); });
+          if (!ended) availabilitySubscriptions.add(stop);
+          return stop;
+        },
         resume() {
           if (owned.disposed || !canMoveFocus('resume scoped focus')) return;
+          stopAvailabilitySubscriptions();
           lease = ++focusLeaseClock;
           const task = taskStorage.getStore(); if (task) taskLeases.set(task, lease);
           resumeTask = task;
@@ -630,6 +653,11 @@ function initializeComponent(mounted) {
           if (value === null) throw new TypeError('A focus selection availability query requires a non-null ID');
           return controller.availability(nameFor(value));
         },
+        subscribeAvailability(value, callback) {
+          if (!guards.canWrite('subscribe to focus selection availability') || !guards.canRequest()) return () => {};
+          if (value === null) throw new TypeError('A focus selection availability subscription requires a non-null ID');
+          return controller.subscribeAvailability(nameFor(value), callback);
+        },
         resume: controller.resume,
         binding(value) {
           if (value === null) throw new TypeError('A focus selection binding requires a non-null ID');
@@ -654,6 +682,7 @@ function initializeComponent(mounted) {
       return Object.freeze({
         desired, actual: Object.freeze({ get value() { return projected.value; } }), retired: controller.retired,
         binding: projected, request(value) { projected.value = value; }, availability: () => controller.availability(name), resume: controller.resume,
+        subscribeAvailability: callback => controller.subscribeAvailability(name, callback),
       });
     },
     onDispose(cleanup) {
@@ -882,8 +911,8 @@ function receiveAvailabilityChange(event) {
   if (!watch || !Number.isSafeInteger(event.sequence) || event.sequence <= watch.sequence || !availabilityValues.has(event.availability)) return;
   watch.sequence = event.sequence; watch.availability = event.availability; scheduleAvailabilityDelivery(watch);
 }
-function subscribeAvailability(name, callback) {
-  if (!canMoveFocus('subscribe to native availability')) return () => {};
+function subscribeAvailability(name, callback, onStop) {
+  if (!canMoveFocus('subscribe to native availability')) { onStop?.(); return () => {}; }
   focusName(name);
   if (typeof callback !== 'function') throw new TypeError('Expected an availability listener');
   let watch = availabilityWatches.get(name);
@@ -904,6 +933,7 @@ function subscribeAvailability(name, callback) {
   const unsubscribe = () => {
     if (!watch.entries.delete(entry)) return;
     entry.unregister(); entry.unregister = () => {}; entry.callback = null; entry.task = null;
+    onStop?.();
     if (!watch.entries.size && availabilityWatches.get(name) === watch) {
       availabilityWatches.delete(name); availabilityTokens.delete(watch.token);
       request('focus.availability.unwatch', { token: watch.token });
