@@ -1,0 +1,26 @@
+[
+  {
+    "id": "cedar-ridge",
+    "name": "Cedar Ridge",
+    "region": "Northern Hills",
+    "description": "A quiet trail winds through cedars to an open ridge.",
+    "isFavorite": true,
+    "note": "Bring a sketchbook."
+  },
+  {
+    "id": "mirror-lake",
+    "name": "Mirror Lake",
+    "region": "Lake Country",
+    "description": "Still water reflects the trees along a sheltered shore.",
+    "isFavorite": false,
+    "note": ""
+  },
+  {
+    "id": "redstone-arch",
+    "name": "Redstone Arch",
+    "region": "Western Desert",
+    "description": "A sandstone arch stands above a broad, dry valley.",
+    "isFavorite": true,
+    "note": "Visit near sunset."
+  }
+]

@@ -1,0 +1,12 @@
+#!/bin/sh
+set -eu
+JONUI_ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+export JONUI_ROOT
+jonui_binary="$JONUI_ROOT/.build/jonui/JonUI.app/Contents/MacOS/jonui"
+jonui_rebuild=0
+if [ ! -x "$jonui_binary" ]; then jonui_rebuild=1; fi
+for jonui_source in native/Host.swift native/NodeRuntime.cpp native/include/jonui.h scripts/build.py; do
+    if [ "$JONUI_ROOT/$jonui_source" -nt "$jonui_binary" ]; then jonui_rebuild=1; fi
+done
+if [ "$jonui_rebuild" = 1 ]; then python3 "$JONUI_ROOT/scripts/build.py"; fi
+exec "$jonui_binary" "$@"

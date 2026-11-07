@@ -1,0 +1,1066 @@
+import { AsyncLocalStorage } from "node:async_hooks";
+import { isPromise } from "node:util/types";
+// Public constructors build immutable values. Only mounted values own native views.
+const bridge = globalThis.__jonuiNative;
+if (!bridge) throw new Error('Run this application with the jonui launcher');
+function request(op, args = {}) {
+  const result = JSON.parse(bridge.request(JSON.stringify({ op, ...args })));
+  if (result.error) throw new Error(result.error);
+  return result;
+}
+let nextState = 1, nextView = 1, nextSubmit = 1, nextEditing = 1, active = null, root = null, stop = null;
+let stopped = false, scheduled = false, mounting = false, flushing = false;
+const cells = new Map(), actions = new Map(), dirty = new Set(), updates = new Map();
+const recoveryScopes = [];
+const pendingStateReleases = new Set();
+const pendingEffects = new Set(), effects = new Set();
+const taskStorage = new AsyncLocalStorage(), pendingTasks = new Set();
+const computationStorage = new AsyncLocalStorage(), computations = new Set();
+const liveDependencies = new WeakSet();
+const webErrors = new Map(), webAPIs = new Map();
+let nextWebEpoch = 1;
+const textSubmits = new Map();
+const textEditings = new Map();
+const viewMarker = Symbol('JonUI.View');
+const bindingMarker = Symbol('JonUI.Binding');
+const supportedKinds = new Set(['text', 'image', 'spacer', 'divider', 'vstack', 'hstack', 'lazyvstack', 'lazyhstack', 'lazyvgrid', 'lazyhgrid', 'scroll', 'form', 'section', 'slider', 'stepper', 'picker', 'datepicker', 'button', 'toggle', 'textfield', 'securefield', 'texteditor', 'webview', 'split', 'list', 'foreach', 'dynamic', 'component', 'modifier']);
+// UTC instants spanning years 0001 through 9999, in Unix milliseconds.
+const earliestDate = -62135596800000, latestDate = 253402300799999;
+function dateTimestamp(value, label) {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < earliestDate || value > latestDate) throw new TypeError(`${label} must be Unix milliseconds within UTC years 0001...9999`);
+}
+const horizontalAlignments = ['leading', 'center', 'trailing'];
+const verticalAlignments = ['top', 'center', 'bottom', 'firstTextBaseline', 'lastTextBaseline'];
+const frameAlignments = [...horizontalAlignments, 'top', 'bottom', 'topLeading', 'topTrailing', 'bottomLeading', 'bottomTrailing'];
+function layoutOptions(options, keys, label) {
+  if (!options || typeof options !== 'object' || Array.isArray(options)) throw new TypeError(`${label} requires an options object`);
+  const props = {};
+  for (const [key, value] of Object.entries(options)) {
+    if (!keys.includes(key)) throw new TypeError(`Unknown ${label} option: ${key}`);
+    if (value !== undefined) props[key] = value;
+  }
+  return props;
+}
+function layoutNumber(value, label, nonnegative = false) {
+  if (typeof value !== 'number' || !Number.isFinite(value) || nonnegative && value < 0) throw new TypeError(`${label} must be a finite${nonnegative ? ' nonnegative' : ''} number`);
+  return value;
+}
+function layoutEnum(value, allowed, label) {
+  if (!allowed.includes(value)) throw new TypeError(`Invalid ${label}: ${String(value)}`);
+}
+function frameOptions(options) {
+  const props = layoutOptions(options, ['width', 'height', 'minWidth', 'idealWidth', 'maxWidth', 'minHeight', 'idealHeight', 'maxHeight', 'alignment'], 'frame');
+  const fixed = 'width' in props || 'height' in props;
+  const flexible = Object.keys(props).some(key => /^(min|ideal|max)/.test(key));
+  if (fixed && flexible) throw new TypeError('Fixed and flexible frame options must use separate modifiers');
+  for (const [key, value] of Object.entries(props)) {
+    if (key === 'alignment') layoutEnum(value, frameAlignments, 'frame alignment');
+    else if (!key.startsWith('max') || value !== 'infinity') layoutNumber(value, `frame ${key}`, true);
+  }
+  for (const axis of ['Width', 'Height']) {
+    const values = ['min', 'ideal', 'max'].map(key => props[key + axis]).filter(value => value !== undefined).map(value => value === 'infinity' ? Infinity : value);
+    if (values.some((value, index) => index && value < values[index - 1])) throw new TypeError('Frame bounds must be ordered min <= ideal <= max');
+  }
+  return props;
+}
+function stackOptions(options, vertical) {
+  const props = layoutOptions(options, ['alignment', 'spacing'], vertical ? 'VStack' : 'HStack');
+  if ('alignment' in props) layoutEnum(props.alignment, vertical ? horizontalAlignments : verticalAlignments, 'stack alignment');
+  if ('spacing' in props) layoutNumber(props.spacing, 'stack spacing');
+  return props;
+}
+function taskIsCurrent(run) {
+  if (stopped || run.cancelled || run.owner.disposed) return false;
+  if (run.web && !request('web.claim', run.route).accepted) {
+    webAPIs.get(run.route.id)?.runs.delete(run.key); cancelTask(run); return false;
+  }
+  return true;
+}
+function registerTaskCleanup(run, cleanup) {
+  assertNotComputing('register task cleanup');
+  if (typeof cleanup !== 'function') throw new TypeError('Task cleanup must be a function');
+  if (active && !active.effect) throw new Error('Register task cleanup outside view bodies');
+  if (!taskIsCurrent(run)) {
+    taskStorage.run(run, () => synchronousCleanup(cleanup, "Task cleanup"));
+    return () => {};
+  }
+  run.cleanups.add(cleanup);
+  return () => run.cleanups.delete(cleanup);
+}
+function cancelTask(run) {
+  if (!run || run.cancelled) return;
+  run.cancelled = true; pendingTasks.delete(run);
+  const failures = [];
+  // Abort listeners run in the obsolete task's context too, so their State
+  // writes cannot erase the result of a newer task or resurrect an owner.
+  taskStorage.run(run, () => {
+    try { run.controller.abort(); } catch (error) { failures.push(error); }
+    for (const cleanup of [...run.cleanups].reverse()) {
+      try { synchronousCleanup(cleanup, "Task cleanup"); } catch (error) { failures.push(error); }
+    }
+  });
+  run.cleanups.clear();
+  throwFailures(failures);
+}
+function createTaskContext(run) {
+  return Object.freeze({
+    signal: run.controller.signal,
+    get isCurrent() { return taskIsCurrent(run); },
+    onCancel(cleanup) { return registerTaskCleanup(run, cleanup); },
+    commit(callback) {
+      if (!taskIsCurrent(run)) return false;
+      assertNotComputing('commit task results');
+      if (active && !active.effect) throw new Error('Commit task results outside view bodies');
+      if (typeof callback !== 'function') throw new TypeError('Task commit expects a function');
+      const result = taskStorage.run(run, () => untracked(callback));
+      if (result && typeof result.then === 'function') {
+        Promise.resolve(result).catch(() => {});
+        throw new TypeError('Task commit must be synchronous');
+      }
+      return true;
+    },
+  });
+}
+function startTask(owner, callback, remember) {
+  const run = { owner, cancelled: false, controller: new AbortController(), cleanups: new Set() };
+  remember(run); pendingTasks.add(run);
+  const context = createTaskContext(run);
+  let result;
+  try {
+    result = taskStorage.run(run, () => callback(context));
+    if (result !== undefined && (!result || typeof result.then !== 'function')) throw new TypeError('Task callbacks must return undefined or a Promise');
+  } catch (error) {
+    try { cancelTask(run); } catch (cleanupError) { throw new AggregateError([error, cleanupError], String(error)); }
+    throw error;
+  }
+  Promise.resolve(result).then(() => {
+    pendingTasks.delete(run);
+  }, error => {
+    pendingTasks.delete(run);
+    if (!taskIsCurrent(run)) return;
+    try { cancelTask(run); } catch (cleanupError) { error = new AggregateError([error, cleanupError], String(error)); }
+    taskStorage.run(undefined, () => fail(error));
+  });
+  return () => cancelTask(run);
+}
+function invalidate(dependency) {
+  for (const observer of [...dependency.dependents]) {
+    if (!observer.alive || observer.effect && observer.owner.disposed) continue;
+    if (observer.computed) {
+      if (observer.stale) continue;
+      observer.stale = true;
+      // A stale cache needs no subscriptions until it is read again. Detach
+      // immediately so even unobserved derivations release disposed inputs.
+      detachComputation(observer);
+      invalidate(observer);
+    } else (observer.effect ? pendingEffects : dirty).add(observer);
+  }
+}
+function assertNotComputing(action) {
+  if (computationStorage.getStore()) throw new Error(`Computed callbacks cannot ${action}`);
+}
+function readDependency(dependency) {
+  if (!active) return;
+  active.nextDependencies.add(dependency);
+  // Subscribe immediately so an effect reading then writing its own input is
+  // scheduled again and diagnosed, including on its very first execution.
+  if (active.effect) dependency.dependents.add(active);
+}
+function untracked(callback) {
+  const previous = active; active = null;
+  try { return callback(); } finally { active = previous; }
+}
+function synchronousCleanup(callback, label = "Effect cleanup") {
+  const result = untracked(callback);
+  if (result && typeof result.then === 'function') {
+    Promise.resolve(result).catch(() => {});
+    throw new TypeError(`${label} must be synchronous`);
+  }
+}
+function stateSnapshot(value, ancestors = new Set()) {
+  if (value === null || ['string', 'boolean'].includes(typeof value)) return value;
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value)) throw new TypeError('State numbers must be finite');
+    return value;
+  }
+  if (typeof value !== 'object') throw new TypeError('State requires JSON values');
+  const array = Array.isArray(value), prototype = Object.getPrototypeOf(value);
+  if (!array && prototype !== Object.prototype && prototype !== null) throw new TypeError('State objects must be plain records');
+  if (ancestors.has(value)) throw new TypeError('State cannot contain cycles');
+  ancestors.add(value);
+  try {
+    const result = array ? [] : {};
+    const keys = Reflect.ownKeys(value);
+    if (array && keys.length !== value.length + 1) throw new TypeError('State arrays must be dense without extra properties');
+    for (const key of keys) {
+      if (array && key === 'length') continue;
+      const descriptor = Object.getOwnPropertyDescriptor(value, key);
+      if (typeof key !== 'string' || !descriptor.enumerable || !Object.hasOwn(descriptor, 'value')) {
+        throw new TypeError('State requires enumerable data properties without symbols or accessors');
+      }
+      if (array && (!/^(0|[1-9]\d*)$/.test(key) || Number(key) >= value.length)) throw new TypeError('State arrays cannot have extra properties');
+      Object.defineProperty(result, key, {
+        value: stateSnapshot(descriptor.value, ancestors), enumerable: true, writable: true, configurable: true,
+      });
+    }
+    return Object.freeze(result);
+  } finally { ancestors.delete(value); }
+}
+function equalState(left, right) {
+  if (Object.is(left, right)) return true;
+  if (left === null || right === null || typeof left !== 'object' || typeof right !== 'object' || Array.isArray(left) !== Array.isArray(right)) return false;
+  const keys = Object.keys(left);
+  return keys.length === Object.keys(right).length && keys.every(key => Object.hasOwn(right, key) && equalState(left[key], right[key]));
+}
+function binding(value) {
+  if (!value?.[bindingMarker]) throw new TypeError('Expected a JonUI binding');
+  return value.id;
+}
+export function State(initialValue) {
+  assertNotComputing('allocate State');
+  const task = taskStorage.getStore();
+  if (task && !taskIsCurrent(task)) throw new Error('Cannot allocate State from a cancelled task');
+  if (active) throw new Error("Allocate State outside View bodies");
+  return createState(initialValue);
+}
+function createState(initialValue, owner = null) {
+  const id = nextState++;
+  const first = request('state.create', { id, value: stateSnapshot(initialValue) });
+  let value = stateSnapshot(first.value), revision = first.revision, disposed = false;
+  const dependents = new Set(), listeners = new Set();
+  const cell = {
+    get value() {
+      if (active && disposed) throw new Error('Cannot read unmounted component state from a view');
+      readDependency(cell);
+      return value;
+    },
+    set value(next) {
+      assertNotComputing('write State');
+      const task = taskStorage.getStore();
+      if (stopped || disposed || task && !taskIsCurrent(task)) return;
+      if (active && !active.effect) throw new Error("View bodies cannot write State");
+      const committed = request('state.write', { id, value: stateSnapshot(next) });
+      accept(committed);
+    },
+    get binding() {
+      if (disposed) throw new Error('Cannot bind unmounted component state');
+      if (value !== null && typeof value === 'object') throw new TypeError('Native bindings require scalar State; use a separate scalar cell for editable fields');
+      return nativeBinding;
+    },
+    subscribe(listener) {
+      assertNotComputing('subscribe to State');
+      if (typeof listener !== 'function') throw new TypeError('Expected a listener');
+      const task = taskStorage.getStore();
+      if (stopped || disposed || task && !taskIsCurrent(task)) return () => {};
+      const wrapped = task ? value => {
+        if (taskIsCurrent(task)) taskStorage.run(task, () => listener(value));
+      } : listener;
+      let unregister = () => {};
+      const unsubscribe = () => { listeners.delete(wrapped); unregister(); };
+      listeners.add(wrapped);
+      if (task) unregister = registerTaskCleanup(task, unsubscribe);
+      return unsubscribe;
+    },
+    dependents,
+  };
+  const nativeBinding = Object.freeze({ [bindingMarker]: true, id });
+  function accept(event) {
+    if (event.revision <= revision || stopped || disposed) return;
+    const next = stateSnapshot(event.value);
+    revision = event.revision;
+    if (equalState(value, next)) return;
+    value = next;
+    invalidate(cell);
+    // Notify after the native acknowledgement, before any scheduled body runs.
+    try {
+      taskStorage.run(undefined, () => untracked(() => { for (const listener of [...listeners]) listener(value); }));
+    } finally { schedule(); }
+  }
+  function dispose() {
+    if (disposed) return;
+    disposed = true;
+    // Remaining consumers outside the owner must retry rather than silently
+    // retaining a subscription to a cell whose native binding has been freed.
+    liveDependencies.delete(cell);
+    invalidate(cell);
+    dependents.clear(); listeners.clear(); cells.delete(id);
+    pendingStateReleases.add(id);
+  }
+  liveDependencies.add(cell);
+  cells.set(id, { accept, cell, listeners, dispose });
+  owner?.cells.add(id);
+  return cell;
+}
+/** A lazy, read-only JSON derivation; root instances are app-owned. */
+export function Computed(callback) {
+  assertNotComputing('allocate Computed values');
+  const task = taskStorage.getStore();
+  if (stopped || task && !taskIsCurrent(task)) throw new Error('Cannot allocate Computed after its lifetime ends');
+  if (active) throw new Error('Allocate Computed outside reactive callbacks');
+  return createComputed(callback);
+}
+function createComputed(callback, owner = null) {
+  if (typeof callback !== 'function') throw new TypeError('Computed expects a synchronous derivation');
+  const observer = {
+    computed: true, alive: true, stale: true, evaluating: false, callback, owner,
+    dependencies: new Set(), nextDependencies: new Set(), dependents: new Set(),
+    hasValue: false, value: undefined, failed: false, error: undefined,
+  };
+  computations.add(observer); owner?.computations.add(observer); liveDependencies.add(observer);
+  return Object.freeze({
+    get value() {
+      if (!observer.alive) throw new Error('Cannot read disposed Computed');
+      if (observer.owner?.disposed) {
+        // Lifetime cleanup may inspect the last successful result, but must
+        // never reevaluate against props/cells already detached by unmount.
+        if (!active && observer.hasValue && !observer.failed) return observer.value;
+        throw new Error('Cannot evaluate Computed while its component is unmounting');
+      }
+      readDependency(observer);
+      if (observer.evaluating) throw new Error('Computed dependency cycle');
+      if (observer.stale) {
+        observer.evaluating = true;
+        try {
+          const next = computationStorage.run(true, () => track(observer, () => {
+            const result = observer.callback();
+            if (isPromise(result)) {
+              Promise.resolve(result).catch(() => {});
+              throw new TypeError('Computed callbacks must return synchronous JSON values');
+            }
+            return stateSnapshot(result);
+          }));
+          if (!observer.hasValue || !equalState(observer.value, next)) observer.value = next;
+          observer.hasValue = true; observer.failed = false; observer.error = undefined;
+        } catch (error) {
+          observer.failed = true; observer.error = error;
+        } finally { observer.stale = false; observer.evaluating = false; }
+      }
+      if (observer.failed) throw observer.error;
+      return observer.value;
+    },
+  });
+}
+function detachComputation(observer) {
+  for (const dependency of [...observer.dependencies, ...observer.nextDependencies]) dependency.dependents.delete(observer);
+  observer.dependencies.clear(); observer.nextDependencies.clear();
+}
+function disposeComputed(observer) {
+  if (!observer.alive) return;
+  observer.alive = false;
+  computations.delete(observer); observer.owner?.computations.delete(observer);
+  liveDependencies.delete(observer); invalidate(observer);
+  detachComputation(observer); observer.dependents.clear();
+  observer.callback = null; observer.value = undefined; observer.error = undefined;
+}
+class ViewValue {
+  constructor(kind, props = {}, children = []) {
+    this[viewMarker] = true; this.kind = kind; this.props = props; this.children = children;
+    Object.freeze(this.props); Object.freeze(this.children); Object.freeze(this);
+  }
+  modifier(name, props) { return new ViewValue('modifier', { name, ...props }, [this]); }
+  font(value) { return this.modifier('font', { value }); }
+  foregroundStyle(value) { return this.modifier('foregroundStyle', { value }); }
+  padding(options = 16) {
+    if (typeof options === 'number') return this.modifier('padding', { points: layoutNumber(options, 'padding') });
+    const props = layoutOptions(options, ['top', 'leading', 'bottom', 'trailing'], 'padding');
+    for (const value of Object.values(props)) layoutNumber(value, 'padding');
+    return this.modifier('padding', props);
+  }
+  frame(options) { return this.modifier('frame', frameOptions(options)); }
+  fixedSize(options) {
+    const props = options === undefined ? { horizontal: true, vertical: true } : { horizontal: false, vertical: false, ...layoutOptions(options, ['horizontal', 'vertical'], 'fixedSize') };
+    if (Object.values(props).some(value => typeof value !== 'boolean')) throw new TypeError('fixedSize axes must be boolean');
+    return this.modifier('fixedSize', props);
+  }
+  layoutPriority(value) { return this.modifier('layoutPriority', { value: layoutNumber(value, 'layoutPriority') }); }
+  navigationTitle(value) { return this.modifier('navigationTitle', { value }); }
+  accessibilityIdentifier(value) { return this.modifier('accessibilityIdentifier', { value }); }
+  disabled(value = true) {
+    if (typeof value !== 'boolean') throw new TypeError('disabled expects a boolean');
+    return this.modifier('disabled', { value });
+  }
+  focusSection(...args) {
+    if (args.length) throw new TypeError('focusSection accepts no arguments');
+    return this.modifier('focusSection', {});
+  }
+  tag(value) { itemKey(value); return this.modifier('tag', { value }); }
+  sheet({ isPresented, content }) { return new ViewValue('modifier', { name: 'sheet', state: binding(isPresented) }, [this, content]); }
+}
+export function View(body, options = {}) {
+  if (typeof body !== 'function') throw new TypeError('View expects a synchronous body');
+  if (options.fallback !== undefined && typeof options.fallback !== 'function') throw new TypeError('View fallback must be a function');
+  return new ViewValue('dynamic', { body, fallback: options.fallback });
+}
+/** Define once; each mounted instance owns its setup state and cleanup. */
+export function Component(setup) {
+  if (typeof setup !== 'function') throw new TypeError('Component expects a setup function');
+  const definition = Object.freeze({});
+  return props => new ViewValue('component', { definition, setup, componentProps: props });
+}
+function initializeComponent(mounted) {
+  const owned = { cells: new Set(), computations: new Set(), effects: new Set(), propsSignal: { dependents: new Set() }, nextEffectIndex: 0, cleanups: [], initializing: true, disposed: false, render: null };
+  liveDependencies.add(owned.propsSignal);
+  mounted.component = owned;
+  const scope = Object.freeze({
+    get props() {
+      if (active && owned.disposed) throw new Error('Cannot observe unmounted component props');
+      readDependency(owned.propsSignal);
+      return mounted.value.props.componentProps;
+    },
+    effect(callback) {
+      assertNotComputing('register effects');
+      if (!owned.initializing || owned.disposed) throw new Error('Register effects during component setup');
+      if (typeof callback !== 'function') throw new TypeError('Effect expects a function');
+      const path = [owned.nextEffectIndex++];
+      for (let node = mounted; node; node = node.parent) path.unshift(node.key);
+      const observer = { effect: true, site: JSON.stringify(path), owner: owned, alive: true, callback, cleanup: null, dependencies: new Set(), nextDependencies: new Set() };
+      owned.effects.add(observer); effects.add(observer); pendingEffects.add(observer);
+      return () => {
+        if (!observer.alive) return;
+        assertNotComputing('stop effects');
+        if (active && !active.effect) throw new Error('Stop effects outside view bodies');
+        disposeEffect(observer);
+      };
+    },
+    task(callback) {
+      if (!owned.initializing || owned.disposed) throw new Error('Register tasks during component setup');
+      if (typeof callback !== 'function') throw new TypeError('Task expects a function');
+      let current;
+      const stopEffect = scope.effect(() => startTask(owned, callback, run => { current = run; }));
+      return () => {
+        // The effect stop enforces render purity before aborting any work.
+        stopEffect(); cancelTask(current);
+      };
+    },
+    state(initialValue) {
+      assertNotComputing('allocate State');
+      if (!owned.initializing || owned.disposed) throw new Error('Component state must be allocated during setup');
+      return createState(initialValue, owned);
+    },
+    computed(callback) {
+      assertNotComputing('allocate Computed values');
+      if (!owned.initializing || owned.disposed) throw new Error('Allocate scoped Computed during component setup');
+      return createComputed(callback, owned);
+    },
+    onDispose(cleanup) {
+      assertNotComputing('register component cleanup');
+      if (!owned.initializing || owned.disposed) throw new Error('Register component cleanup during setup');
+      if (typeof cleanup !== 'function') throw new TypeError('Expected a cleanup function');
+      owned.cleanups.push(cleanup);
+    },
+  });
+  try {
+    owned.render = mounted.value.props.setup(scope, mounted.value.props.componentProps);
+    if (typeof owned.render !== 'function') throw new TypeError('Component setup must return a synchronous view body');
+  } catch (error) {
+    try { disposeComponent(owned); } catch (cleanupError) {
+      throw new AggregateError([error, cleanupError], String(error));
+    }
+    throw error;
+  } finally { owned.initializing = false; }
+}
+function throwFailures(failures) {
+  if (failures.length === 1) throw failures[0];
+  if (failures.length) throw new AggregateError(failures, 'Component cleanup failed');
+}
+function disposeComponent(owned) {
+  if (!owned || owned.disposed) return;
+  owned.disposed = true;
+  liveDependencies.delete(owned.propsSignal); invalidate(owned.propsSignal); owned.propsSignal.dependents.clear();
+  for (const id of owned.cells) cells.get(id)?.dispose();
+  owned.cells.clear();
+  const failures = [];
+  for (const observer of [...owned.effects].reverse()) {
+    try { disposeEffect(observer); } catch (error) { failures.push(error); }
+  }
+  for (const cleanup of owned.cleanups.reverse()) {
+    try { untracked(cleanup); } catch (error) { failures.push(error); }
+  }
+  for (const observer of [...owned.computations]) disposeComputed(observer);
+  owned.cleanups = []; owned.render = null;
+  throwFailures(failures);
+}
+function disposeEffect(observer) {
+  if (!observer.alive) return;
+  observer.alive = false;
+  pendingEffects.delete(observer); effects.delete(observer); observer.owner.effects.delete(observer);
+  for (const dependency of [...observer.dependencies, ...observer.nextDependencies]) dependency.dependents.delete(observer);
+  observer.dependencies.clear(); observer.nextDependencies.clear();
+  const cleanup = observer.cleanup;
+  observer.cleanup = null; observer.callback = null;
+  if (cleanup) synchronousCleanup(cleanup);
+}
+function runEffect(observer) {
+  pendingEffects.delete(observer);
+  if (!observer.alive || observer.owner.disposed) return;
+  for (const dependency of observer.dependencies) dependency.dependents.delete(observer);
+  observer.dependencies.clear();
+  const cleanup = observer.cleanup; observer.cleanup = null;
+  if (cleanup) synchronousCleanup(cleanup);
+  if (!observer.alive || observer.owner.disposed) return;
+  const result = track(observer, observer.callback);
+  if (result !== undefined && typeof result !== 'function') {
+    if (result && typeof result.then === 'function') Promise.resolve(result).catch(() => {});
+    throw new TypeError('Effect must synchronously return a cleanup function or undefined');
+  }
+  if (typeof result === 'function') {
+    if (observer.alive && !observer.owner.disposed) observer.cleanup = result;
+    else synchronousCleanup(result);
+  }
+}
+function equalProps(previous, next) {
+  if (Object.is(previous, next)) return true;
+  if (!previous || !next || typeof previous !== 'object' || typeof next !== 'object') return false;
+  const prototype = Object.getPrototypeOf(previous);
+  if (prototype !== Object.getPrototypeOf(next) || ![Object.prototype, Array.prototype, null].includes(prototype)) return false;
+  const keys = Reflect.ownKeys(previous), nextKeys = Reflect.ownKeys(next);
+  return keys.length === nextKeys.length && keys.every(key => Object.hasOwn(next, key) && Object.is(previous[key], next[key]));
+}
+function unmountAll(children) {
+  const failures = [];
+  for (const child of children) {
+    try { unmount(child); } catch (error) { failures.push(error); }
+  }
+  throwFailures(failures);
+}
+export const Text = value => new ViewValue('text', { value });
+export const Image = options => new ViewValue('image', options);
+export const Spacer = (options = {}) => {
+  const props = layoutOptions(options, ['minLength'], 'Spacer');
+  if ('minLength' in props) layoutNumber(props.minLength, 'Spacer minLength', true);
+  return new ViewValue('spacer', props);
+};
+export const Divider = () => new ViewValue('divider');
+export const VStack = (children, options = {}) => new ViewValue('vstack', stackOptions(options, true), [...children]);
+export const HStack = (children, options = {}) => new ViewValue('hstack', stackOptions(options, false), [...children]);
+export const LazyVStack = (children, options = {}) => new ViewValue('lazyvstack', stackOptions(options, true), [...children]);
+export const LazyHStack = (children, options = {}) => new ViewValue('lazyhstack', stackOptions(options, false), [...children]);
+function gridOptions(options, vertical) {
+  const axis = vertical ? 'columns' : 'rows';
+  const props = layoutOptions(options, [axis, 'alignment', 'spacing'], vertical ? 'LazyVGrid' : 'LazyHGrid');
+  if ('alignment' in props) layoutEnum(props.alignment, vertical ? horizontalAlignments : verticalAlignments, 'grid alignment');
+  if ('spacing' in props) layoutNumber(props.spacing, 'grid spacing', true);
+  if (!Array.isArray(props[axis]) || !props[axis].length) throw new TypeError(`Grid ${axis} must be a nonempty array`);
+  const tracks = Object.freeze(Array.from(props[axis], item => {
+    const track = layoutOptions(item, ['size', 'value', 'min', 'max', 'spacing', 'alignment'], 'GridItem');
+    layoutEnum(track.size, ['fixed', 'flexible', 'adaptive'], 'grid item size');
+    if ('alignment' in track) layoutEnum(track.alignment, frameAlignments, 'grid item alignment');
+    if ('spacing' in track) layoutNumber(track.spacing, 'grid item spacing', true);
+    if (track.size === 'fixed') {
+      if ('min' in track || 'max' in track) throw new TypeError('Fixed GridItem uses value, not min/max');
+      layoutNumber(track.value, 'fixed grid item value', true);
+    } else {
+      if ('value' in track) throw new TypeError('Flexible/adaptive GridItem uses min/max, not value');
+      if (!('min' in track) && track.size === 'flexible') track.min = 10;
+      layoutNumber(track.min, 'grid item min', true);
+      if (track.size === 'adaptive' && track.min === 0) throw new TypeError('Adaptive GridItem min must be positive');
+      if (!('max' in track)) track.max = 'infinity';
+      if (track.max !== 'infinity') layoutNumber(track.max, 'grid item max', true);
+      if (track.max !== 'infinity' && track.max < track.min) throw new TypeError('GridItem bounds must satisfy min <= max');
+    }
+    return Object.freeze(track);
+  }));
+  delete props[axis]; props.tracks = tracks;
+  return props;
+}
+export const LazyVGrid = (children, options) => new ViewValue('lazyvgrid', gridOptions(options, true), [...children]);
+export const LazyHGrid = (children, options) => new ViewValue('lazyhgrid', gridOptions(options, false), [...children]);
+export const ScrollView = (content, options = {}) => {
+  const props = { axes: 'vertical', showsIndicators: true, ...layoutOptions(options, ['axes', 'showsIndicators'], 'ScrollView') };
+  layoutEnum(props.axes, ['vertical', 'horizontal', 'both'], 'scroll axes');
+  if (typeof props.showsIndicators !== 'boolean') throw new TypeError('ScrollView showsIndicators must be boolean');
+  return new ViewValue('scroll', props, [content]);
+};
+export const Form = (children, options = {}) => {
+  const props = { style: 'automatic', ...layoutOptions(options, ['style'], 'Form') };
+  layoutEnum(props.style, ['automatic', 'grouped', 'columns'], 'form style');
+  return new ViewValue('form', props, [...children]);
+};
+export const Section = (title, children, options = {}) => {
+  if (typeof title !== 'string') throw new TypeError('Section title must be a string');
+  const props = { title, ...layoutOptions(options, ['footer'], 'Section') };
+  if ('footer' in props && typeof props.footer !== 'string') throw new TypeError('Section footer must be a string');
+  return new ViewValue('section', props, [...children]);
+};
+function numericInput(kind, title, options) {
+  if (typeof title !== 'string') throw new TypeError('Numeric input title must be a string');
+  const props = { min: 0, max: kind === 'slider' ? 1 : 100, ...(kind === 'stepper' ? { step: 1 } : {}), ...layoutOptions(options, ['value', 'min', 'max', 'step'], kind) };
+  for (const key of ['min', 'max']) layoutNumber(props[key], `${kind} ${key}`);
+  const span = props.max - props.min;
+  if (!(span > 0) || !Number.isFinite(span)) throw new TypeError('Numeric input range must have a positive finite span');
+  if ('step' in props) {
+    layoutNumber(props.step, `${kind} step`);
+    if (!(props.step > 0) || props.step > span || !Number.isFinite(span / props.step)) throw new TypeError('Numeric input step must be positive, fit the range, and produce a finite step count');
+  }
+  const state = binding(props.value); delete props.value;
+  return new ViewValue(kind, { title, ...props, state });
+}
+export const Slider = (title, options) => numericInput('slider', title, options);
+export const Stepper = (title, options) => numericInput('stepper', title, options);
+export function DatePicker(title, options) {
+  if (typeof title !== 'string') throw new TypeError('DatePicker title must be a string');
+  const props = { components: 'dateAndTime', style: 'automatic', ...layoutOptions(options, ['selection', 'min', 'max', 'components', 'style', 'timeZone', 'focusName'], 'DatePicker') };
+  if (props.focusName !== undefined) focusName(props.focusName);
+  layoutEnum(props.components, ['date', 'time', 'dateAndTime'], 'date components');
+  layoutEnum(props.style, ['automatic', 'compact', 'graphical'], 'date picker style');
+  for (const key of ['min', 'max']) if (key in props) dateTimestamp(props[key], `DatePicker ${key}`);
+  if ((props.min ?? earliestDate) > (props.max ?? latestDate)) throw new TypeError('DatePicker bounds must satisfy min <= max');
+  if ('timeZone' in props) {
+    if (typeof props.timeZone !== 'string' || !props.timeZone || /^[+-]/.test(props.timeZone)) throw new TypeError('DatePicker timeZone must be a named time zone');
+    try { props.timeZone = new Intl.DateTimeFormat('en-US', { timeZone: props.timeZone }).resolvedOptions().timeZone; }
+    catch { throw new TypeError('DatePicker timeZone must be a supported named time zone'); }
+  }
+  const state = binding(props.selection); delete props.selection;
+  return new ViewValue('datepicker', { title, ...props, state });
+}
+export function Picker(title, options) {
+  if (typeof title !== 'string') throw new TypeError('Picker title must be a string');
+  const props = { style: 'automatic', placeholder: 'Select…', ...layoutOptions(options, ['selection', 'options', 'style', 'placeholder'], 'Picker') };
+  layoutEnum(props.style, ['automatic', 'menu', 'segmented'], 'picker style');
+  if (typeof props.placeholder !== 'string') throw new TypeError('Picker placeholder must be a string');
+  if (!Array.isArray(props.options)) throw new TypeError('Picker options must be an array');
+  const seen = new Set();
+  const items = Array.from(props.options, item => {
+    const option = layoutOptions(item, ['value', 'label'], 'Picker option');
+    if (option.value !== null && !['string', 'number'].includes(typeof option.value) || typeof option.value === 'number' && !Number.isFinite(option.value)) throw new TypeError('Picker option values must be strings, finite numbers or null');
+    if (typeof option.label !== 'string') throw new TypeError('Picker option label must be a string');
+    const key = JSON.stringify([typeof option.value, option.value]);
+    if (seen.has(key)) throw new TypeError(`Duplicate Picker option: ${String(option.value)}`);
+    seen.add(key);
+    return Object.freeze({ value: option.value, label: option.label });
+  });
+  const state = binding(props.selection);
+  return new ViewValue('picker', { title, state, style: props.style, placeholder: props.placeholder, options: Object.freeze(items) });
+}
+export const Button = (title, action) => new ViewValue('button', { title, action });
+const focusTargets = new WeakMap();
+function focusName(value) {
+  if (typeof value !== 'string' || !value.length || !value.isWellFormed()) throw new TypeError('Focus names must be nonempty well-formed strings');
+  return value;
+}
+function canMoveFocus() {
+  assertNotComputing('move focus');
+  const task = taskStorage.getStore();
+  if (stopped || task && !taskIsCurrent(task)) return false;
+  if (active && !active.effect) throw new Error('Move focus outside view bodies');
+  return true;
+}
+function moveFocus(direction) {
+  if (!canMoveFocus()) return;
+  request('focus.move', { direction });
+}
+export const Focus = Object.freeze({
+  next: () => moveFocus('next'), previous: () => moveFocus('previous'), clear: () => moveFocus('clear'),
+  move(direction) {
+    if (!canMoveFocus()) return false;
+    layoutEnum(direction, ['left', 'right', 'up', 'down'], 'focus direction');
+    return request('focus.direction', { direction }).moved;
+  },
+  capture() {
+    if (!canMoveFocus()) return null;
+    const { target } = request('focus.capture');
+    if (target === null) return null;
+    const value = Object.freeze({}); focusTargets.set(value, target); return value;
+  },
+  request(target) {
+    if (!canMoveFocus()) return false;
+    const id = focusTargets.get(target);
+    if (id === undefined) throw new TypeError('Focus.request expects a captured FocusTarget');
+    return request('focus.target', { target: id }).focused;
+  },
+  requestNamed(name) {
+    if (!canMoveFocus()) return false;
+    return request('focus.named', { name: focusName(name) }).focused;
+  },
+  setTraversal(targets, options = {}) {
+    if (!canMoveFocus()) return false;
+    if (!Array.isArray(targets)) throw new TypeError('Focus.setTraversal expects an array of captured FocusTargets');
+    const props = layoutOptions(options, ['tabNavigation'], 'focus traversal');
+    if ('tabNavigation' in props && typeof props.tabNavigation !== 'boolean') throw new TypeError('Focus tabNavigation must be boolean');
+    const ids = Array.from(targets, target => {
+      const id = focusTargets.get(target);
+      if (id === undefined) throw new TypeError('Focus.setTraversal expects captured FocusTargets');
+      return id;
+    });
+    if (new Set(ids).size !== ids.length) throw new TypeError('Focus traversal targets must be distinct');
+    return request('focus.traversal', { targets: ids, ...props }).configured;
+  },
+});
+export const Toggle = (title, { isOn }) => new ViewValue('toggle', { title, state: binding(isOn) });
+function textInput(kind, title, options) {
+  if (typeof title !== 'string') throw new TypeError('Text input title must be a string');
+  const props = layoutOptions(options, ['text', 'onSubmit', 'onEditingChanged', 'focusName'], kind);
+  if (props.focusName !== undefined) focusName(props.focusName);
+  if (props.onSubmit !== undefined && typeof props.onSubmit !== 'function') throw new TypeError('Text input onSubmit must be a function');
+  if (props.onEditingChanged !== undefined && typeof props.onEditingChanged !== 'function') throw new TypeError('Text input onEditingChanged must be a function');
+  return new ViewValue(kind, { title, state: binding(props.text), onSubmit: props.onSubmit, onEditingChanged: props.onEditingChanged, ...(props.focusName === undefined ? {} : { focusName: props.focusName }) });
+}
+export const TextField = (title, options) => textInput('textfield', title, options);
+export const SecureField = (title, options) => textInput('securefield', title, options);
+export const TextEditor = options => {
+  const props = layoutOptions(options, ['text', 'monospaced', 'onEditingChanged', 'focusName'], 'TextEditor');
+  if (props.focusName !== undefined) focusName(props.focusName);
+  if (props.monospaced !== undefined && typeof props.monospaced !== 'boolean') throw new TypeError('TextEditor monospaced must be boolean');
+  if (props.onEditingChanged !== undefined && typeof props.onEditingChanged !== 'function') throw new TypeError('Text input onEditingChanged must be a function');
+  return new ViewValue('texteditor', { state: binding(props.text), monospaced: props.monospaced ?? false, onEditingChanged: props.onEditingChanged, ...(props.focusName === undefined ? {} : { focusName: props.focusName }) });
+};
+function jsonSnapshot(value, ancestors = new Set()) {
+  if (value === null || typeof value === 'string' || typeof value === 'boolean') return value;
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value !== 'object' || ancestors.has(value)) throw new TypeError('WebView data must be finite, acyclic JSON');
+  if (!Array.isArray(value) && ![Object.prototype, null].includes(Object.getPrototypeOf(value))) throw new TypeError('WebView data must contain plain JSON objects');
+  ancestors.add(value);
+  try {
+    return Array.isArray(value)
+      ? Array.from(value, child => jsonSnapshot(child, ancestors))
+      : Object.fromEntries(Object.entries(value).map(([key, child]) => [key, jsonSnapshot(child, ancestors)]));
+  } finally { ancestors.delete(value); }
+}
+function disposeWebAPI(id) {
+  const entry = webAPIs.get(id); if (!entry) return;
+  webAPIs.delete(id); entry.owner.disposed = true;
+  const runs = [...entry.runs.values()]; entry.runs.clear();
+  const errors = []; for (const run of runs) { try { cancelTask(run); } catch (error) { errors.push(error); } }
+  throwFailures(errors);
+}
+export const WebRequest = Object.freeze({
+  get current() {
+    const run = taskStorage.getStore();
+    if (!run?.web) throw new Error('WebRequest.current is only available inside a WebView API call');
+    return run.context;
+  },
+});
+function webError(error) {
+  try { return { name: error instanceof Error ? String(error.name) : 'Error', message: error instanceof Error ? String(error.message) : String(error) }; }
+  catch { return { name: 'Error', message: 'WebView API failed' }; }
+}
+function handleWebRequest(event) {
+  const entry = webAPIs.get(event.id);
+  if (!entry || entry.epoch !== event.epoch) return;
+  const { id, epoch, call, document, method, args } = event;
+  const route = { id, epoch, call, document }, key = JSON.stringify([document, call]);
+  if (!request('web.claim', route).accepted) return;
+  const reply = result => request('web.reply', { ...route, result });
+  if (!Object.hasOwn(entry.api, method)) { reply({ ok: false, error: { name: 'TypeError', message: 'Unknown WebView API method' } }); return; }
+  const run = { web: true, route, key, owner: entry.owner, cancelled: false, controller: new AbortController(), cleanups: new Set() };
+  run.context = createTaskContext(run); entry.runs.set(key, run);
+  let result;
+  try { result = taskStorage.run(run, () => entry.api[method](...jsonSnapshot(args))); }
+  catch (error) { result = Promise.reject(error); }
+  // Promise continuations keep only this run and its routing identity alive.
+  Promise.resolve(result).then(value => finishWebRequest(run, value), error => finishWebRequest(run, undefined, error, true));
+}
+function finishWebRequest(run, value, error, failed = false) {
+  if (!taskIsCurrent(run)) return;
+  let result;
+  try { result = failed ? { ok: false, error: webError(error) } : { ok: true, ...(value === undefined ? {} : { value: taskStorage.run(run, () => jsonSnapshot(value)) }) }; }
+  catch (error) { result = { ok: false, error: webError(error) }; }
+  if (!taskIsCurrent(run)) return;
+  webAPIs.get(run.route.id)?.runs.delete(run.key);
+  try { cancelTask(run); } catch (error) { result = { ok: false, error: webError(error) }; }
+  request('web.reply', { ...run.route, result });
+}
+/** Data updates preserve the mounted browser; only HTML changes reload it. */
+export function WebView({ html, data = null, onMessage, onError, focusName: name, api = {}, tabFocusable = true }) {
+  if (typeof html !== 'string') throw new TypeError('WebView requires an HTML string');
+  for (const fn of [onMessage, onError]) if (fn !== undefined && typeof fn !== 'function') throw new TypeError('WebView callbacks must be functions');
+  if (name !== undefined) focusName(name);
+  if (typeof tabFocusable !== 'boolean') throw new TypeError('WebView tabFocusable must be a boolean');
+  if (!api || typeof api !== 'object' || ![Object.prototype, null].includes(Object.getPrototypeOf(api)) || Object.getOwnPropertySymbols(api).length) throw new TypeError('WebView api must be a plain string-keyed method table');
+  const methods = Object.create(null);
+  for (const [key, descriptor] of Object.entries(Object.getOwnPropertyDescriptors(api))) {
+    if (!descriptor.enumerable) continue;
+    if (!key || !key.isWellFormed() || ['then', '__proto__', 'prototype', 'constructor', 'toJSON'].includes(key) || typeof descriptor.value !== 'function') throw new TypeError('WebView api requires named functions without accessors or reserved names');
+    methods[key] = descriptor.value;
+  }
+  return new ViewValue('webview', { html, api: Object.freeze(methods), tabFocusable, data: jsonSnapshot(data), onMessage, onError, ...(name === undefined ? {} : { focusName: name }) });
+}
+export const NavigationSplitView = ({ sidebar, detail }) => new ViewValue('split', {}, [sidebar, detail]);
+export const List = ({ selection }, content) => new ViewValue('list', { state: binding(selection) }, [content]);
+function itemKey(id) {
+  if (!['string', 'number'].includes(typeof id) || (typeof id === 'number' && !Number.isFinite(id))) throw new TypeError('ForEach IDs must be strings or finite numbers');
+  return JSON.stringify([typeof id, id]);
+}
+export function ForEach(items, { id }, row) {
+  const keys = new Set();
+  const rows = items.map(item => {
+    const key = itemKey(id(item));
+    if (keys.has(key)) throw new Error(`Duplicate ForEach ID: ${key}`);
+    keys.add(key); return { key, value: row(item) };
+  });
+  return new ViewValue('foreach', { rows });
+}
+function validate(value) {
+  if (!value?.[viewMarker] || !supportedKinds.has(value.kind)) throw new TypeError('View body must synchronously return a JonUI View');
+}
+function unmount(mounted) {
+  if (!mounted.alive) return;
+  mounted.alive = false;
+  const failures = [];
+  dirty.delete(mounted); updates.delete(mounted.id); actions.delete(mounted.id); webErrors.delete(mounted.id);
+  try { disposeWebAPI(mounted.id); } catch (error) { failures.push(error); }
+  textSubmits.delete(mounted.submitToken);
+  textEditings.delete(mounted.editingToken);
+  for (const cell of mounted.dependencies) cell.dependents.delete(mounted);
+  try { unmountAll(mounted.children); } catch (error) { failures.push(error); }
+  try { disposeComponent(mounted.component); } catch (error) { failures.push(error); }
+  mounted.children = []; mounted.dependencies.clear();
+  throwFailures(failures);
+}
+function reconcile(previous, value, key, parent = null) {
+  validate(value);
+  if (previous && (previous.value.kind !== value.kind || (value.kind === 'component' && previous.value.props.definition !== value.props.definition))) { unmount(previous); previous = null; }
+  const mounted = previous ?? { id: nextView++, key, children: [], dependencies: new Set(), alive: true };
+  const propsChanged = mounted.component && !equalProps(mounted.value.props.componentProps, value.props.componentProps);
+  mounted.value = value; mounted.parent = parent;
+  if (propsChanged) invalidate(mounted.component.propsSignal);
+  for (const scope of recoveryScopes) scope.add(mounted);
+  evaluate(mounted);
+  return mounted;
+}
+function track(mounted, callback, keepDependencies = false) {
+  const parent = active;
+  mounted.nextDependencies = new Set(keepDependencies ? mounted.dependencies : []);
+  active = mounted;
+  try { return callback(); } finally {
+    active = parent;
+    for (const cell of mounted.dependencies) cell.dependents.delete(mounted);
+    if (mounted.alive) {
+      mounted.dependencies = mounted.nextDependencies;
+      for (const cell of mounted.dependencies) cell.dependents.add(mounted);
+    } else {
+      for (const cell of mounted.nextDependencies) cell.dependents.delete(mounted);
+      mounted.dependencies = new Set();
+    }
+  }
+}
+function evaluate(mounted) {
+  if (!mounted.alive) return;
+  dirty.delete(mounted);
+  const fallback = mounted.value.kind === 'dynamic' && mounted.value.props.fallback;
+  if (!fallback) return evaluateContent(mounted);
+  // Track partial mounts too: a failed descendant may throw before its parent's
+  // new children array is assigned. None of those registrations may survive.
+  const scope = new Set();
+  recoveryScopes.push(scope);
+  try { evaluateContent(mounted); } catch (error) {
+    const failedDependencies = new Set();
+    const collect = child => {
+      for (const cell of child.dependencies) failedDependencies.add(cell);
+      for (const nested of child.children) collect(nested);
+    };
+    for (const child of mounted.children) collect(child);
+    for (const child of scope) collect(child);
+    unmountAll([...mounted.children, ...scope]);
+    // Retry on surviving inputs, never on locals whose owner just failed. A
+    // failed local starts fresh on every retry, so subscribing to its disposal
+    // would otherwise create an endless initialize/fail/dispose loop.
+    const live = liveDependencies;
+    for (const cell of mounted.dependencies) if (!live.has(cell)) {
+      cell.dependents.delete(mounted); mounted.dependencies.delete(cell);
+    }
+    for (const cell of failedDependencies) if (live.has(cell)) {
+      mounted.dependencies.add(cell); cell.dependents.add(mounted);
+    }
+    mounted.children = [];
+    const value = track(mounted, () => fallback(error), true);
+    validate(value);
+    finishEvaluation(mounted, [{ key: 'fallback', value }]);
+  } finally { recoveryScopes.pop(); }
+}
+function evaluateContent(mounted) {
+  const { value } = mounted;
+  let children = value.children.map((child, index) => ({ key: String(index), value: child }));
+  if (value.kind === 'dynamic' || value.kind === 'component') {
+    if (value.kind === 'component' && !mounted.component) initializeComponent(mounted);
+    const body = track(mounted, () => value.kind === 'component' ? mounted.component.render(value.props.componentProps) : value.props.body());
+    validate(body);
+    children = [{ key: 'body', value: body }];
+  } else if (value.kind === 'foreach') {
+    children = value.props.rows;
+  }
+  finishEvaluation(mounted, children);
+}
+function finishEvaluation(mounted, children) {
+  const { value } = mounted;
+  const old = new Map(mounted.children.map(child => [child.key, child]));
+  mounted.children = children.map(child => {
+    const result = reconcile(old.get(child.key), child.value, child.key, mounted);
+    old.delete(child.key); return result;
+  });
+  unmountAll(old.values());
+  const { body, fallback, rows, row, action, onMessage, onError, api, onSubmit, onEditingChanged, definition, setup, componentProps, ...props } = value.props;
+  if (value.kind === 'textfield' || value.kind === 'securefield') {
+    if (!onSubmit || mounted.submitState !== props.state) {
+      textSubmits.delete(mounted.submitToken); mounted.submitToken = undefined;
+    }
+    if (onSubmit) {
+      mounted.submitToken ??= nextSubmit++;
+      mounted.submitState = props.state;
+      textSubmits.set(mounted.submitToken, { id: mounted.id, state: props.state, callback: onSubmit });
+      props.submit = mounted.submitToken;
+    }
+  }
+  if (['textfield', 'securefield', 'texteditor'].includes(value.kind)) {
+    if (!onEditingChanged || mounted.editingState !== props.state) {
+      textEditings.delete(mounted.editingToken); mounted.editingToken = undefined;
+    }
+    if (onEditingChanged) {
+      mounted.editingToken ??= nextEditing++;
+      mounted.editingState = props.state;
+      textEditings.set(mounted.editingToken, { id: mounted.id, state: props.state, callback: onEditingChanged });
+      props.editing = mounted.editingToken;
+    }
+  }
+  if (value.kind === 'button') {
+    if (typeof action !== 'function') throw new TypeError('Button expects an action');
+    actions.set(mounted.id, action);
+  }
+  if (value.kind === 'webview') {
+    let entry = webAPIs.get(mounted.id);
+    if (entry && entry.html !== props.html) { disposeWebAPI(mounted.id); entry = undefined; }
+    if (!entry) { entry = { html: props.html, epoch: nextWebEpoch++, owner: { disposed: false }, runs: new Map() }; webAPIs.set(mounted.id, entry); }
+    entry.api = api; props.rpcEpoch = entry.epoch; props.methods = Object.keys(api);
+    if (onMessage) actions.set(mounted.id, onMessage); else actions.delete(mounted.id);
+    webErrors.set(mounted.id, onError ?? null);
+  }
+  updates.set(mounted.id, { id: mounted.id, kind: value.kind === 'component' ? 'dynamic' : value.kind, props, children: mounted.children.map(child => child.id) });
+}
+function commit(initial = false, options = {}) {
+  if (updates.size || initial) {
+    request('commit', { nodes: [...updates.values()], ...(initial ? { root: root.id, window: options } : {}) });
+    updates.clear();
+  }
+  // Native bindings must remain valid until the committed tree no longer uses
+  // them. The host validates that a cell cannot escape its owner's lifetime.
+  if (pendingStateReleases.size) {
+    request('state.release', { ids: [...pendingStateReleases] });
+    pendingStateReleases.clear();
+  }
+}
+function flush() {
+  // Reconciliation and ordinary effects belong to the app scheduler. A task
+  // writing an input must not pass its (possibly soon cancelled) async context
+  // into unrelated renders, cleanup or effects scheduled by that write.
+  if (taskStorage.getStore()) return taskStorage.run(undefined, flush);
+  scheduled = false;
+  if (stopped || !root || flushing) return;
+  flushing = true;
+  try {
+    let cycles = 0;
+    const effectRuns = new Map();
+    while (dirty.size || pendingEffects.size) {
+      if (++cycles > 10000) throw new Error('Reactive updates did not settle after 10000 cycles; check effect state writes');
+      // Reconcile parents first; they can remove pending children and effects.
+      const views = [...dirty].sort((a, b) => a.id - b.id);
+      for (const mounted of views) {
+        if (!dirty.has(mounted)) continue;
+        dirty.delete(mounted);
+        if (!mounted.alive) continue;
+        let target = mounted;
+        for (let parent = mounted.parent; parent; parent = parent.parent) {
+          if (parent.value.props.fallback) target = parent;
+        }
+        evaluate(target);
+      }
+      if (dirty.size) continue;
+      commit();
+      // Effects run only after their views have committed. A write can unmount
+      // another queued effect, so reconcile that write before starting more.
+      for (const observer of [...pendingEffects]) {
+        if (pendingEffects.has(observer)) {
+          const runs = (effectRuns.get(observer.site) ?? 0) + 1;
+          effectRuns.set(observer.site, runs);
+          if (runs > 100) throw new Error('Reactive updates did not settle after 100 cycles at one effect site; check effect state writes');
+          runEffect(observer);
+        }
+        if (dirty.size) break;
+      }
+    }
+    commit();
+  } finally { flushing = false; }
+}
+function fail(error) {
+  console.error(error?.stack ?? error);
+  shutdown(error instanceof Error ? error : new Error(String(error)));
+  bridge.finish(1);
+}
+function schedule() {
+  if (scheduled || mounting || flushing || !root || stopped) return;
+  scheduled = true; queueMicrotask(() => { try { flush(); } catch (error) { fail(error); } });
+}
+function shutdown(error) {
+  if (stopped) return;
+  stopped = true;
+  let failure = error;
+  try { stop?.onStop?.(); } catch (caught) { failure ??= caught; }
+  try { if (root) unmount(root); } catch (caught) { failure ??= caught; } finally { root = null; }
+  for (const observer of [...computations]) disposeComputed(observer);
+  for (const id of [...webAPIs.keys()]) disposeWebAPI(id);
+  dirty.clear(); updates.clear(); actions.clear(); webErrors.clear(); textSubmits.clear(); textEditings.clear();
+  for (const { listeners, cell } of cells.values()) { listeners.clear(); cell.dependents.clear(); }
+  cells.clear();
+  try { request('dispose'); } catch (caught) { failure ??= caught; }
+  pendingStateReleases.clear(); pendingEffects.clear(); effects.clear(); pendingTasks.clear();
+  if (failure) stop?.reject(failure); else stop?.resolve();
+  if (failure && !error) { console.error(failure?.stack ?? failure); bridge.finish(1); }
+}
+globalThis.__jonuiFail = error => shutdown(error);
+bridge.listen(json => {
+  try {
+    const event = JSON.parse(json);
+    if (stopped) return;
+    if (event.type === 'state') cells.get(event.id)?.accept(event);
+    else if (event.type === 'action') actions.get(event.id)?.();
+    else if (event.type === 'textSubmit') {
+      const submit = textSubmits.get(event.token);
+      if (!submit || submit.id !== event.id || submit.state !== event.state?.id) return;
+      cells.get(submit.state)?.accept(event.state);
+      const callback = textSubmits.get(event.token)?.callback;
+      callback?.();
+    }
+    else if (event.type === 'textEditing') {
+      const editing = textEditings.get(event.token);
+      if (!editing || editing.id !== event.id || editing.state !== event.state?.id || typeof event.editing !== 'boolean') return;
+      cells.get(editing.state)?.accept(event.state);
+      const callback = textEditings.get(event.token)?.callback;
+      callback?.(event.editing);
+    }
+    else if (event.type === 'webRequest') handleWebRequest(event);
+    else if (event.type === 'webCancel') {
+      const entry = webAPIs.get(event.id);
+      if (entry?.epoch === event.epoch) for (const call of event.calls) { const key = JSON.stringify([event.document, call]), run = entry.runs.get(key); entry.runs.delete(key); cancelTask(run); }
+    }
+    else if (event.type === 'webMessage') actions.get(event.id)?.(event.value);
+    else if (event.type === 'webError') {
+      if (!webErrors.has(event.id)) return;
+      const handler = webErrors.get(event.id);
+      if (handler) handler(event.message); else console.error(`WebView ${event.id}: ${event.message}`);
+    }
+    else if (event.type === 'stop') shutdown();
+  } catch (error) { fail(error); }
+});
+export function runApp(options) {
+  assertNotComputing('start applications');
+  if (typeof options.title !== 'string' || ![options.width, options.height].every(n => Number.isFinite(n) && n > 0)) throw new TypeError('runApp requires a title and positive finite window dimensions');
+  if (root || stop || stopped) throw new Error('runApp can only be called once');
+  return new Promise((resolve, reject) => {
+    stop = { resolve, reject, onStop: options.onStop };
+    try {
+      mounting = true;
+      root = reconcile(null, options.content, 'root');
+      commit(true, { title: options.title, width: options.width, height: options.height });
+    } catch (error) { shutdown(error); } finally { mounting = false; }
+    schedule();
+  });
+}
+// Test-only entry points use the real Swift host and event queue, not a mock.
+export const __testing = process.env.JONUI_TEST === '1' ? Object.freeze({
+  request,
+  flush,
+  webRequestStats: () => ({ apis: webAPIs.size, pending: [...webAPIs.values()].reduce((n, entry) => n + entry.runs.size, 0) }),
+  taskStats: () => ({ pending: pendingTasks.size }),
+  effectStats: () => ({ active: effects.size, pending: pendingEffects.size }),
+  computedStats: () => ({ active: computations.size, dependencies: [...computations].reduce((n, observer) => n + observer.dependencies.size, 0) }),
+  stats: () => ({ actions: actions.size + textSubmits.size + textEditings.size + [...webErrors.values()].filter(Boolean).length + [...webAPIs.values()].reduce((n, entry) => n + Object.keys(entry.api).length, 0), cells: cells.size, dependencies: [...cells.values()].reduce((n, v) => n + v.cell.dependents.size, 0) }),
+}) : undefined;

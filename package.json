@@ -1,0 +1,30 @@
+{
+  "name": "jonui",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Direct SwiftUI bindings for TypeScript, hosted by a native Node launcher",
+  "type": "module",
+  "types": "./api/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./api/index.d.ts",
+      "import": "./runtime/index.mjs"
+    }
+  },
+  "scripts": {
+    "check": "tsc --noEmit",
+    "reference": "swift run landmarks-reference",
+    "build": "python3 scripts/build.py",
+    "test": "node --test tests/*.test.mjs",
+    "test:integration": "python3 scripts/test-integration.py",
+    "playground": "./bin/jonui examples/playground/app.ts",
+    "web-controls": "./bin/jonui examples/web-controls/app.ts"
+  },
+  "devDependencies": {
+    "typescript": "^6.0.3",
+    "@types/node": "^24.0.0"
+  },
+  "bin": {
+    "jonui": "./bin/jonui"
+  }
+}

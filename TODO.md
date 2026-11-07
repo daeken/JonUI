@@ -1,0 +1,737 @@
+# JonUI TODO
+
+Work in priority order. Keep completed items checked, split large items into
+reviewable increments, and mark an item complete only after its behavior and
+cleanup are implemented and verified. Record useful implementation notes beside
+an in-progress item so the next run can continue it.
+
+The comprehensive [SwiftUI widget/state coverage ledger](SWIFTUI_TODO.md) records
+available, partial, missing and platform-gated APIs. Review/update it **in every
+commit**, including an explicit review note when coverage is unchanged. Install
+the versioned commit hook with `python3 scripts/setup-hooks.py`; see AGENTS.md.
+
+The project is named for Jonathan Swift. The TypeScript package and command are
+`jonui`; the native development bundle is `JonUI.app`.
+
+## 1. Component lifetimes and state
+
+- [x] Add component scopes with local state that preserves component/key identity and releases its Node/native cells on unmount.
+- [x] Add effects with dependency tracking and cleanup on dependency changes and unmount.
+- [x] Add scoped asynchronous tasks with cancellation and protection against late updates after unmount.
+- [x] Support immutable structured object/collection state.
+- [x] Add reusable derived/computed values.
+- [x] Test repeated mount/unmount cycles, keyed reordering, state isolation, and return to baseline resource counts.
+
+Completed 2026-11-06: `Component(setup)` creates mounted scopes with typed
+`scope.state` and synchronous `scope.onDispose`. Factory/structural/keyed identity
+preserves local state, bodies receive fresh props, and cleanup runs on unmount or
+setup failure. Owned cells are detached from Node immediately and released
+natively after view commits. Late events/actions are ignored. Failed renders do
+not resubscribe to disposed local cells. See [component scopes](docs/components.md).
+
+Effects completed 2026-11-06: setup-only `scope.effect` tracks synchronous State
+reads and current shallow `scope.props`. Effects start after native commits and
+clean up before dependency-triggered reruns, explicit stop, and unmount. Failed
+mounts never start effects. Cleanup/subscriber reads are untracked, self-stop is
+safe, and stopped effects release pending work and dependencies. Effects may
+write State; feedback loops get a diagnostic without treating large independent
+keyed lists as cycles. Callback/cleanup failures still dispose all owned work.
+
+Tasks completed 2026-11-06: setup-only `scope.task` tracks synchronous State/props
+inputs, starts after native commits, and cancels prior runs on input changes,
+explicit stop, unmount, or shutdown. Runs provide an AbortSignal, synchronous
+`onCancel` cleanup, and guarded `commit` for external publication. Async context
+prevents obsolete Promise/timer/finally/abort callbacks from writing local or
+shared State, creating subscriptions, or allocating late cells. Task subscriptions
+are lifetime-owned, including after Promise settlement. Canceled rejections are
+consumed; current errors still clean up sibling tasks and stop the native host.
+Scheduler work and ordinary subscribers do not inherit a writing task's context.
+
+Validation: 110 runtime/compiler unit tests, Deno and TypeScript checks, and all
+67 native integration scenarios pass. Component coverage includes Unicode
+bindings, keyed identity, 50 mount/unmount cycles, and zero retained native cells.
+Effect coverage includes native input/output, batching, conditional dependencies,
+props, explicit stop, timer cleanup over 20 owner mount/unmount cycles, failure
+teardown, Promise-return rejection, and feedback diagnostics. An additional unit
+case exercises 150 independent state-writing effects. Task coverage includes
+out-of-order results, obsolete rejection/finally/abort writes, current props,
+synchronous-only conditional tracking, explicit/self stop, late allocation and
+cleanup registration, subscription/timer ownership, native Unicode results,
+20 mount/unmount cycles, pending-work shutdown, and six native error paths.
+Root-level `State` remains app-owned until shutdown.
+
+Structured state completed 2026-11-06: `State` and `scope.state` accept JSON
+records and dense arrays with detached, deeply frozen snapshots. Replacement
+updates compare structurally, preserve equal snapshots, and share existing native
+revision ordering. Invalid data fails before crossing the bridge. Typed reads
+and subscribers are deeply readonly; named model interfaces work without an
+index signature. Native bindings remain scalar; editable fields use separate
+scalar cells. Field/path bindings and per-property tracking are not implemented.
+Validation adds five unit cases, compile-time positive/negative model examples,
+and a native scenario covering Unicode round trips, scalar input synchronization,
+keyed array identity, structural equality, stale native events, scoped actions,
+and 30 mount/unmount cycles with no retained cells.
+
+Computed values completed 2026-11-06: app-owned `Computed` and setup-only
+`scope.computed` expose lazy, cached, read-only JSON snapshots. Conditional
+State/current props/derived reads track inputs; chained values stay fresh even
+inside synchronous State subscribers. Invalidation detaches stale subscriptions
+immediately, propagates to consumers, and preserves equal output snapshot
+references after recalculation. Consumers still rerun on input invalidation.
+Derivations allocate no native cells. Cycle, purity, and async-return diagnostics
+are implemented; errors cache and retry when tracked inputs change. Scoped
+cleanup may inspect a successful cached result before final disposal releases
+dependencies, callbacks, and caches. All post-disposal reads throw.
+Validation adds ten unit cases and six native scenarios covering native Unicode
+input/output, current props, effect/task inputs and cancellation, collection
+filtering, batching, recovery, 30 mount/unmount cycles, and five failure paths.
+
+## 2. SwiftUI coverage and composition
+
+- [x] Add scroll views and richer frame/alignment/layout modifiers.
+- [x] Add native forms/sections, sliders, and steppers.
+- [x] Add typed native pickers.
+- [x] Add SecureField and single-line text submit callbacks.
+- [x] Add date inputs.
+- [x] Add text editing-change callbacks.
+- [x] Add lazy stacks and grids with stable item identity.
+- [ ] Add focus and keyboard-navigation APIs.
+- [ ] Add gestures, animation, and transitions.
+- [ ] Add accessibility labels, values, actions, and grouping beyond identifiers.
+- [ ] Expand native identity/focus tests as the wrapper surface grows.
+
+Layout completed 2026-11-06: native `ScrollView` supports vertical, horizontal,
+and both axes with indicator visibility. Frames support fixed or flexible sizes,
+JSON-safe `"infinity"` maxima, and nine alignments. HStack vertical/baseline
+alignment, edge padding, `fixedSize`, `layoutPriority`, and Spacer minimum length
+are implemented. The existing horizontal `Alignment` alias and prior frame and
+padding defaults remain compatible. Fixed/flexible calls stay separate, and both
+Node and native validate enums, flags, finite metrics, and ordered bounds before
+applying a transaction. See [layout and scrolling](docs/layout.md).
+Validation: incremental native build, Deno/TypeScript checks, 110 unit tests, and
+all 67 offscreen native scenarios pass. The layout scenario measures real SwiftUI
+geometry for sizing/alignment/insets/priority, verifies native viewport movement
+and indicators on both axes, keeps keyed Unicode bindings/actions through axis
+changes/reorder, rejects malformed transactions atomically, and repeats 20
+scroll mount/unmount cycles with native views/cells/callbacks returning to
+baseline. Geometry probes require opt-in test flags and do not run in normal apps.
+Public scroll position control, lazy content, and focus expansion remain separate
+work.
+
+Forms/numeric inputs completed 2026-11-06: `Form` supports automatic/grouped/
+columns styles; `Section` adds text headers/footers. Typed Slider/Stepper number
+bindings share native observable cells and revision ordering. Native edits clamp
+to dynamic bounds, stepped Slider edits snap from the minimum, and Stepper
+increments exact current values. Programmatic State writes remain exact; native
+display getters clamp without rewriting models. Node/native validate ranges and
+steps before mutation, and the native bridge now checks all mounted binding
+types on commits and subsequent writes. Weak numeric binding captures release
+view boxes/cells and ignore stale setters. See [inputs](docs/inputs.md) and the
+runnable [form example](examples/forms/app.ts).
+Validation adds four unit cases, positive/negative type checks, and an offscreen
+native scenario with real NSStepper actions, rendered Slider geometry and its
+actual native Binding getter/setter, shared revisions, dynamic styles/ranges,
+Unicode input, atomic rejection, and 20 mount/unmount cycles returning views,
+cells, and controls to baseline. Native build and all 110 unit/67 native checks
+pass. SwiftUI's Slider accessibility node is unavailable in the transparent
+offscreen window; visible pointer dragging and VoiceOver remain manual checks.
+
+Typed Picker completed 2026-11-06: automatic/menu/segmented styles accept typed
+string/number/null choices with copied immutable options. Native ASCII tags encode
+JSON bytes, preserving value types and exact Unicode IDs. Unmatched values show a
+passive placeholder without rewriting the model; empty choices disable the
+control. Reordering retains selection by value, removed choices cannot publish,
+and weak native bindings ignore stale/unmounted setters. Choice types are checked
+against every other control sharing the cell before committing a transaction.
+The forms example now includes a typed segmented selection.
+Validation adds four unit cases, strict inference/type rejection checks, and a
+native scenario with actual NSSegmentedControl actions, typed/null/Unicode round
+trips, option replacement, menu rendering/bindings, revision ordering, atomic
+rejection, and 20 realized mount/unmount cycles with baseline native views/cells.
+The remount test also found and fixed NSHostingView intrinsic sizing shrinking
+the window to a temporary hidden label; AppOptions dimensions now survive root
+content swaps. Native build, 110 unit tests, 67 offscreen native scenarios, and
+Deno/TypeScript checks pass. Visible menu opening and VoiceOver remain manual
+checks on the current SDK; segmented target/actions are automated offscreen.
+
+SecureField/submit completed 2026-11-06: masked native string fields and optional
+`onSubmit` for TextField/SecureField synchronize a native snapshot before invoking
+the latest Node handler. Registration tokens stay stable during handler updates
+and rotate on removal/readdition or rebinding; stale/unmounted submissions are
+discarded. Weak text setters check their current cell and mount. Function values
+are stripped from native descriptors, failed mounts release registrations, and
+submit errors use normal orderly teardown. Multiline Return behavior is unchanged.
+The forms example now includes secure input and Return handling.
+Validation adds six unit cases and two native scenarios covering actual plain/
+secure AppKit classes, delegate edits and Return actions, Unicode, callback
+updates, queued removal/rebind races, newer JS acknowledgements, invalid tokens,
+failure cleanup, and 20 mount/unmount cycles at baseline resource counts. Native
+build, 110 unit tests, 67 offscreen native scenarios, and Deno/TypeScript checks pass.
+SecureField masks display; its value remains ordinary application string State.
+
+DatePicker completed 2026-11-06: Unix millisecond number bindings support date,
+time, or combined components; automatic/compact/graphical styles; optional
+inclusive bounds; and named time zones with a Gregorian native calendar. The
+native date boundary converts seconds/milliseconds, rounds/clamps native edits,
+and preserves valid exact application writes. Node/native validation checks
+timestamp domains (UTC years 0001...9999), bounds, zones, and shared control
+compatibility before mutation. Weak date bindings reject stale/rebound setters.
+The form example includes a UTC appointment and ISO summary.
+Validation adds four unit cases and an offscreen native scenario with actual
+NSDatePicker actions, exact millisecond/leap-day values, UTC and named zones,
+spring DST and half-hour offsets, components/styles, dynamic/single-instant
+bounds, native clamping, rebinding/revisions, atomic rejection, and 20 realized
+mount/unmount cycles returning views/cells/controls to baseline. Native build,
+110 unit tests, 67 offscreen native scenarios, and Deno/TypeScript checks pass.
+Calendar popup gestures and VoiceOver remain manual checks.
+
+Editing-change callbacks completed 2026-11-06: TextField, SecureField, and
+TextEditor accept optional `onEditingChanged(boolean)` for native focus/session
+entry and exit. Ordinary value changes remain observable through State. Stable
+SwiftUI input wrappers preserve focus across handler updates/keyed reorder;
+weak native captures release focused controls on unmount. Native snapshots
+synchronize before Node callbacks with the usual revision precedence. Editing
+and submit registrations are independent; removal/readdition, rebinding,
+unmount, recovery, and shutdown retire registrations and discard stale events.
+No initial/attachment replay or final disposal callback is synthesized; scope
+cleanup handles owner teardown. The forms example shows the active text input.
+Validation adds five unit cases, positive/negative type checks, and two offscreen
+native scenarios. Actual NSTextField/NSSecureTextField/NSTextView first-responder
+changes exercise begin/end transitions without activating the desktop. Tests
+cover Unicode/newline edits, no value-change notifications, focused keyed reorder,
+current handlers, attachment to an active editor, retired/rebound queued events,
+newer acknowledgements, atomic token validation, failure cleanup, and 20 focused
+mount/unmount cycles returning cells/views/controls/callbacks to baseline.
+Native build, 110 unit tests, 67 offscreen native scenarios, and Deno/TypeScript
+checks pass.
+
+Lazy stacks completed 2026-11-06: LazyVStack/LazyHStack are implemented and
+verified with axis-specific alignment/spacing and native viewport-driven
+realization. Native containers expose individual keyed rows through unmodified
+ForEach/dynamic/component boundaries. TypeScript descriptors/scopes still mount
+eagerly and remain alive offscreen; explicit item removal owns disposal. Modifiers
+around an entire group remain one native item, so apply row modifiers inside
+ForEach. See [lazy layouts](docs/layout.md) and the editable 250-row
+[example](examples/lazy-list/app.ts).
+Native SwiftUI caches initially retained deleted row boxes. NativeView values and
+ForEach data now use weak view references; deferred bodies/actions and bindings
+check current mounts/cells. Deleting rows releases logical views/cells/callbacks
+even while hidden platform adapters are cached; stale setters are inert. Removing
+the container releases cached controls. WebView coordinators also use weak boxes
+and retire explicitly on logical removal/disposal, clearing handlers/navigation
+and replacing cached documents so scripts/timers stop. Normal launches track
+coordinators for cleanup, independently of test diagnostics.
+Validation adds three unit cases and three native scenarios covering both axes,
+partial realization of 80 rows, actual scrolling to the last row, measured dynamic
+alignment/spacing, nested keyed groups, Unicode native input/action identity,
+reorder and offscreen row deletion, empty groups/stale adapters, malformed atomic
+transactions, 20 mount/unmount cycles per axis, and offscreen WKWebView timer/
+scoped-state retirement. Native build, 110 unit tests, all 67 offscreen native
+scenarios (including existing bridge/lifecycle tests), and Deno/TypeScript checks
+pass.
+
+Lazy grids completed 2026-11-06: LazyVGrid columns and LazyHGrid rows accept typed
+GridItem definitions for fixed, flexible, and adaptive tracks. Tracks support
+cross-axis spacing/alignment; grid spacing controls the scrolling axis. Fixed
+dimensions are finite/nonnegative, flexible bounds default to 10...infinity, and
+adaptive minima must be positive. JSON-safe infinity maxima, ordered bounds,
+nonnegative gaps, allowed keys, and axis-specific alignment validate on Node and
+again natively before a transaction mutates the graph. Arrays/tracks are detached
+and frozen; public columns/rows normalize to native tracks without colliding with
+ForEach metadata. Native SwiftUI owns sizing and adaptive packing. Grids reuse
+direct keyed item expansion and weak native references; offscreen scopes remain
+mounted, and track replacement/viewport repacking preserve logical identities.
+The editable [card grid example](examples/lazy-grid/app.ts) toggles adaptive/mixed
+columns and supports keyed reversal/removal with preserved notes/counters.
+Validation adds four unit cases, positive/negative type checks, and two native
+scenarios. Both axes measure actual fixed/flexible sizes (including finite maximum
+caps), adaptive packing and viewport repacking, gaps and track alignment, partial
+realization of 80 controls, Unicode delegate input/actions, stable handles/scopes
+through track replacement/reorder, atomic malformed-track rejection, offscreen
+deletion/empty groups/inert cached adapters, and 20 mount/unmount cycles per axis
+returning cells/views/callbacks/platform controls to baseline. Native build, all
+110 unit tests, all 67 offscreen native scenarios, and Deno/TypeScript checks pass.
+The combined lazy stack/grid item is complete. Next priority: focus and
+keyboard-navigation APIs. Node-side virtualization, cell spans, and pinned headers
+remain outside the current lazy-layout API.
+
+Focus/navigation in progress (2026-11-06): `Focus.next()`, `Focus.previous()`, and
+`Focus.clear()` implement native key-view traversal/first-responder resignation.
+The host lays out content and recalculates the key loop, resolving a shared text
+field editor to its delegate control so traversal advances correctly. Commands
+do not activate/key the window, allocate cells, or register JS callbacks. They
+reject render/computed use and ignore canceled tasks or calls after shutdown.
+Calls before a mounted window and malformed native directions are diagnosed.
+An editable [form navigation example](examples/focus/app.ts) adds Next/Previous/
+Clear buttons and Return-driven movement; see [focus](docs/focus.md).
+An attempted two-way boolean FocusState adapter was discarded after native race
+tests showed stale framework focus notifications could revive a newer blur
+request. No `focused` option or experimental focus cells/tokens are shipped.
+Remaining: named/declarative target registration before first focus and
+non-text/mixed-web focus coverage. Keep this combined item unchecked.
+Validation adds three unit cases for transport/frozen API, render/computed purity,
+effects, canceled tasks and post-shutdown no-ops, plus positive/negative type
+checks. A native scenario verifies actual plain/secure/editor first responders,
+Return/Unicode ordering, keyed active focus/reordered traversal, rapid movement,
+empty controls, invalid directions, and 20 focused mount/unmount cycles at baseline
+views/cells/callbacks while asserting the window never becomes key. Native build,
+110 unit tests, all 67 offscreen native scenarios (including existing bridge and
+lifecycle gates), and Deno/TypeScript checks pass. Named targets remain;
+the broader item stays unchecked.
+
+Captured native targets completed 2026-11-06: Focus.capture() returns an
+opaque, frozen, runtime-branded FocusTarget for an already focused native control;
+Focus.request(target) synchronously restores it and reports acceptance. Shared
+field editors resolve to their actual delegate controls. The native registry
+stores/deduplicates weak NSView references, checks window/descendant/key-view/
+hidden eligibility, prunes expired entries, and never reuses IDs. Repeated capture
+does not grow registrations. Existing purity/canceled-task/shutdown guards apply.
+Value/label updates and keyed reordering preserve captures if physical views
+survive. Adding/removing any native handle conservatively retires all captures,
+including unaffected controls, so retired cached adapters cannot be requested.
+Invalid transactions leave captures intact; structural retirement and shutdown
+release the registry without retaining views/cells/callbacks. Main-window native
+text controls are verified; sheets and mixed-web targets remain separate work.
+An offscreen probe showed SwiftUI accessibility IDs are absent on the underlying
+NSViews, so name lookup is not used. Named/declarative targets before first focus
+still require a proper logical-to-native registration path. This partial API
+intentionally keeps the item unchecked.
+Validation adds three unit cases and two native scenarios for opaque/foreign/
+invalid handles, purity/cancellation, actual plain/secure/editor restoration,
+50 recaptures with one registration, value/reorder identity, 20 rapid request/
+clear batches, atomic validation, structural retirement, lazy row/cache removal,
+and 20 focused capture/unmount cycles at baseline. Native build, 110 unit tests,
+all 67 offscreen native scenarios, and Deno/TypeScript checks pass. Named targets
+and non-text/sheet/mixed-web coverage
+remain; keep the broader focus/navigation item unchecked.
+
+Explicit command traversal completed 2026-11-06: Focus.setTraversal(targets)
+configures a window-global cycle for Focus.next()/previous() and Return handlers
+using those commands. Input arrays are copied; duplicate physical identities,
+invalid/foreign targets, and malformed native IDs are rejected before mutation.
+Stale/unavailable target lists return false without replacing a valid cycle.
+Forward/reverse wrap, outside-cycle entry, single-target no-op sessions, clear
+while retaining the cycle, and [] to restore native command order are implemented.
+The cycle stores only existing weak target IDs; capture retirement/disposal clears
+it, and expired/ineligible members discard the whole cycle on traversal. Native
+Tab/Shift-Tab links are not rewritten. Named/declarative targets and
+non-text/sheet/mixed-web coverage remain.
+Validation adds three unit cases, type checks, a native traversal scenario, and
+lazy cache retirement checks: real responder order, Return/Unicode snapshots,
+keyed identity, single/outside-target cycles, copied/atomic configuration, stale
+and invalid inputs, native-order reset, canceled work, and 20 configured
+capture/unmount cycles at baseline. An additional real-control availability check
+disables a captured field, verifies automatic native-order fallback and atomic
+rejection of an unavailable replacement, then restores it. Native build, all
+110 unit tests, all 67 offscreen native scenarios, and Deno/TypeScript checks pass.
+The broader focus/navigation item remains unchecked for named/declarative targets
+and non-text/sheet/mixed-web coverage.
+
+Window-local Tab routing completed 2026-11-06: optional
+Focus.setTraversal(targets, { tabNavigation: true }) routes plain Tab/Shift-Tab
+key-down events through the captured main-window cycle, including multiline
+editors. Default/false remains command-only; empty cycles disable routing. The
+window dispatcher preserves Command/Control/Option shortcuts, key-up events, and
+marked-text composition handling. It uses synchronous native responders, keeps
+focus when resignation is refused, and installs no key-view links or global event
+monitors. Weak-target expiry, ineligible members, structural edits, and disposal
+clear both cycle and routing. Invalid configurations preserve a valid prior mode.
+Validation adds a runtime option/type case and a native NSEvent scenario for
+forward/reverse/wrap/cleared entry, multiline focus without inserting Tab, Unicode
+and keyed reorder, modifier/key-up/marked-text bypass, native multiline Tab
+insertion after reset, atomic mode changes, unavailable fallback, and 20 non-key
+focused mount/unmount cycles at baseline. Lazy cache tests verify routing clears
+with retired targets. Native build, all 110 unit tests, all 67 offscreen native
+scenarios, and Deno/TypeScript checks pass. Named/declarative targets and
+non-text/sheet/mixed-web coverage remain; keep the broader item unchecked.
+
+Native focus sections completed 2026-11-06: `view.focusSection()` applies
+SwiftUI's native grouping modifier to a single child, with no options, cells,
+callbacks, captured-target registrations, or event routing. Real native Tab and
+Shift-Tab now visit both fields in each column before the next column, while
+the same ungrouped layout uses row order. The modifier leaves geometry unchanged;
+empty/passive sections add no focusable targets. An explicit captured Tab cycle
+continues to take precedence; resetting it resumes native section handling.
+See [focus semantics](docs/focus.md) and the runnable
+[two-column example](examples/focus-sections/app.ts).
+Focused validation passes: two new runtime cases, type checks, strict native
+modifier/child-count validation, native plain/secure Tab/Shift-Tab ordering,
+Unicode edits, captured/keyed identity, custom-cycle reset, empty groups, and
+20 focused owner mount/unmount cycles at baseline views/cells/callbacks. The
+test-only Shift-Tab generator now preserves Shift in charactersIgnoringModifiers
+so native reverse traversal receives a correct backtab; existing Tab routing
+tests pass. Native build, all 110 unit tests, all 67 offscreen native scenarios
+(including bridge/lifecycle gates), and Deno/TypeScript checks pass.
+Named/declarative targeting before first focus and non-text/sheet/mixed-web
+coverage remain next; the combined
+focus/navigation checkbox stays unchecked. Directional arrow movement remains
+an uncovered/manual check.
+
+Disabled subtrees and non-text focus completed 2026-11-06:
+`view.disabled()`/`view.disabled(boolean)` applies native SwiftUI interaction
+availability to a control or subtree. The default is true; ancestor disabling
+wins over a descendant's false flag. Node validates flags before transport and
+native validates keys/required boolean/single child before committing. Dynamic
+flags in tracked bodies update existing modifiers, with no extra state cells or
+callbacks; scoped models and captured physical identities survive disable/re-enable.
+The [focus example](examples/focus/app.ts) now toggles its demo secret's availability.
+See [focus semantics and coverage](docs/focus.md).
+Focused checks pass: native build, 110 unit tests, Deno/TypeScript checks, and a
+new offscreen native scenario covering actual NSDatePicker capture/restoration,
+bounded recapture, command/Tab/Shift-Tab cycles with a text field, Unicode/date
+edits, inherited disabling, unavailable-member fallback, atomic malformed flags
+and child counts, hidden-target rejection, keyed identity, and 20 focused
+disable/re-enable/mount/unmount cycles returning cells/views/callbacks/targets to
+baseline. Existing production focus handling required no control-specific branch.
+All 67 offscreen native scenarios pass, including existing bridge/lifecycle gates.
+Concrete coverage limit: keyboard access is off on this machine. Tests verify
+native NSStepper/NSSegmentedControl exclusion without changing preferences; their
+eligible path needs a run with keyboard access enabled. This SDK's offscreen
+hierarchy has no NSControl instances for SwiftUI Button/Toggle/Slider/menu Picker,
+so those controls' capture/keyboard behavior remains unverified. Named/declarative
+registration before first focus, those non-text paths, sheets/mixed-WebView focus,
+and directional arrows remain; keep the broader focus/navigation item unchecked.
+
+Mixed native/WebKit focus completed 2026-11-06: actual browser responders
+work with capture/request, command cycles, and optional window-local Tab/Shift-Tab
+alongside native text fields. DOM inputs in one browser share one physical target;
+distinct WebViews have distinct targets. Reset restores native DOM Tab movement.
+Ordinary data/keyed updates preserve document focus/selection; HTML replacement
+replaces DOM state while physical target validity follows WebKit's native view.
+The new scenario exposed inherited `.disabled()` not reaching WKWebView. The
+representable now forwards environment.isEnabled to a native WebKit adapter that
+declines pointer hits and first-responder/key-view entry and resigns current native
+focus. Captured descendants also check the ancestor gate. Disabling preserves
+document/scripts/data delivery; re-enabling restores interaction and existing
+physical targets. Invalidation disables cached adapters, and deferred updates
+check logical mount validity before applying enabled state so removed adapters
+cannot reactivate. The [web control example](examples/web-controls/app.ts) now
+includes **Enable web input**; see [focus](docs/focus.md).
+Focused native validation passes with two actual WKWebViews, native command/Tab
+cycles, DOM Tab/Shift-Tab reset, Unicode/selection/keyed identity, inherited
+availability, disabled pointer/key-view exclusion and DOM-script focus attempts,
+data delivery while disabled, HTML replacement, stale-target/late-message
+rejection, and 20 focused owner mount/unmount cycles at baseline native
+views/cells/handlers/targets. Native build, 110 unit tests, all 67 offscreen native
+scenarios (including existing WebKit/lazy-cache/bridge/lifecycle gates), and
+Deno/TypeScript checks pass.
+Remaining: named/declarative registration before first focus, broader non-text
+paths under keyboard access, sheets, WebKit IME/composition/accessibility and
+native document-boundary Tab exit, plus directional arrows. Keep the broader
+focus/navigation item unchecked; mixed physical browser targeting is now verified.
+
+Active sheet focus completed 2026-11-06: focus preparation now follows the
+attached-sheet chain before selecting the responder window. Next/Previous/Clear,
+capture/request, and command cycles stay inside the active sheet, preventing
+movement behind its modal boundary. Detecting a different window context retires
+captures/cycles even with unchanged logical view handles; the context reference
+is weak. Dismissed-sheet targets reject restoration on the next parent operation.
+Custom Tab routing remains main-window-only: nonempty opt-in configurations in a
+sheet return false without replacing a valid command cycle; empty resets succeed.
+The parent dispatcher ignores routing while a sheet is attached. Sheet windows
+retain native Tab/Shift-Tab and multiline insertion with no framework delegate
+replacement or global event monitor. See [sheet focus](docs/focus.md) and the
+runnable [sheet example](examples/focus-sheets/app.ts).
+Focused native validation passes: actual plain/secure/editor responders, parent
+isolation with unchanged handles, Return/Unicode snapshots, bounded captures,
+command cycles, native Tab/Shift-Tab and multiline reset, atomic unsupported-mode
+rejection, disabled/keyed identity, dismissal context retirement, and 20 focused
+owner mount/unmount cycles at baseline native views/cells/callbacks/targets.
+The app stays inactive and both windows stay non-key with zero alpha throughout.
+Native build, 110 unit tests, all 67 offscreen native scenarios (including existing
+bridge/lifecycle gates), and Deno/TypeScript checks pass. Native sheet
+dismissal preserves models while their logical content declaration remains mounted;
+owner removal disposes them. Remaining focus work: named/declarative registration
+before first focus, keyboard-access-enabled/non-text paths, nested sheets, sheet
+custom Tab routing and non-text/WebKit content, WebKit IME/accessibility/native
+document-boundary Tab exit, and directional arrows. Keep the broader checkbox open.
+
+Declared WebView names completed 2026-11-06: WebView accepts an optional
+`focusName`; `Focus.requestNamed(name)` focuses its realized native browser before
+first user focus. This uses the existing logical-node/coordinator registration
+point. Names are app-wide unique across the mounted logical graph, including
+unrealized rows and hidden sheet content; native commits validate and replace a
+map of exact UTF-8 names to node IDs atomically. It holds no native controls,
+cells, or callbacks. Renaming/removing/reassigning names changes lookup without
+document reload or physical capture retirement. Lookup checks active-window and
+native eligibility, returns false for missing/unrealized/disabled/hidden/other-
+window targets, preserves DOM selection when already focused, and allocates no
+capture handles. Existing purity/cancellation/shutdown guards apply. The
+[web example](examples/web-controls/app.ts) now includes **Focus web control**;
+see [named focus semantics](docs/focus.md).
+Focused validation passes: two new runtime cases and type checks, first focus
+without capture, exact composed/decomposed Unicode and case sensitivity, repeated
+requests without registrations, rename/reassignment/removal, physical-cycle
+interoperability, atomic malformed/duplicate-name rejection, disabled availability,
+named sheet isolation, actual lazy realization through scrolling, and 20 focused
+owner lifetimes at baseline resources. A duplicate-name startup fixture verifies
+one disposal/stop and zero remaining native/Node views/cells/callbacks. Native
+build, all 110 unit tests, all 67 offscreen native scenarios (including existing
+bridge/lifecycle gates), and Deno/TypeScript checks pass.
+This first increment identifies WebView containers; native text registration is
+implemented in the following increment below. DOM element targeting remains
+app-authored browser behavior. The combined focus/navigation item stays unchecked
+for non-text controls and the other recorded keyboard-access/sheet/WebKit/directional gaps.
+
+WebView Tab eligibility and native document boundaries completed (2026-11-06):
+`WebView({ tabFocusable: false })` excludes a browser from native Tab/Shift-Tab
+without disabling pointer interaction, scripts, data, or RPC. The default remains
+true. Node/native validate boolean flags, and the native representable changes
+key-view eligibility without recreating its document or request epoch. Internal
+captured responders respect the ancestor gate; named/captured focus is unavailable
+while excluded, configured cycles fall back, and re-enabling preserves physical
+captures. An already focused browser can still leave through native Tab. The
+[chart demo](examples/web-rpc/app.ts) now includes **Chart Tab stop**.
+Focused checks pass: 110 unit tests, type checks, native forward/reverse entry at
+the proper DOM input, boundary exit to native neighbors, Unicode/caret data
+updates, disabled/passive skipping, default empty-document container stop, live
+data/RPC while excluded, atomic malformed-flag rejection, captured/keyed identity,
+source replacement, and 20 owner removals during pending native boundary handoff
+at baseline views/cells/callbacks/targets. Offscreen launchers now suppress
+AppKit's key/main promotion attempts during sheet dismissal and apply their
+transparent/offscreen configuration before attaching SwiftUI content; keyboard
+eligibility remains available for real responder tests. This followed an observed
+parent-window key promotion in the existing repeated sheet-owner removal test.
+Two focused 20-cycle sheet runs pass with that guard. One earlier focused run
+crashed inside SwiftUI/AppKit sheet-animation layout (UpdateCycle during
+NSSheetMoveHelper.closeSheet); its cause is unresolved and remains a sheet stress
+coverage limitation. The final native build, all 110 unit tests, all 67 offscreen
+native scenarios (including bridge/lifecycle gates and the updated chart demo),
+and Deno/TypeScript checks pass.
+Concrete IME blocker: in the permitted inactive/non-key window, WebKit accepted
+NSTextInputClient.setMarkedText into the DOM but both direct and input-context
+clients kept reporting hasMarkedText false. That does not establish a genuine
+composition session to verify routing bypass. No input-source settings, key
+windows, or active input context were forced. Actual WebKit IME/candidate handling
+remains manual; provisional probe-only changes were removed. Native NSTextView
+marked-text bypass remains automated. Remaining focus work: native named targets,
+keyboard-access-enabled/non-text paths, nested/custom-routing/non-text/WebKit
+sheets, WebKit IME/accessibility, and directional arrows. Native document-boundary
+Tab exit is now covered; keep the broader focus/navigation checkbox unchecked.
+
+Native text names completed (2026-11-06): TextField, SecureField, and TextEditor
+now accept `focusName` in the same exact-UTF-8/global namespace as WebView.
+`Focus.requestNamed` resolves their actual first responder before first user focus,
+with existing active-window/disabled/realization/purity/cancellation guards and
+without allocating capture handles, cells, or callbacks. Each input owns a bounded
+NSHostingView subtree around the existing SwiftUI text control; the full parent
+environment is forwarded, and intrinsic sizing participates in normal layout.
+Lookup uses public editable NSTextField/NSTextView types only in that owned
+subtree, avoiding global index/label/geometry/private-class matching. The same
+host is used with and without a name, so rename/removal/reassignment preserves
+physical captures and keyed input/binding identity. Coordinators hold weak native
+view/host/box references. Removal/shutdown immediately invalidates cached root
+content and registrations; late representable lifecycle work cannot resurrect an
+obsolete adapter or remove a newer one. The [native focus demo](examples/focus/app.ts)
+adds **Focus name**, **Focus secret**, and **Focus notes** buttons.
+Focused validation: native build, 110 unit tests, Deno/TypeScript checks, existing
+native focus-section and editing-callback gates, and a new native scenario pass.
+The scenario verifies plain/secure/editor first responders, exact composed versus
+decomposed Unicode, binding/Return/newline order, repeated-request session stability,
+keyed/captured cycles and rename/reassignment/removal, atomic malformed names and
+native/native/native-web duplicates, inherited disabling, active sheet isolation,
+actual lazy realization, and 20 focused owner removals at baseline adapters/native
+views/cells/Node callbacks. The startup-duplicate fixture now checks a native text
+name colliding with a WebView and full failure cleanup. During full regression,
+programmatic horizontal clip scrolling in the inactive/transparent test window
+left SwiftUI layout at its old viewport despite the clip moving. The test-only
+scroll operation now explicitly drives the enclosing layout after changing clip
+bounds; realization/partial-control/geometry assertions remain intact. This
+changes no ordinary app scroll behavior or window activation. The final native
+build, all 110 unit tests, all 67 offscreen native scenarios (including existing
+bridge/lifecycle, both lazy stack/grid axes, focus, WebView, and teardown gates),
+and Deno/TypeScript checks pass.
+Remaining: named non-text controls, declarative focus bindings, keyboard-access-
+enabled paths, nested/custom-routing/non-text/WebKit sheets, WebKit IME/accessibility,
+directional arrows, and the recorded intermittent SwiftUI sheet-animation crash.
+Keep the broad focus/navigation item unchecked.
+
+Named date controls completed (2026-11-06): DatePicker now accepts `focusName`,
+sharing the exact-UTF-8/global namespace with text inputs and WebView. The existing
+owned hosting adapter is generalized to HostedNativeControl and reused for all
+date styles, with and without a name. It preserves the parent SwiftUI environment
+and uses the existing native date binding, bounds, components, and time zone.
+Lookup selects the first realized, eligible NSDatePicker in that owned subtree;
+it does not open a popover or promise a specific date/time segment. Disabled,
+hidden, unrealized, stale, and other-window targets return false. Renaming,
+removing, or reassigning names leaves keyed native identity and physical captures
+intact; native recreation during style changes can expire physical captures,
+while names resolve the current surface. Lifecycle guards/weak references and
+immediate retirement are shared with text inputs. Text-only adapter counts remain
+available in test snapshots, with a new total hosted-control count for cleanup.
+The [form example](examples/forms/app.ts) adds **Focus appointment**.
+Focused validation passes: native build, 110 unit tests, Deno/TypeScript checks,
+two identically labeled native date controls with distinct exact Unicode names,
+first focus without captures, date target/actions, explicit physical Tab cycles,
+keyed rename/reassignment/removal, atomic malformed names and date/text/web
+namespace collisions, inherited disabling/hidden availability, graphical/date,
+automatic/time, compact/date and compact/date-and-time native eligibility,
+time-zone changes, active-sheet isolation, real lazy realization, and 20 focused
+owner removals at baseline adapters/views/cells/callbacks. A startup duplicate-
+name fixture now additionally covers a DatePicker/text collision and full failure
+cleanup. Final validation passes: native build, all 110 unit tests, all 67
+offscreen native scenarios (including existing bridge/lifecycle, date styles/
+bounds/zones/bindings, text registration, and WebView gates), and Deno/TypeScript
+checks. The broader focus/navigation checkbox remains unchecked.
+Remaining focus work: named buttons/toggles/sliders/steppers/choice pickers,
+declarative focus bindings, keyboard-access-enabled paths, nested/custom-routing/
+non-text/WebKit sheets, WebKit IME/accessibility, directional arrows, and the
+recorded intermittent SwiftUI sheet-animation crash. Keep the broad item unchecked.
+
+Directional commands completed (2026-11-06): `Focus.move('left' | 'right' | 'up' |
+'down')` returns whether the active native window moved to a visible geometric
+neighbor. It walks the recalculated AppKit key-view loop with cycle detection, or
+uses a valid explicit traversal cycle as its candidate set. Shared field editors
+resolve to their controls; internal WebKit responders normalize to one browser
+container. Eligibility/visible clipping exclude disabled, hidden, fully clipped,
+unrealized, other-window, and Tab-excluded browser targets. Geometry intersects
+native bounds with visibleRect (non-clipping views can expose a larger visible
+extent), converts into window-content coordinates, and handles flipped vertical
+axes. Perpendicular overlap is preferred, then forward-edge gap and center
+distance; other candidates use a 90-degree direction cone and center distance.
+Native key-loop order breaks ties. Parent containers yield to eligible leaf key
+views. There is no edge wrapping, explicit scroll request, capture allocation,
+or event interceptor. No current eligible responder/no neighbor/refusal returns false;
+existing purity, canceled-task, shutdown, and active-sheet guards apply. Text
+caret, multiline/IME, and browser arrow keys retain native handling. The new
+[directional demo](examples/focus-direction/app.ts) shows mixed native/web input.
+Focused validation passes: native build, 110 unit tests, Deno/TypeScript checks,
+and a native 2×3 plain/secure/editor/date/WebKit matrix. Tests cover four axes,
+no wrapping, aligned/diagonal and cone choices, explicit membership/unavailable
+fallback, preserved DOM selection, keyed/captured identity, atomic invalid
+directions, sheet isolation, real lazy realization, and 20 focused owner removals
+at baseline native views/cells/registrations/Node callbacks without activating or
+keying windows. Final validation passes: native build, all 110 unit tests, all
+67 offscreen native scenarios (including existing bridge/lifecycle, text/date/
+WebView, sheets, lazy realization, and teardown gates), and Deno/TypeScript checks.
+Concrete non-text verification blocker remains: current full keyboard access is
+false, and real NSStepper/NSSegmentedControl views report ineligible (the existing
+native test observed one eligible date control and two excluded controls). Do not
+change the user's keyboard preferences or force native eligibility to claim those
+paths verified. Their named eligible paths remain open; directional commands can
+be verified independently with the real eligible text/date/web controls above.
+Remaining: named buttons/toggles/sliders/steppers/choice pickers, declarative focus
+bindings, full-keyboard-access paths, optional non-editing arrow-event routing,
+nested/custom-routing/non-text/WebKit sheets, WebKit IME/accessibility, and the
+recorded intermittent SwiftUI sheet-animation crash. Keep the broad item unchecked.
+
+Mixed-sheet focus/RPC coverage completed (2026-11-06): a new real AppKit sheet
+combines plain/secure text fields, a multiline editor, DatePicker, and a two-input
+WebView. It exercises captured command cycles, atomic rejection of unsupported
+custom sheet Tab routing, native forward/reverse DOM entry/exit, Return/Unicode/
+secure/newline edits, actual sheet NSDatePicker actions, inherited disabled and
+passive-browser Tab eligibility, live snapshot/RPC data, preserved DOM selection,
+and keyed identity. The test-only date enumeration/action adapters now follow
+currentFocusWindow like field/editor/focus adapters; previously they always
+inspected the parent. An independent parent date verifies correct sheet binding
+and isolation. No ordinary application API or date behavior changes.
+Normal dismissal/reopening retains the logical owner's scopes, edited state,
+and node handles; physical captures still retire on window-context changes.
+Reload and logical owner removal cancel pending browser calls, abort signals,
+and suppress late writes to shared/local State and late focus attempts. Twenty
+focused owner removals with pending calls return native views/cells/names,
+hosted controls, Node callbacks, exported APIs, and pending requests to baseline.
+Focused native validation passes with all windows transparent/non-key and the
+app inactive. The initial full run passed the 66 existing gates, then the new
+mixed-sheet gate reproduced the recorded framework crash: UpdateCycle
+UC::DriverCore::continueProcessing called a null address inside AppKit's
+NSSheetMoveHelper.closeSheet animation loop during normal display-cycle layout.
+Offscreen launchers and sheets now set the public NSWindow.animationBehavior
+policy to .none, retaining real sheet presentation/teardown without automatic
+order-front/out animation. The mixed-sheet test asserts that policy in both
+parent and sheet contexts; ordinary launches keep their existing animation
+behavior and no user preference is changed. Focused policy validation passes;
+three additional 20-owner stress runs and all 67 native integration scenarios
+pass with the policy applied. The animated framework path
+remains a platform limitation, rather than a claimed production crash fix. The existing
+110 unit tests and Deno/TypeScript surface are unchanged by this test-adapter/
+integration increment. This closes the mixed text/date/WebKit single-sheet
+coverage gap. Nested sheets, custom sheet Tab routing, additional non-text
+keyboard-access paths, declarative bindings, optional arrow-event routing,
+WebKit IME/accessibility, and the recorded intermittent sheet-animation crash
+remain open. Keep the broad focus/navigation item unchecked.
+
+## 3. Application and operating-system integration
+
+- [ ] Support multiple windows with independent roots and explicit window ownership.
+- [ ] Add richer menus, commands, and keyboard shortcuts.
+- [ ] Add native open/save dialogs and document lifecycle support.
+- [ ] Add drag-and-drop and clipboard APIs.
+- [ ] Define activation, reopen, and last-window-close policies and test their teardown paths.
+
+## 4. Developer workflow
+
+- [ ] Add full module reload with explicit state-preservation and effect-cleanup rules.
+- [ ] Add typed TSX authoring with compiler-assisted tracked state reads/writes and automatic native binding props; see SWIFTUI_TODO.md for design and validation milestones.
+- [ ] Add live TypeScript type diagnostics in the playground; it currently strips types without checking edited code.
+- [ ] Save and reopen playground source edits, which are currently session-only.
+- [ ] Add a component/state inspector and useful source locations for runtime errors.
+- [ ] Add browser inspection and stronger diagnostics for native and WebKit failures.
+
+## 5. Distribution and performance
+
+- [ ] Package the runtime, TypeScript/JavaScript entry, dependencies, and assets into a relocatable app.
+- [ ] Add signing, notarization, and a reproducible release/distribution workflow.
+- [ ] Verify the macOS 14 minimum on an actual macOS 14 machine and cover supported Mac architectures.
+- [ ] Profile serialization, view commits, and synchronous state-write hops under realistic workloads.
+- [ ] Add state-write batching and event coalescing/backpressure; queue overflow currently aborts the app.
+- [ ] Add long-running stress and leak coverage for dynamic components and web controls.
+
+## 6. Web control expansion
+
+- [ ] Add bundled asset loading with a documented local URL scheme.
+- [ ] Add automatic content sizing and mixed native/web focus and accessibility coverage.
+- [x] Add typed request/reply messaging with cancellation and document-lifetime handling.
+- [ ] Define separate navigation/origin policies before supporting remote page browsing.
+
+WebView RPC completed 2026-11-06: WebView accepts a copied plain `api` method
+table. Browser `window.jonui.remote<API>()` proxies typed asynchronous calls to
+Node, with JSON/void results and name/message error rejection. Functions remain
+on Node; descriptors contain method names and a source epoch. WebKit's reply-
+capable message handler provides Promise transport. Requests carry document
+tokens/call IDs, are main-frame/method/JSON validated, and have a 128-pending-call
+limit. Node uses request-owned async context with `WebRequest.current` signal,
+cleanup, and guarded commit. Reload/unmount/native retirement/shutdown cancel
+pending calls, release reply blocks/subscriptions, and suppress late State/focus/
+allocation/publication/reply work. Native validity checks protect queued requests
+and reused IDs across recreated browser instances. Rapid A → B → A source updates
+force the new epoch through coalesced SwiftUI updates. Data/handler/disabled/focus-
+name updates preserve document lifetime.
+The new [visualization example](examples/web-rpc/app.ts) keeps models and selection
+on Node, renders keyed SVG bars from snapshots, and reports click/keyboard
+selections via RPC. See [contracts](docs/web-rpc.md). Focused validation passes:
+110 unit tests, Deno/TypeScript checks, real WebKit Promise/error/JSON/void replies,
+out-of-order work/current handlers, model snapshots, stale-token/epoch rejection,
+backpressure, cancellation/late-write guards, 20 pending owner lifetimes, and
+actual SVG mouse/keyboard interaction. Teardown error scenarios verify one stop/
+owner disposal for reload and unmount; unit tests verify zero remaining resources.
+Native build, all 110 unit tests, all 67 offscreen native scenarios (including
+existing bridge/lifecycle gates), and Deno/TypeScript checks pass. Automatic browser TS bundling,
+Node-to-browser method RPC, and transferable/binary codecs remain future extensions;
+the current visualization flow uses Node snapshots plus browser-to-Node methods.
+
+## Working foundation
+
+- [x] Native AppKit/SwiftUI main thread with embedded Node on a background thread.
+- [x] TypeScript constructors, tracked view bodies, keyed rows, primitive bindings, and orderly shutdown.
+- [x] Landmarks sample and native lifecycle/error integration tests.
+- [x] Editable TypeScript playground with recoverable render errors and preserved shared state.
+- [x] Persistent HTML WebView with two-way JSON messages, stale-document checks, and unmount cleanup.
+
+## Validation commands
+
+Run these from the repository root. The pinned Node executable is built by
+`scripts/build.py`; no global Node installation is required for these commands.
+
+```sh
+python3 scripts/build.py
+deno task check
+DYLD_LIBRARY_PATH=.build/jonui/lib .build/node/node-v24.22.2/out/Release/node node_modules/typescript/bin/tsc --noEmit
+DYLD_LIBRARY_PATH=.build/jonui/lib .build/node/node-v24.22.2/out/Release/node --test tests/*.test.mjs
+python3 scripts/test-integration.py
+```
+
+Use focused checks while iterating and run the relevant native integration gates
+for bridge/lifecycle changes. Native automated windows must stay offscreen and
+must not repeatedly interrupt the user's desktop. Preserve unrelated work in the
+checkout; do not publish, push, or spend money as part of TODO upkeep.
