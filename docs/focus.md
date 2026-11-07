@@ -243,8 +243,8 @@ for display; no canceled queued command moves native focus. Disposal before a
 queued resumption prevents the new observation session from starting.
 
 The controller exposes no scalar `binding` for desired focus. Named boolean
-projections and standalone boolean controllers are described below. Typed non-string
-selections, automatic physical-window resumption and realization-aware policies
+projections, boolean controllers and typed selections are described below.
+Automatic physical-window resumption and realization-aware policies
 remain future work. Controllers created in a parent context before a
 sheet appears retire when that sheet becomes active; this is not a sheet
 appearance hook. Try `bin/jonui examples/focus-controller/app.ts` for requests,
@@ -340,6 +340,62 @@ replay true intent. Disposal makes late writes inert and releases all owned work
 Each boolean controller uses one named controller internally, with the same five
 cells, two effects and two computations; its boolean wrappers add no native
 resources. Try `bin/jonui examples/focus-boolean/app.ts`.
+
+## Typed focus selection
+
+`scope.focusSelection(values, initialValue = null)` creates one owned controller
+for a fixed domain of string/numeric IDs. Its `desired.value` and `actual.value`
+use those IDs or null, and `binding(id)` wires a target without public focus names:
+
+```ts
+const Form = Component(scope => {
+  const first = scope.state(''), last = scope.state('');
+  const focus = scope.focusSelection([1, '1'], 1);
+  return () => VStack([
+    TextField('First', { text: first.binding, onSubmit: () => focus.request('1') })
+      .focused(focus.binding(1)),
+    TextField('Last', { text: last.binding }).focused(focus.binding('1')),
+    Button('Clear focus', () => focus.request(null)),
+    Text(`Actual: ${typeof focus.actual.value}:${focus.actual.value}`),
+  ]);
+});
+```
+
+The literal domain is inferred by TypeScript; initial values, requests and
+projections cannot widen it. Use a readonly tuple or a typed array for a reusable
+domain. Runtime validation also rejects unknown IDs before a native request.
+IDs are unique well-formed strings (including empty strings) or finite numbers;
+null means no selection. Number `1` and string `"1"` are distinct. Unicode strings
+keep exact spelling; composed/decomposed equivalents are distinct. Signed zero
+is one ID, observed as positive zero. Duplicate IDs, sparse/non-array domains,
+booleans, objects, null entries, malformed strings and nonfinite numbers reject
+setup before the controller allocates native resources. An empty domain is valid.
+The domain is copied at setup; later array edits do not add/remove its targets.
+Remount the owning component to change the domain.
+
+Each ID maps to an opaque generated name. Names stay stable through keyed reorder
+and explicit resume; independent controllers can reuse the same IDs. Only those
+names reach native view descriptors; IDs remain in Node. Global name APIs expose
+the opaque names. `actual.value` reports null for cleared, unnamed or unrelated
+focus, including targets owned by another selection controller. Desired intent
+remains independent of native movement. The same supported-input, ownership,
+eligibility, realization and unique-target rules as named projections apply.
+
+Changed desired values queue an after-commit request; equal writes are inert.
+Use `request(id)` for an explicit retry. **Null desired/request clears the active
+context's focus**, including an unrelated target. Use `binding(id).value = false`
+to cancel that target's intent and conditionally clear only that target while
+preserving a newer different request. Projections read observed booleans, and
+observations never rewrite desired selection.
+
+Retirement, passive resume, cancellation and task/RPC leases follow the named
+controller contract. Desired selection remains editable while retired; commands
+wait for a fresh request after explicit resume. Obsolete/disposed writers are
+ignored before selection validation. The controller uses the same five cells,
+two effects and two computations as one named controller, independent of the
+number of IDs. Maps and wrappers add no native resources. Objects/symbols,
+dynamic domains, arbitrary Swift Hashable values and general SwiftUI FocusState
+overloads remain open. Try `bin/jonui examples/focus-selection/app.ts`.
 
 ## Captured responder targets
 

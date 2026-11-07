@@ -678,6 +678,80 @@ test('boolean focus controllers validate setup/purity, preserve leases and ignor
   h.emit({ type: 'stop' }); await done; assert.deepEqual(ui.__testing.stats(), { actions: 0, cells: 0, dependencies: 0 });
 });
 
+test('selection focus preserves typed IDs, snapshots its domain and separates observed selection from intent', async () => {
+  const h = await setup(), { ui } = h; h.focus.focused = true; h.focus.name = 'unrelated'; let focus;
+  const domain = [1, '1', '', 'café', 'cafe\u0301'];
+  const Owner = ui.Component(scope => {
+    focus = scope.focusSelection(domain); const text = scope.state('');
+    return () => ui.VStack(domain.map(id => ui.TextField('Same label', { text: text.binding }).focused(focus.binding(id))));
+  });
+  const done = launch(ui, Owner()); await tick();
+  const names = [...h.nodes.values()].filter(node => node.kind === 'textfield').map(node => node.props.focusName);
+  assert.equal(new Set(names).size, 5); assert.equal(h.calls.filter(c => c.op === 'focus.named').length, 0);
+  assert.equal(focus.actual.value, null); assert.equal(focus.desired.value, null);
+  domain.push('added later'); assert.throws(() => focus.binding('added later'), /Unknown focus selection/); domain.pop();
+  const changes = []; const stop = focus.desired.subscribe(value => changes.push(value));
+  focus.desired.value = 1; assert.equal(focus.actual.value, null); await tick(); assert.equal(focus.actual.value, 1); assert.equal(h.focus.name, names[0]);
+  const before = h.calls.filter(c => c.op === 'focus.named').length; focus.desired.value = 1; await tick(); assert.equal(h.calls.filter(c => c.op === 'focus.named').length, before);
+  focus.request(1); await tick(); assert.equal(h.calls.filter(c => c.op === 'focus.named').length, before + 1);
+  focus.binding('1').value = true; await tick(); assert.equal(focus.actual.value, '1'); assert.equal(focus.desired.value, '1'); assert.equal(h.focus.name, names[1]);
+  focus.binding(1).value = false; await tick(); assert.equal(focus.actual.value, '1'); assert.equal(focus.desired.value, '1');
+  focus.binding('1').value = false; await tick(); assert.equal(focus.actual.value, null); assert.equal(focus.desired.value, null);
+  for (let index = 2; index < domain.length; index++) { focus.request(domain[index]); await tick(); assert.equal(focus.actual.value, domain[index]); assert.equal(h.focus.name, names[index]); }
+  assert.deepEqual(changes, [1, '1', null, '', 'café', 'cafe\u0301']); stop();
+  const route = h.calls.filter(c => c.focusRequest).at(-1).focusRequest;
+  h.focus.name = 'unrelated'; h.emit({ type: 'focusChanged', token: route.token, sequence: ++h.focus.sequence, context: 1, generation: route.generation, name: 'unrelated' }); await tick();
+  assert.equal(focus.actual.value, null); assert.equal(focus.desired.value, 'cafe\u0301');
+  focus.request(null); await tick(); assert.equal(h.focus.name, null); assert.equal(focus.desired.value, null);
+  assert.ok(Object.isFrozen(focus)); assert.ok(Object.isFrozen(focus.desired)); assert.throws(() => { focus.actual.value = 1; }, TypeError);
+  assert.equal(focus.desired.binding, undefined);
+  h.emit({ type: 'stop' }); await done; assert.deepEqual(ui.__testing.stats(), { actions: 0, cells: 0, dependencies: 0 });
+});
+
+test('selection focus validates before allocation, handles empty domains and normalizes signed zero', async () => {
+  const h = await setup(), { ui } = h; h.focus.focused = true; let empty, focus;
+  const Owner = ui.Component(scope => {
+    const before = h.calls.length;
+    for (const values of [null, {}, 'abc', [null], [true], [{}], [undefined], ['\ud800'], [NaN], [Infinity], [1, 1], [0, -0], ['a', 'a'], Array(1)])
+      assert.throws(() => scope.focusSelection(values), /Focus selection|focus selection/);
+    assert.throws(() => scope.focusSelection([1], '1'), /Unknown focus selection/); assert.equal(h.calls.length, before);
+    empty = scope.focusSelection([]); focus = scope.focusSelection([0], -0);
+    return () => ui.Text(`${empty.actual.value}/${focus.actual.value}`);
+  });
+  const done = launch(ui, Owner()); await tick(); assert.equal(empty.actual.value, null); assert.equal(empty.desired.value, null);
+  assert.equal(Object.is(focus.actual.value, 0), true); assert.equal(Object.is(focus.desired.value, 0), true);
+  const before = h.calls.length;
+  for (const invalid of [undefined, '0', 1, NaN, false, {}]) {
+    assert.throws(() => { focus.desired.value = invalid; }, /Unknown focus selection/);
+    assert.throws(() => focus.request(invalid), /Unknown focus selection/); assert.throws(() => focus.binding(invalid), /Unknown focus selection/);
+  }
+  assert.throws(() => focus.binding(null), /non-null/); assert.throws(() => empty.request('anything'), /Unknown focus selection/);
+  assert.throws(() => focus.desired.subscribe(null), /listener/); assert.equal(h.calls.length, before);
+  h.emit({ type: 'stop' }); await done;
+});
+
+test('selection focus inherits purity, retirement, passive resume and stale task/disposal guards', async () => {
+  const h = await setup(), { ui } = h; h.focus.focused = true; let focus, scopeRef, release; const shown = ui.State(true);
+  const Owner = ui.Component(scope => {
+    scopeRef = scope; focus = scope.focusSelection([1, 'two'], 1);
+    scope.task(async () => { await new Promise(resolve => { release = resolve; }); focus.request('obsolete invalid ID'); focus.desired.value = {}; });
+    return () => { assert.throws(() => focus.request(1), /outside view bodies/); assert.throws(() => { focus.desired.value = 1; }, /outside view bodies/); return ui.Text(`${focus.actual.value}`); };
+  });
+  const done = launch(ui, ui.View(() => shown.value ? Owner() : ui.Text('hidden'))); await tick();
+  assert.throws(() => scopeRef.focusSelection([1]), /during component setup/);
+  const derived = ui.Computed(() => { focus.desired.value = 1; return 1; }); assert.throws(() => derived.value, /Computed callbacks cannot write desired focus selection/);
+  focus.resume(); await tick(); const before = h.calls.length; release(); await tick(); assert.equal(h.calls.length, before); assert.equal(focus.desired.value, 1);
+  const route = h.calls.filter(c => c.op === 'focus.snapshot').at(-1);
+  h.emit({ type: 'focusChanged', token: route.token, sequence: ++h.focus.sequence, context: 2, generation: h.focus.generation, name: 'sheet' }); await tick();
+  assert.equal(focus.retired.value, true); assert.equal(focus.actual.value, null);
+  focus.desired.value = 'two'; focus.request('invalid retired ID'); await tick(); assert.equal(focus.desired.value, 'two');
+  h.focus.name = 'outside'; focus.resume(); await tick(); assert.equal(focus.retired.value, false); assert.equal(focus.actual.value, null); assert.equal(focus.desired.value, 'two'); assert.equal(h.focus.name, 'outside');
+  focus.resume(); focus.request('two'); await tick(); assert.equal(focus.actual.value, 'two');
+  shown.value = false; await tick(); const after = h.calls.length;
+  focus.request('invalid after disposal'); focus.desired.value = {}; focus.resume(); assert.equal(h.calls.length, after); assert.throws(() => focus.binding(1), /disposed/);
+  h.emit({ type: 'stop' }); await done; assert.deepEqual(ui.__testing.stats(), { actions: 0, cells: 0, dependencies: 0 });
+});
+
 test('disabled validates flags before transport and property changes preserve scoped bindings/actions', async () => {
   const h = await setup(), { ui } = h;
   const child = ui.Text('passive'); assert.deepEqual(child.disabled().props, { name: 'disabled', value: true });

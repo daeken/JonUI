@@ -150,6 +150,27 @@ WebView({ html: "", data: () => 1 });
 WebView({ url: "https://example.com" });
 
 const ScopedCounter = Component<{ label: string }>((scope, initial) => {
+  const selectionFocus = scope.focusSelection([1, '1', 'editor'], 1);
+  selectionFocus.desired.value = 'editor'; selectionFocus.request(null); selectionFocus.resume();
+  TextField('Selected', { text: title.binding }).focused(selectionFocus.binding('1'));
+  const selectedID: 1 | '1' | 'editor' | null = selectionFocus.actual.value; void selectedID;
+  selectionFocus.desired.subscribe(value => { const id: 1 | '1' | 'editor' | null = value; void id; });
+  // @ts-expect-error Initial selection cannot widen the domain.
+  scope.focusSelection([1, 'editor'], 'other');
+  // @ts-expect-error Selection IDs are strings or finite numbers, not booleans.
+  scope.focusSelection([true]);
+  // @ts-expect-error Null is reserved for no selection.
+  scope.focusSelection([null]);
+  // @ts-expect-error Requests stay inside the declared domain.
+  selectionFocus.request(2);
+  // @ts-expect-error Desired selection stays inside the declared domain.
+  selectionFocus.desired.value = 'other';
+  // @ts-expect-error A projection requires a declared non-null ID.
+  selectionFocus.binding(null);
+  // @ts-expect-error Actual selection is readonly.
+  selectionFocus.actual.value = 1;
+  // @ts-expect-error Selection intent is not a scalar native binding.
+  void selectionFocus.desired.binding;
   const booleanFocus = scope.focusBoolean();
   scope.focusBoolean(true);
   booleanFocus.desired.value = true; booleanFocus.request(false); booleanFocus.resume();

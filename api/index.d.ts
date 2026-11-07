@@ -76,6 +76,15 @@ export interface BooleanFocusController {
   request(focused: boolean): void;
   resume(): void;
 }
+/** A fixed domain of string/numeric target IDs, with null representing no selection. */
+export interface SelectionFocusController<T extends string | number> {
+  readonly desired: Pick<State<T | null>, 'value' | 'subscribe'>;
+  readonly actual: Computed<T | null>;
+  readonly retired: Computed<boolean>;
+  request(value: T | null): void;
+  resume(): void;
+  binding(value: T): FocusBinding;
+}
 export interface ComponentScope<Props = unknown> {
   /** Track synchronous inputs and abort previous runs on change, stop or unmount. */
   task(callback: (task: TaskContext) => void | Promise<void>): () => void;
@@ -91,6 +100,8 @@ export interface ComponentScope<Props = unknown> {
   focus(initialName?: string | null): FocusController;
   /** Setup-only opaque single-target focus controller. Initial false is passive. */
   focusBoolean(initialFocused?: boolean): BooleanFocusController;
+  /** Setup-only. Copies the unique finite ID domain; initial null is passive. */
+  focusSelection<const T extends string | number>(values: readonly T[], initialValue?: NoInfer<T> | null): SelectionFocusController<T>;
   /** Runs once on unmount, in reverse registration order, including setup failure. */
   onDispose(cleanup: () => void): void;
 }

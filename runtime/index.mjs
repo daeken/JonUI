@@ -26,6 +26,7 @@ const textEditings = new Map();
 const viewMarker = Symbol('JonUI.View');
 const bindingMarker = Symbol('JonUI.Binding');
 const focusBindings = new WeakMap();
+const focusControllers = new WeakMap();
 function focusProjection(value) {
   const projection = focusBindings.get(value);
   if (!projection) throw new TypeError('Expected an owned FocusBinding');
@@ -528,7 +529,7 @@ function initializeComponent(mounted) {
         subscribe: listener => desired.subscribe(listener),
       });
       const observed = scope.computed(() => actual.value);
-      return Object.freeze({
+      const controller = Object.freeze({
         desired: selection, actual: observed, retired: scope.computed(() => retired.value),
         request(name) {
           if (!canWrite('request scoped focus') || !resuming && untracked(() => retired.value)) return;
@@ -571,6 +572,50 @@ function initializeComponent(mounted) {
             });
           } });
           return projection;
+        },
+      });
+      focusControllers.set(controller, { canWrite, canRequest: () => resuming || !untracked(() => retired.value) });
+      return controller;
+    },
+    focusSelection(values, initialValue = null) {
+      assertNotComputing('allocate selection focus controllers');
+      if (!owned.initializing || owned.disposed) throw new Error('Allocate selection focus controllers during component setup');
+      if (!Array.isArray(values)) throw new TypeError('Focus selections require an array of string or finite number IDs');
+      const names = new Map(), selections = new Map();
+      for (const value of values) {
+        if (typeof value === 'string' ? !value.isWellFormed() : typeof value !== 'number' || !Number.isFinite(value)) throw new TypeError('Focus selection IDs must be well-formed strings or finite numbers');
+        if (names.has(value)) throw new TypeError('Duplicate focus selection ID');
+        const name = `jonui:selection:${randomUUID()}`;
+        names.set(value, name); selections.set(name, value === 0 ? 0 : value);
+      }
+      function nameFor(value) {
+        if (value === null) return null;
+        if (!names.has(value)) throw new TypeError('Unknown focus selection ID');
+        return names.get(value);
+      }
+      const controller = scope.focus(nameFor(initialValue)), guards = focusControllers.get(controller);
+      const selected = name => selections.has(name) ? selections.get(name) : null;
+      const desired = Object.freeze({
+        get value() { return selected(controller.desired.value); },
+        set value(value) {
+          if (!guards.canWrite('write desired focus selection')) return;
+          controller.desired.value = nameFor(value);
+        },
+        subscribe(listener) {
+          if (typeof listener !== 'function') throw new TypeError('Expected a listener');
+          return controller.desired.subscribe(name => listener(selected(name)));
+        },
+      });
+      return Object.freeze({
+        desired, actual: Object.freeze({ get value() { return selected(controller.actual.value); } }), retired: controller.retired,
+        request(value) {
+          if (!guards.canWrite('request focus selection') || !guards.canRequest()) return;
+          controller.request(nameFor(value));
+        },
+        resume: controller.resume,
+        binding(value) {
+          if (value === null) throw new TypeError('A focus selection binding requires a non-null ID');
+          return controller.binding(nameFor(value));
         },
       });
     },

@@ -38,6 +38,8 @@ def run(entry, case='', failure=None, driver=None, timeout=30, layout=False):
         assert all(result.stdout.count(marker) == 1 for marker in ['RPC_SCOPE_DISPOSE', 'RPC_STOP']), (result.stdout, result.stderr)
     if entry.endswith('focus-subscribe-error.mjs'):
         assert all(result.stdout.count(marker) == 1 for marker in ['FOCUS_SCOPE_DISPOSE', 'FOCUS_STOP']), (result.stdout, result.stderr)
+    if entry.endswith('focus-selection-error.mjs'):
+        assert result.stdout.count('SELECTION_FAILURE_CLEANUP') == 1, (result.stdout, result.stderr)
     if failure:
         assert result.returncode != 0 and failure in result.stderr, (entry, result.returncode, result.stdout, result.stderr)
         print(f'PASS expected failure: {failure}', flush=True)
@@ -134,3 +136,5 @@ run('tests/integration/focus-subscribe-error.mjs', failure='intentional focus li
 run('tests/integration/focus-controller.mjs', timeout=60)
 run('tests/integration/focus-binding.mjs', timeout=60)
 run('tests/integration/focus-boolean.mjs', timeout=60)
+run('tests/integration/focus-selection.mjs', timeout=60)
+run('tests/integration/focus-selection-error.mjs', failure='Duplicate focus name')

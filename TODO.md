@@ -881,6 +881,34 @@ non-string selections/general overloads; additional controls subject to native
 eligibility, realization/physical-window policy, IME/AX/nested-sheet coverage and
 the recorded intermittent AppKit sheet-close crash remain open.
 
+Typed focus selection completed (2026-11-07): setup-only `scope.focusSelection`
+copies a fixed domain of unique well-formed string/finite-number IDs and exposes
+typed nullable desired/actual selection, retirement, requests, resume and
+`binding(id)` projections. Literal inference prevents an initial value or write
+from widening the domain. Runtime validation rejects unknown/invalid IDs before
+native work. Opaque names distinguish numeric/string IDs and independent domains;
+signed zero is normalized and later domain-array edits are ignored. Unrelated
+focus observes as null without overwriting desired selection. Null intent clears
+the active context; projection false remains conditional. The named controller's
+owner/task/context guards run before selection validation so stale/disposed
+callers stay inert. One controller backs every ID with no additional native
+resources. Added a runnable typed example and positive/negative API checks.
+
+Validation: all 140 runtime/compiler cases, Deno and TypeScript checks pass.
+Focused offscreen native selection passes text/secure/editor/date/WebKit targets,
+numeric/string and cross-controller identity, Return Unicode ordering, conditional
+and global clear, keyed identity, per-controller stale-task leases, modal
+retirement/passive resume and 20 pending owner lifetimes at baseline resources.
+All 75 offscreen native integration scenarios pass, including duplicate-projection
+startup cleanup with zero cells/views/listeners/callbacks; API classification also
+passes. Native source/protocol are unchanged. The recorded AppKit sheet-close
+crash did not recur; no fix is claimed. Keep the broad focus item unchecked.
+Next: resolve additional native
+control registration/eligibility and physical-window/realization policy before
+claiming wider focus parity. Dynamic domains/object/symbol IDs and general
+overloads, IME/AX/nested-sheet coverage and the recorded intermittent AppKit
+sheet-close crash remain open.
+
 ## 3. Application and operating-system integration
 
 - [ ] Support multiple windows with independent roots and explicit window ownership.

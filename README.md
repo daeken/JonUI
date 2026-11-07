@@ -154,6 +154,11 @@ intent. See [projected focus bindings](docs/focus.md#projected-focus-bindings).
 and `focus.actual.value` observes it. False clears only that target. See
 [boolean focus controllers](docs/focus.md#boolean-focus-controllers) and
 `bin/jonui examples/focus-boolean/app.ts`.
+`scope.focusSelection([1, 'name'], null)` provides typed nullable selection IDs
+with `.focused(focus.binding(id))`. Numeric and string IDs stay distinct;
+native movement updates actual selection without rewriting desired intent. See
+[typed focus selection](docs/focus.md#typed-focus-selection) and
+`bin/jonui examples/focus-selection/app.ts`.
 `Focus.capture()` remembers the current native responder as a weak opaque target;
 `Focus.request(target)` restores it while its identity remains available. Adding
 or removing view handles retires saved captures; value updates/keyed reorder keep

@@ -868,6 +868,24 @@ Native checks cover five independent control types, conditional false with anoth
 target focused, keyed identity, per-controller task leases, sheet retirement and
 passive parent resume, plus 20 owners removed with pending requests/resumes.
 
+`scope.focusSelection` snapshots a finite string/number domain into two Maps:
+ID-to-UUID-name for writes/projections and name-to-ID for desired/actual reads and
+subscriptions. Null represents no selection; names outside this domain map to
+null for observation. IDs never travel on the native wire. Map identity separates
+numeric/string IDs and exact Unicode strings; zero is normalized to positive zero.
+Domain validation precedes controller allocation. One existing named controller
+backs all IDs, so domain size adds no native cells/effects/computations/observers.
+Private WeakMap metadata reuses that controller's owner/task/context write guards
+before validating a selection. Requests also check retirement (unless resuming).
+Thus obsolete or disposed callers cannot publish intent or throw late validation
+errors, while a current retired owner can still edit desired data. Resume remains
+passive; the next explicit/changed request resolves through the same mappings.
+Named projection conditional blur and native name uniqueness remain unchanged.
+Tests verify typed/cross-controller identity, unknown/null/invalid domains,
+snapshotting, signed zero, stale writers, text/date/WebKit selection, Return
+ordering, keyed identity, modal retirement/resume, 20 pending owner lifetimes and
+duplicate-projection startup cleanup.
+
 An earlier two-way boolean FocusState synchronization prototype was discarded:
 late framework observations could revive an obsolete blur request, so it is not
 part of the public API or native graph validation. SwiftUI accessibility identifiers
