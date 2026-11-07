@@ -151,6 +151,11 @@ WebView({ url: "https://example.com" });
 
 const ScopedCounter = Component<{ label: string }>((scope, initial) => {
   const selectionFocus = scope.focusSelection([1, '1', 'editor'], 1);
+  const selectedAvailability: import('jonui').FocusAvailability | null = selectionFocus.availability(1); void selectedAvailability;
+  // @ts-expect-error Availability queries cannot widen the selection domain.
+  selectionFocus.availability('other');
+  // @ts-expect-error Null is not an availability target.
+  selectionFocus.availability(null);
   const availability: import('jonui').FocusAvailability | null = Focus.availabilityNamed('target'); void availability;
   // @ts-expect-error Availability names must be strings.
   Focus.availabilityNamed(1);
@@ -175,6 +180,9 @@ const ScopedCounter = Component<{ label: string }>((scope, initial) => {
   // @ts-expect-error Selection intent is not a scalar native binding.
   void selectionFocus.desired.binding;
   const booleanFocus = scope.focusBoolean();
+  const booleanAvailability: import('jonui').FocusAvailability | null = booleanFocus.availability(); void booleanAvailability;
+  // @ts-expect-error A boolean controller has exactly one opaque target.
+  booleanFocus.availability('name');
   scope.focusBoolean(true);
   booleanFocus.desired.value = true; booleanFocus.request(false); booleanFocus.resume();
   const isFocused: boolean = booleanFocus.actual.value; void isFocused;
@@ -195,6 +203,9 @@ const ScopedCounter = Component<{ label: string }>((scope, initial) => {
   // @ts-expect-error A boolean controller has one binding, not named projections.
   booleanFocus.binding('name');
   const focus = scope.focus(); focus.desired.value = 'name'; focus.request(null); focus.resume();
+  const namedAvailability: import('jonui').FocusAvailability | null = focus.availability('name'); void namedAvailability;
+  // @ts-expect-error Availability queries require non-null names.
+  focus.availability(null);
   const projected = focus.binding('name'); projected.value = true; const selected: boolean = projected.value; void selected;
   TextField('Projected', { text: title.binding }).padding(4).focused(projected);
   WebView({ html: '' }).focused(projected);

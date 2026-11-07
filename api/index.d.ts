@@ -64,6 +64,8 @@ export interface FocusController {
   readonly retired: Computed<boolean>;
   /** Queue an after-commit request, including repeated names or explicit null/clear. */
   request(name: string | null): void;
+  /** Snapshot in the current native context; does not request focus or resume this owner. */
+  availability(name: string): FocusAvailability | null;
   /** Rebind after commit to the current context without replaying retained intent. New requests may follow in the same turn. */
   resume(): void;
   /** Project a named target; apply with view.focused() inside this controller's component subtree. */
@@ -76,6 +78,8 @@ export interface BooleanFocusController {
   readonly retired: Computed<boolean>;
   readonly binding: FocusBinding;
   request(focused: boolean): void;
+  /** Inspect this opaque target without exposing its generated name. */
+  availability(): FocusAvailability | null;
   resume(): void;
 }
 /** A fixed domain of string/numeric target IDs, with null representing no selection. */
@@ -84,6 +88,8 @@ export interface SelectionFocusController<T extends string | number> {
   readonly actual: Computed<T | null>;
   readonly retired: Computed<boolean>;
   request(value: T | null): void;
+  /** Inspect a declared non-null ID without exposing its generated name. */
+  availability(value: T): FocusAvailability | null;
   resume(): void;
   binding(value: T): FocusBinding;
 }

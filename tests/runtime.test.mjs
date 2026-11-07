@@ -329,6 +329,69 @@ test('availability snapshots enforce render/computed purity and suppress cancele
   h.emit({ type: 'stop' }); await done; assert.deepEqual(ui.__testing.stats(), { actions: 0, cells: 0, dependencies: 0 });
 });
 
+test('owned availability maps named, boolean and typed targets without exposing or mutating intent', async () => {
+  const h = await setup(), { ui } = h; let named, boolean, selection;
+  const Owner = ui.Component(scope => {
+    named = scope.focus('named'); boolean = scope.focusBoolean(true); selection = scope.focusSelection([1, '1'], 1); const text = scope.state('');
+    return () => ui.VStack([
+      ui.TextField('Named', { text: text.binding }).focused(named.binding('named')),
+      ui.TextField('Boolean', { text: text.binding }).focused(boolean.binding),
+      ui.TextField('Number', { text: text.binding }).focused(selection.binding(1)),
+      ui.TextField('String', { text: text.binding }).focused(selection.binding('1')),
+    ]);
+  });
+  const done = launch(ui, Owner()); await tick(); const nodes = [...h.nodes.values()].filter(n => n.kind === 'textfield'), baseline = ui.__testing.stats();
+  const names = Object.fromEntries(nodes.map(n => [n.props.title, n.props.focusName])); assert.notEqual(names.Number, names.String);
+  const query = (callback, name, availability) => { assert.equal(callback(), availability); assert.deepEqual(h.calls.at(-1), { op: 'focus.availability', name }); };
+  for (const availability of ['missing', 'unrealized', 'inactiveWindow', 'unavailable', 'ready']) {
+    h.focus.availability = availability;
+    query(() => named.availability('named'), names.Named, availability); query(() => boolean.availability(), names.Boolean, availability);
+    query(() => selection.availability(1), names.Number, availability); query(() => selection.availability('1'), names.String, availability);
+  }
+  assert.deepEqual([named.desired.value, boolean.desired.value, selection.desired.value], ['named', true, 1]);
+  assert.deepEqual(ui.__testing.stats(), baseline); assert.deepEqual(ui.__testing.focusStats(), { listeners: 3, watching: true });
+  h.emit({ type: 'stop' }); await done;
+});
+
+test('owned availability enforces target validation and purity, permits retired snapshots and ignores disposed queries', async () => {
+  const h = await setup(), { ui } = h, shown = ui.State(true); let named, boolean, selection;
+  const queries = () => [() => named.availability('named'), () => boolean.availability(), () => selection.availability(1)];
+  const Owner = ui.Component(scope => {
+    named = scope.focus(); boolean = scope.focusBoolean(); selection = scope.focusSelection([1]);
+    return () => { for (const query of queries()) assert.throws(query, /outside view bodies/); return ui.Text('owner'); };
+  });
+  const done = launch(ui, ui.View(() => shown.value ? Owner() : ui.Text('removed'))); await tick();
+  for (const query of queries()) { const derived = ui.Computed(query); assert.throws(() => derived.value, /Computed callbacks cannot read/); }
+  const before = h.calls.length;
+  for (const value of [null, '', 1, {}, '\ud800']) assert.throws(() => named.availability(value), /Focus names/);
+  assert.throws(() => selection.availability(null), /non-null ID/); assert.throws(() => selection.availability('1'), /Unknown focus selection/); assert.equal(h.calls.length, before);
+  const token = h.calls.find(c => c.op === 'focus.watch').token;
+  h.emit({ type: 'focusChanged', token, sequence: ++h.focus.sequence, context: 2, generation: h.focus.generation ?? 0, name: 'sheet' }); await tick();
+  assert.ok([named, boolean, selection].every(c => c.retired.value)); h.focus.availability = 'inactiveWindow';
+  for (const query of queries()) assert.equal(query(), 'inactiveWindow');
+  assert.ok([named, boolean, selection].every(c => c.retired.value)); assert.deepEqual(ui.__testing.focusStats(), { listeners: 0, watching: false });
+  shown.value = false; await tick(); const count = h.calls.length;
+  assert.equal(named.availability({}), null); assert.equal(boolean.availability(), null); assert.equal(selection.availability({}), null); assert.equal(h.calls.length, count);
+  h.emit({ type: 'stop' }); await done; assert.deepEqual(ui.__testing.stats(), { actions: 0, cells: 0, dependencies: 0 });
+});
+
+test('owned availability applies per-controller task leases before validation and accepts explicit self-resumption', async () => {
+  const h = await setup(), { ui } = h; let named, boolean, selection, release; const results = [];
+  const Owner = ui.Component(scope => {
+    named = scope.focus(); boolean = scope.focusBoolean(); selection = scope.focusSelection([1]);
+    scope.task(async () => {
+      await new Promise(resolve => { release = resolve; });
+      results.push(named.availability({}), boolean.availability(), selection.availability(1));
+      boolean.resume(); results.push(boolean.availability());
+    });
+    return () => ui.Text('owner');
+  });
+  const done = launch(ui, Owner()); await tick(); named.resume(); boolean.resume(); await tick();
+  const before = h.calls.filter(c => c.op === 'focus.availability').length; release(); await tick();
+  assert.deepEqual(results, [null, null, 'ready', 'ready']); assert.equal(h.calls.filter(c => c.op === 'focus.availability').length, before + 2);
+  h.emit({ type: 'stop' }); await done;
+});
+
 test('focus subscription failure rolls back resources and listeners can remove siblings or add listeners during delivery', async () => {
   const h = await setup(), { ui } = h; h.focus.watchError = 'no mounted window';
   assert.throws(() => ui.Focus.subscribe(() => {}), /no mounted window/);

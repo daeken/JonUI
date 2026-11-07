@@ -536,6 +536,10 @@ function initializeComponent(mounted) {
           if (name !== null) focusName(name);
           queueIntent(name);
         },
+        availability(name) {
+          if (!canWrite('read scoped focus availability')) return null;
+          return Focus.availabilityNamed(name);
+        },
         resume() {
           if (owned.disposed || !canMoveFocus('resume scoped focus')) return;
           lease = ++focusLeaseClock;
@@ -612,6 +616,11 @@ function initializeComponent(mounted) {
           if (!guards.canWrite('request focus selection') || !guards.canRequest()) return;
           controller.request(nameFor(value));
         },
+        availability(value) {
+          if (!guards.canWrite('read focus selection availability')) return null;
+          if (value === null) throw new TypeError('A focus selection availability query requires a non-null ID');
+          return controller.availability(nameFor(value));
+        },
         resume: controller.resume,
         binding(value) {
           if (value === null) throw new TypeError('A focus selection binding requires a non-null ID');
@@ -635,7 +644,7 @@ function initializeComponent(mounted) {
       });
       return Object.freeze({
         desired, actual: Object.freeze({ get value() { return projected.value; } }), retired: controller.retired,
-        binding: projected, request(value) { projected.value = value; }, resume: controller.resume,
+        binding: projected, request(value) { projected.value = value; }, availability: () => controller.availability(name), resume: controller.resume,
       });
     },
     onDispose(cleanup) {

@@ -653,6 +653,20 @@ actual lazy scrolling followed by an explicit retained-intent retry, active-shee
 isolation, passive query behavior and 20 owner lifetimes. Same-context query loops
 preserve captures/cycles, focus/intent, request generations, viewport and resources.
 
+Owned `availability` methods reuse this operation: named controllers guard the
+read with their existing owner/task lease before calling availabilityNamed;
+boolean wrappers supply their generated name; selection wrappers guard before
+mapping a declared non-null ID and delegate to the named controller. The request
+retirement gate is deliberately omitted for these read-only snapshots, so current
+retired owners can inspect the active context without resuming observation.
+Stale/canceled/disposed callers return null before validation/availability work.
+RPC claim guards remain part of normal task checks. No native source/protocol or
+owned resource layout changes. Unit/native tests cover mapping, purity/validation,
+per-controller stale task/RPC leases and explicit self-resume, retired contexts,
+conditional target removal/reinsertion, lazy explicit retry, canceled RPC cleanup
+and 20 late-query owner lifetimes. Boolean/selection names remain private to the
+wrapper; global name APIs continue exposing names under their existing contract.
+
 `Focus.move(direction)` sends `focus.direction` with one of four spatial directions.
 After layout/key-loop recalculation, the host resolves a shared field editor to
 its control and normalizes internal WebKit responders to the browser container.

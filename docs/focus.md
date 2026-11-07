@@ -580,9 +580,49 @@ After native scrolling realizes a lazy target, a ready snapshot alone leaves
 retained controller intent unrequested. Call `request(name)` explicitly to retry;
 after context retirement, resume the owner explicitly too. A ready snapshot does
 not guarantee that the current responder will resign or the target will accept.
-This query addresses explicit names; per-controller boolean/typed-ID availability
-helpers and realization subscriptions remain future work. The focus example's
+Owned availability helpers are described below; realization subscriptions remain
+future work. The focus example's
 **Check demo secret availability** button shows a snapshot without moving focus.
+
+## Owned target availability
+
+All three owned controller variants expose the same snapshot through their own
+target vocabulary, keeping generated names private:
+
+| Controller | Query |
+| --- | --- |
+| `scope.focus()` | `focus.availability('notes')` |
+| `scope.focusBoolean()` | `focus.availability()` |
+| `scope.focusSelection([1, 'notes'])` | `focus.availability(1)` or `focus.availability('notes')` |
+
+The result is `FocusAvailability | null`, using the same five states and limits
+as `Focus.availabilityNamed`. Boolean/typed queries resolve their stable internal
+name without exposing it to the caller. A declared ID with no mounted binding
+reports missing; a mounted logical lazy target with no attached native surface
+reports unrealized. Removing/reinserting a target while retaining its controller
+can change missing back to ready without replaying desired intent. Querying a
+typed null or undeclared ID is invalid. Named queries accept any valid global
+name, as with that controller's requests; boolean controllers take no argument.
+
+Call from actions, effects or current tasks/RPC methods, and store the snapshot
+in State to display it. Live render/computed queries are rejected. Queries use
+the active native context, even while the owner is retired, and leave its desired,
+actual and retired values alone. A ready result does not resume that owner or
+authorize a request; resume and explicitly request when appropriate.
+
+Owner cancellation/disposal and per-controller task/RPC leases guard the query
+before target validation or the availability operation. Disposed/canceled callers
+and runs older than that controller's latest resumption return null, including
+when they hold an obsolete invalid target ID. Resuming one controller does not
+block queries against another. A current task that explicitly resumes a controller
+authorizes its following queries, as with its writes. Normal RPC document-claim
+checks still apply. Current retired owners can inspect targets without starting
+observation again. Native query errors propagate normally.
+
+These methods add no cells, effects, computations, watchers, timers or native
+operations beyond the existing availability query. They do not subscribe to
+realization, scroll, retry focus or change generations. See the boolean and typed
+selection examples' **Check Notes** actions for displaying an owned snapshot.
 
 ## Command traversal cycles
 
