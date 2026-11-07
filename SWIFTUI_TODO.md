@@ -29,6 +29,21 @@ Status meanings:
 
 ## Current review
 
+- Native pair re-arming review (2026-11-07): optional recognizers alternate between
+  two fixed slots on observed epoch changes, canceling pending recognition while
+  preserving child control identity. This fixes the previously recorded lost
+  fresh click. Held pointers remain blocked until release; definition/start epoch
+  and armed-slot checks reject stale completions. Descriptor changes require a
+  newer epoch. Live arm metadata retires with its graph; accepted native ends get
+  distinct monotonic completion IDs, even within one pointer-observer interval.
+  This is terminal identity; causal branch sessions/public dispatch are still open.
+  Twenty pending replacement cycles verify fresh points before the old timeout,
+  slot reuse, priorities, even/odd jumps and stable field target/focus/Unicode.
+  Held/moving replacement and probe lifecycle/resource gates pass. Build, 197 unit/
+  compiler cases, 11 workflow tests, both type checkers, classification and 24
+  focused native gates pass. No public API or full-suite claim; broader ownership,
+  long/nested groups, hardware and minimum-OS validation remain open.
+
 - Native pair-prototype review (2026-11-07): a private offscreen/layout test adapter
   records real SimultaneousGesture tap/spatial optional values, with explicit void
   presence and absent branches. No public API or application callback dispatch.
@@ -704,7 +719,7 @@ Status meanings:
 | task / refreshable | Partial analog | Scoped task cancellation exists. | Native view-appearance task, ID-triggered task and refresh UI integration remain. |
 | onSubmit / onEditingChanged | Partial | Native text revision snapshot before Node callback. | Supported text controls verified; richer submit scopes/triggers remain. |
 | onTapGesture / double tap | Partial | Native count 1/2 and normal/high/simultaneous priority; synchronous current Node handler, owned modifier token, disabled ancestors and cleanup. | Actual main/owned-window recognition, keyed/count changes, local State, failures, cross-root/sheet-parent rejection, native-close retirement/reopen and 20 lifetimes verified. Native lazy stack/grid and sheet Command-taps verified; unmodified inactive scroll/sheet delivery remains unverified. Ordinary Button/Toggle/nested priority composition and stable field focus verified; primitive interaction regions and modifier order verified; separate SpatialTapGesture supplies local snapshots. General coordinates/shapes, different-count conflicts and broader control/browser/scroll composition remain. <!-- api: View.onTapGesture --> |
-| SimultaneousGesture | Internal test prototype | Real tap/spatial pair values; optional first/second with explicit void presence, provisional input epoch/interval. | Native count/priority matrix, field identity, stale held epoch drops, bounded draining and cleanup verified. Pointer intervals are not unique group sessions; pending-group epoch changes consume a fresh click. Native cancellation/re-arming, group sequencing, public dispatch/schema, leaf paths/state and broader ownership coverage remain. |
+| SimultaneousGesture | Internal test prototype | Real tap/spatial optional values, epoch/slot arming and unique native completion IDs; pointer intervals stay diagnostic. | Native count/priority matrix, immediate fresh recognition/points after pending replacement, stable field target/focus, held-pointer retirement, bounded arm/trace cleanup and 20 lifetimes verified. Slot alternation fixes the lost-click gap. Public group dispatch/schema, causal branch sessions, leaf paths/state, nested/long groups and broader ownership coverage remain. |
 | SequenceGesture / ExclusiveGesture | Missing | Ordered phase values and native conflict arbitration. | Compound epochs, branch-state reset, callback paths and actual control/cancellation/lifecycle tests required. |
 | Typed Gesture values | Partial (leaf descriptors) | Immutable reusable leaves; View.gesture attaches independent owned callback/config epochs. | Tap/spatial/long-press options, current callbacks, epochs, reuse, precedence and cleanup verified; long press has a recognized-boolean action value. No simultaneous-pair, sequence/exclusive result values, explicit masks or general updating API. <!-- api: Gesture, GesturePriority, TapGesture, SpatialTapGesture, LongPressGesture, View.gesture --> |
 | highPriorityGesture / simultaneousGesture | Partial | Typed leaf attachments and tap conveniences select native precedence; long presses support normal/simultaneous. Changes retire tokens while preserving control identity. | Ordinary/spatial taps and long-press Button/Toggle/nested Command-event outcomes, disabled behavior and cleanup verified. High long presses are blocked by native nested arbitration with pressing observation. General Gesture values, explicit masks, sequential/exclusive composition and broader native/browser/scroll interop remain. |
@@ -809,7 +824,7 @@ can still bypass local enforcement; this is not server-side branch protection.
 Repository instructions require the same review for contributors and automation.
 
 <!-- coverage-review:generated -->
-Review baseline (checkout HEAD before commit): `8d6a2169453ed4c18c60f0e74fec69529c4742da`.
+Review baseline (checkout HEAD before commit): `8bc9c140853ad6a98264da6944badf696017163d`.
 
-Staged source-tree SHA-256 (excluding this catalog): `63f3caba674ae9b175944795959e80a4e48d3518b776258e37c51ae53e5f5262`.
+Staged source-tree SHA-256 (excluding this catalog): `d7396badbba57a0b55e4cf0c98ece74494d4ec51102d042a3af96fe1580d873b`.
 <!-- /coverage-review:generated -->

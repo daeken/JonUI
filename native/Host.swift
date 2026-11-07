@@ -404,19 +404,28 @@ private struct PairProbeSample: Equatable {
         return value
     }
 }
+private struct PairProbeEvent {
+    let epoch: Int, definitionEpoch: Int, interval: Int
+    let slot: Int?
+    let phase: String
+    var first: Any = NSNull(), second: Any = NSNull()
+}
+private struct PairProbeArm: Equatable { let epoch: Int; let slot: Int }
 private struct NativeGesturePairProbe: View {
     let content: AnyView
     let first: [String: Any], second: [String: Any]
     let priority: String
     let epoch: Int
     let nextInterval: () -> Int
-    let record: (Int, Int, String, Any, Any) -> Void
+    let record: (PairProbeEvent) -> Void
     @Environment(\.isEnabled) private var enabled
     @GestureState private var groupActive = false
     @GestureState private var pointerActive = false
     @State private var capture: PairProbeStamp?
     @State private var pointerDown = false
     @State private var presented = false
+    @State private var arm = PairProbeArm(epoch: 0, slot: 0)
+    @State private var blockedUntilRelease = false
     private func leaf(_ definition: [String: Any]) -> AnyGesture<PairProbeSample> {
         let count = definition["count"] as? Int ?? 1
         if definition["kind"] as? String == "spatial" {
@@ -426,36 +435,58 @@ private struct NativeGesturePairProbe: View {
         }
         return AnyGesture(TapGesture(count: count).map { PairProbeSample(kind: "tap", location: nil) })
     }
-    private func report(_ phase: String, _ first: PairProbeSample? = nil, _ second: PairProbeSample? = nil) {
-        // map must stay a pure payload transform: SwiftUI may cache mapped values
-        // across recognitions. Epoch/interval ownership is read at delivery instead.
-        record(capture?.epoch ?? epoch, capture?.interval ?? 0, capture == nil ? "uncaptured" : phase,
-               first?.wire as Any? ?? NSNull(), second?.wire as Any? ?? NSNull())
+    private func report(_ phase: String, _ first: PairProbeSample? = nil, _ second: PairProbeSample? = nil, slot: Int? = nil) {
+        // Payload mapping stays pure: ownership is read at callback delivery.
+        let missing = capture == nil && ["changed", "ended"].contains(phase)
+        record(PairProbeEvent(epoch: capture?.epoch ?? epoch, definitionEpoch: epoch, interval: capture?.interval ?? 0,
+                              slot: slot, phase: missing ? "uncaptured" : phase,
+                              first: first?.wire as Any? ?? NSNull(), second: second?.wire as Any? ?? NSNull()))
+    }
+    private func rearm() {
+        capture = nil; pointerDown = pointerActive; blockedUntilRelease = pointerActive
+        guard enabled && presented else { arm = PairProbeArm(epoch: 0, slot: arm.slot); report("reset"); return }
+        // Toggle on each observed change, even when epochs jump by an even amount.
+        arm = PairProbeArm(epoch: epoch, slot: 1 - arm.slot)
+        record(PairProbeEvent(epoch: epoch, definitionEpoch: epoch, interval: 0, slot: arm.slot, phase: "armed"))
+    }
+    private func active(_ slot: Int, _ precedence: String) -> Bool {
+        enabled && presented && !blockedUntilRelease && arm.epoch == epoch && arm.slot == slot && priority == precedence
+    }
+    private func pair(_ slot: Int) -> some Gesture {
+        SimultaneousGesture(leaf(first), leaf(second))
+            .updating($groupActive) { _, active, _ in active = true }
+            .onChanged { if arm.epoch == epoch && arm.slot == slot { report("changed", $0.first, $0.second, slot: slot) } }
+            .onEnded { if enabled && presented && !blockedUntilRelease && arm.epoch == epoch && arm.slot == slot {
+                report("ended", $0.first, $0.second, slot: slot)
+            } }
     }
     var body: some View {
-        let pair = SimultaneousGesture(leaf(first), leaf(second))
-            .updating($groupActive) { _, active, _ in active = true }
-            .onChanged { report("changed", $0.first, $0.second) }
-            .onEnded { if enabled && presented { report("ended", $0.first, $0.second) } }
+        let zero = pair(0), one = pair(1)
         let pointer = DragGesture(minimumDistance: 0, coordinateSpace: .local)
             .updating($pointerActive) { _, active, _ in active = true }
             .onChanged { _ in
-                if !pointerDown {
+                if !pointerDown && !blockedUntilRelease && arm.epoch == epoch {
                     pointerDown = true
                     if !groupActive || capture == nil { capture = PairProbeStamp(epoch: epoch, interval: nextInterval()) }
                     report("began")
                 }
             }
+        // Removing an Optional gesture retires its recognition graph. Stable
+        // modifier positions keep the child control outside that identity change.
         return content
-            .gesture(pair, including: enabled && presented && priority == "normal" ? .all : .subviews)
-            .highPriorityGesture(pair, including: enabled && presented && priority == "high" ? .all : .subviews)
-            .simultaneousGesture(pair, including: enabled && presented && priority == "simultaneous" ? .all : .subviews)
+            .gesture(active(0, "normal") ? zero : nil, including: active(0, "normal") ? .all : .subviews)
+            .gesture(active(1, "normal") ? one : nil, including: active(1, "normal") ? .all : .subviews)
+            .highPriorityGesture(active(0, "high") ? zero : nil, including: active(0, "high") ? .all : .subviews)
+            .highPriorityGesture(active(1, "high") ? one : nil, including: active(1, "high") ? .all : .subviews)
+            .simultaneousGesture(active(0, "simultaneous") ? zero : nil, including: active(0, "simultaneous") ? .all : .subviews)
+            .simultaneousGesture(active(1, "simultaneous") ? one : nil, including: active(1, "simultaneous") ? .all : .subviews)
             .simultaneousGesture(pointer, including: enabled && presented ? .all : .subviews)
-            .onChange(of: pointerActive) { _, active in if !active { pointerDown = false; report("released") } }
+            .onChange(of: pointerActive) { _, active in if !active { pointerDown = false; blockedUntilRelease = false; report("released") } }
             .onChange(of: groupActive) { _, active in if !active { report("inactive") } }
-            .onChange(of: enabled) { _, active in if !active { report("reset"); capture = nil; pointerDown = false } }
-            .onAppear { presented = true }
-            .onDisappear { report("reset"); capture = nil; pointerDown = false; presented = false }
+            .onChange(of: epoch) { _, _ in rearm() }
+            .onChange(of: enabled) { _, _ in rearm() }
+            .onAppear { presented = true; rearm() }
+            .onDisappear { report("reset"); capture = nil; pointerDown = false; presented = false; arm = PairProbeArm(epoch: 0, slot: arm.slot) }
     }
 }
 
@@ -862,7 +893,7 @@ private struct NativeView: View {
                 let id = box.id
                 return AnyView(NativeGesturePairProbe(content: child(), first: box.props["first"] as? [String: Any] ?? [:], second: box.props["second"] as? [String: Any] ?? [:], priority: box.string("priority"), epoch: box.props["epoch"] as? Int ?? 0,
                     nextInterval: { [weak host] in host?.nextPairProbeInterval() ?? 0 },
-                    record: { [weak host] epoch, interval, phase, first, second in host?.recordPairProbe(id, epoch: epoch, interval: interval, phase: phase, first: first, second: second) }))
+                    record: { [weak host] event in host?.recordPairProbe(id, event: event) }))
             case "onLongPressGesture":
                 let id = box.id, token = box.props["press"] as? Int ?? 0
                 return AnyView(NativeLongPressGesture(content: child(), minimumDuration: Double(box.number("minimumDuration") ?? 0.5), maximumDistance: box.number("maximumDistance") ?? 10, priority: box.string("priority"), token: token,
@@ -1177,7 +1208,8 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var tapTestEvents: [Int64: Int] = [:]
     private var tapTestResults: [Int: Bool] = [:]
     private var tapTestTimers: [Int: [Timer]] = [:]
-    private var pairProbeInterval = 0, pairProbeRejected = 0, pairProbeRejectedEnds = 0
+    private var pairProbeInterval = 0, pairProbeRejected = 0, pairProbeRejectedEnds = 0, pairProbeCompletion = 0
+    private var pairProbeArms: [Int: PairProbeArm] = [:]
     private var pairProbeTraces: [Int: [[String: Any]]] = [:]
     let testing = ProcessInfo.processInfo.environment["JONUI_TEST"] == "1"
     var layoutTesting: Bool { testing && ProcessInfo.processInfo.environment["JONUI_TEST_LAYOUT"] == "1" }
@@ -1256,14 +1288,26 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
         emit(event)
     }
     func nextPairProbeInterval() -> Int { pairProbeInterval += 1; return pairProbeInterval }
-    func recordPairProbe(_ id: Int, epoch: Int, interval: Int, phase: String, first: Any, second: Any) {
+    func recordPairProbe(_ id: Int, event: PairProbeEvent) {
         guard testing && layoutTesting && offscreen, !stopping,
-              let box = liveNode(id), box.string("name") == "testGesturePair" else { return }
-        guard box.props["epoch"] as? Int == epoch else { pairProbeRejected += 1; if phase == "ended" { pairProbeRejectedEnds += 1 }; return }
+              let box = liveNode(id), box.kind == "modifier", box.string("name") == "testGesturePair" else { return }
+        let current = box.props["epoch"] as? Int
+        guard current == event.epoch, current == event.definitionEpoch,
+              event.slot == nil || [0, 1].contains(event.slot!) else { pairProbeRejected += 1; if event.phase == "ended" { pairProbeRejectedEnds += 1 }; return }
+        if event.phase == "armed", let slot = event.slot { pairProbeArms[id] = PairProbeArm(epoch: event.epoch, slot: slot) }
+        else if event.phase == "reset" { pairProbeArms.removeValue(forKey: id) }
+        else if ["changed", "ended"].contains(event.phase) {
+            guard let slot = event.slot, pairProbeArms[id] == PairProbeArm(epoch: event.epoch, slot: slot) else {
+                pairProbeRejected += 1; if event.phase == "ended" { pairProbeRejectedEnds += 1 }; return
+            }
+        }
         var traces = pairProbeTraces[id] ?? []
         if traces.count == 128 { traces.removeFirst() }
-        traces.append(["epoch": epoch, "interval": interval, "phase": phase, "first": first, "second": second])
-        pairProbeTraces[id] = traces
+        var trace: [String: Any] = ["epoch": event.epoch, "interval": event.interval, "phase": event.phase,
+                                    "slot": event.slot as Any? ?? NSNull(), "first": event.first, "second": event.second,
+                                    "time": ProcessInfo.processInfo.systemUptime]
+        if event.phase == "ended" { pairProbeCompletion += 1; trace["completion"] = pairProbeCompletion }
+        traces.append(trace); pairProbeTraces[id] = traces
     }
     // Reset owned transient state without synthesizing a pressing observer callback.
     func resetLongPress(_ id: Int, token: Int) {
@@ -1312,7 +1356,7 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
         for coordinator in hostedControls.values { coordinator.invalidate() }
         window?.contentView = nil
         root = nil; nodes.removeAll(); cells.removeAll(); webViews.removeAll(); hostedControls.removeAll(); layoutFrames.removeAll()
-        retiredWindowNodes.removeAll(); pairProbeTraces.removeAll()
+        retiredWindowNodes.removeAll(); pairProbeTraces.removeAll(); pairProbeArms.removeAll()
         shortcutTestEvents.removeAll(); shortcutTestResults.removeAll()
         // Balance held test mouse-downs before tearing down their tracking loops.
         for timers in Array(tapTestTimers.values) { timers.last?.fire(); for timer in timers { timer.invalidate() } }; tapTestTimers.removeAll()
@@ -1934,6 +1978,11 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
                           let methods = props["methods"] as? [String], Set(methods.map { Data($0.utf8) }).count == methods.count,
                           methods.allSatisfy({ !$0.isEmpty && !["then", "__proto__", "prototype", "constructor", "toJSON"].contains($0) }) else { throw BridgeError("Invalid WebView API descriptor") }
                 }
+                if kind == "modifier", modifier == "testGesturePair", let previous = nodes[id], previous.kind == "modifier", previous.string("name") == modifier,
+                   let oldEpoch = previous.props["epoch"] as? Int, let newEpoch = props["epoch"] as? Int {
+                    let changed = try jsonData([props["first"]!, props["second"]!, props["priority"]!]) != jsonData([previous.props["first"]!, previous.props["second"]!, previous.props["priority"]!])
+                    guard newEpoch >= oldEpoch, !changed || newEpoch > oldEpoch else { throw BridgeError("Test gesture pair changes require a newer epoch") }
+                }
                 if kind == "modifier" && modifier == "window", ![1, 2].contains(children.count) { throw BridgeError("Invalid child count for window") }
                 let count: Int? = kind == "modifier" && modifier == "window" ? nil
                     : kind == "split" || (kind == "modifier" && modifier == "sheet") ? 2
@@ -1983,7 +2032,8 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 coordinator.invalidate(); hostedControls.removeValue(forKey: id)
             }
             nodes = nodes.filter { reachable.contains($0.key) }
-            pairProbeTraces = pairProbeTraces.filter { reachable.contains($0.key) && nodes[$0.key]?.string("name") == "testGesturePair" }
+            pairProbeTraces = pairProbeTraces.filter { reachable.contains($0.key) && nodes[$0.key]?.kind == "modifier" && nodes[$0.key]?.string("name") == "testGesturePair" }
+            pairProbeArms = pairProbeArms.filter { reachable.contains($0.key) && nodes[$0.key]?.kind == "modifier" && nodes[$0.key]?.string("name") == "testGesturePair" && nodes[$0.key]?.props["epoch"] as? Int == $0.value.epoch }
             layoutSurfaces = layoutSurfaces.filter { reachable.contains($0.key) }
             retiredWindowNodes.formIntersection(reachable)
             namedFocusNodes = focusNames
@@ -2002,6 +2052,7 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
             let snapshot: [String: Any] = ["nodes": views, "states": states, "liveViews": ViewBox.live, "liveCells": Cell.live,
                 "webViewCount": webViews.count, "textInputCount": textCount, "hostedControlCount": hostedControls.count,
                 "ownedWindowCount": ownedWindows.count, "focusWindowCount": focusWindows.count,
+                "pairProbeArmOwners": pairProbeArms.count,
                 "pairProbeTraceCount": pairProbeTraces.values.reduce(0) { $0 + $1.count }, "pairProbeOwners": pairProbeTraces.count,
                 "layoutSurfaceCount": layoutSurfaces.count, "pointerTimerCount": tapTestTimers.values.reduce(0) { $0 + $1.filter { $0.isValid }.count },
                 "availabilityWatchCount": availabilityWatches.count, "availabilityNotificationCount": availabilityNotifications.count,
@@ -2133,9 +2184,10 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
         case "debug.pairTrace" where testing && layoutTesting && offscreen:
             guard Set(message.keys).isSubset(of: ["op", "id"]),
                   let value = message["id"].flatMap(layoutNumber), value > 0, value.rounded() == value, value < Double(Int.max),
-                  let box = liveNode(Int(value)), box.string("name") == "testGesturePair" else { throw BridgeError("Invalid test gesture pair target") }
+                  let box = liveNode(Int(value)), box.kind == "modifier", box.string("name") == "testGesturePair" else { throw BridgeError("Invalid test gesture pair target") }
             let records = pairProbeTraces.removeValue(forKey: Int(value)) ?? []
-            return ["records": records, "rejected": pairProbeRejected, "rejectedEnds": pairProbeRejectedEnds]
+            return ["records": records, "rejected": pairProbeRejected, "rejectedEnds": pairProbeRejectedEnds,
+                    "armed": pairProbeArms[Int(value)]?.epoch as Any? ?? NSNull(), "doubleClickInterval": NSEvent.doubleClickInterval]
         case "debug.tap" where testing && layoutTesting && offscreen:
             let target = try integer(message["id"])
             guard liveNode(target) != nil, let window = currentFocusWindow(),

@@ -42,7 +42,7 @@ function check(result, count) {
   const values = ended(result); const expected = count < first.value.count && count < second.value.count ? 0 : first.value.count === 1 && second.value.count === 1 ? count : 1;
   assert.equal(values.length, expected, JSON.stringify(result));
   for (const value of values) {
-    assert.equal(value.epoch, epoch.value); assert.ok(value.interval > 0);
+    assert.equal(value.epoch, epoch.value); assert.ok(value.interval > 0); assert.ok(value.completion > 0); assert.ok([0, 1].includes(value.slot));
     for (const [key, definition] of [['first', first.value], ['second', second.value]]) {
       if (count < definition.count) assert.equal(value[key], null, JSON.stringify(result));
       else { assert.equal(value[key].kind, definition.kind); if (definition.kind === 'spatial') { assert.ok(Number.isFinite(value[key].x)); assert.ok(Number.isFinite(value[key].y)); } else assert.deepEqual(value[key], { kind: 'tap' }); }
@@ -57,7 +57,7 @@ if (process.env.JONUI_CASE === 'close') {
   await until(() => read('Pair').records.some(record => record.phase === 'began'), 'shutdown start');
   assert.ok(snapshot().pointerTimerCount > 0); test.request('debug.close'); await app;
   assert.equal(disposals, setups); assert.equal(snapshot().pairProbeTraceCount, 0); assert.equal(snapshot().pairProbeOwners, 0);
-  assert.equal(snapshot().pointerTimerCount, 0); assert.equal(snapshot().liveCells, 0); assert.equal(snapshot().liveViews, 0);
+  assert.equal(snapshot().pointerTimerCount, 0); assert.equal(snapshot().liveCells, 0); assert.equal(snapshot().liveViews, 0); assert.equal(snapshot().pairProbeArmOwners, 0);
   console.log('PASS pair probe held shutdown clears native traces, timers, cells and views');
 } else {
 assert.equal(Focus.requestNamed('field'), true); const captured = Focus.capture(); assert.ok(captured);
@@ -80,6 +80,7 @@ for (const [a, ac, b, bc] of [['tap', 1, 'spatial', 1], ['tap', 1, 'tap', 2], ['
 // interval. That interval is deliberately not exposed as a recognition session.
 first.value = { kind: 'tap', count: 1 }; second.value = { kind: 'spatial', count: 1 }; priority.value = 'normal'; epoch.value++; test.flush(); await sleep(40);
 const double = ended(await click('Pair', 2)); assert.equal(double.length, 2); assert.equal(double[0].interval, double[1].interval);
+assert.ok(double[1].completion > double[0].completion, 'each native group end has an independent completion sequence');
 const target = node('Pair'), stable = snapshot().nodes;
 for (const id of [null, true, 0, -1, 1.5, '1', []]) assert.throws(() => test.request('debug.pairTrace', { id }), /Invalid test gesture pair target/);
 assert.throws(() => test.request('debug.pairTrace', { id: target.id, extra: true }), /Invalid test gesture pair target/);
@@ -87,19 +88,22 @@ assert.throws(() => test.request('debug.pairTrace', { id: target.id, extra: true
 for (const props of [{ ...target.props, epoch: true }, { ...target.props, epoch: 0 }, { ...target.props, priority: 'invalid' }, { ...target.props, first: { kind: 'long', count: 1 } }, { ...target.props, second: { kind: 'tap', count: true } }, { ...target.props, first: { kind: 'tap', count: 1, extra: true } }]) {
   assert.throws(() => test.request('commit', { nodes: [{ ...target, props }] }), /Invalid test gesture pair/); assert.deepEqual(snapshot().nodes, stable);
 }
-read('Pair'); let queued = test.request('debug.tap', { id: target.id, hold: 0.2, command: true }); let initial;
-await until(() => { const trace = read('Pair'); if (trace.records.some(r => r.phase === 'began')) { initial = trace.rejectedEnds; return true; } return false; }, 'held start');
+for (const props of [{ ...target.props, epoch: target.props.epoch - 1 }, { ...target.props, priority: 'high' }, { ...target.props, first: { kind: 'tap', count: 2 } }]) {
+  assert.throws(() => test.request('commit', { nodes: [{ ...target, props }] }), /require a newer epoch/); assert.deepEqual(snapshot().nodes, stable);
+}
+read('Pair'); let queued = test.request('debug.tap', { id: target.id, hold: 0.2, command: true });
+await until(() => read('Pair').records.some(r => r.phase === 'began'), 'held start');
 epoch.value++; test.flush(); await until(() => test.request('debug.tapResult', { id: queued.id }).done, 'held release'); await sleep(40);
-const retired = read('Pair'); assert.deepEqual(ended(retired), []); assert.ok(retired.rejectedEnds > initial, JSON.stringify(retired)); check(await click('Pair'), 1);
-// Characterize the unresolved re-arming gap: an epoch filter rejects the old
-// pending group but does not create a fresh recognizer for the very next click.
-// Replace the lost-click expectation with current-epoch completion when fixed.
+const retired = read('Pair'); assert.deepEqual(ended(retired), []); check(await click('Pair'), 1);
+// The first fresh click must belong to the newly armed recognizer, while the
+// previous double-tap branch would still be waiting. No timeout wait is inserted.
 first.value = { kind: 'tap', count: 1 }; second.value = { kind: 'tap', count: 2 }; epoch.value++; test.flush(); await sleep(40);
 const pending = await click('Pair', 1, 30); assert.deepEqual(ended(pending), []);
 assert.ok(pending.records.some(record => record.phase === 'changed' && record.second !== null), 'a changed value is not a completed branch');
-epoch.value++; test.flush(); const lost = await click('Pair', 1, 650);
-assert.deepEqual(ended(lost), []); assert.ok(lost.rejectedEnds > pending.rejectedEnds, JSON.stringify(lost));
-check(await click('Pair', 1, 650), 1);
+epoch.value++; test.flush(); const fresh = await click('Pair', 1, 650); check(fresh, 1);
+const began = fresh.records.find(record => record.phase === 'began'), released = pending.records.find(record => record.phase === 'released');
+assert.ok(began.time - released.time < Math.min(0.2, pending.doubleClickInterval / 2), 'fresh input arrives before the old recognition timeout');
+assert.equal(Focus.request(captured), true);
 second.value = { kind: 'spatial', count: 1 }; epoch.value++; test.flush(); await sleep(40);
 read('Pair'); queued = test.request('debug.tap', { id: node('Pair').id, hold: 0.2, command: true });
 await until(() => read('Pair').records.some(r => r.phase === 'began'), 'disable start'); disabled.value = true; test.flush();
@@ -110,11 +114,11 @@ for (let i = 0; i < 40; i++) { const q = test.request('debug.tap', { id: node('P
 assert.equal(snapshot().pairProbeTraceCount, 128); assert.equal(read('Pair').records.length, 128); assert.equal(snapshot().pairProbeOwners, 0);
 queued = test.request('debug.tap', { id: node('Pair').id, hold: 0.2, command: true }); await until(() => read('Pair').records.some(r => r.phase === 'began'), 'removal start');
 shown.value = false; test.flush(); await until(() => test.request('debug.tapResult', { id: queued.id }).done && snapshot().hostedControlCount === 0 && snapshot().liveViews === snapshot().nodes.length, 'held removal');
-assert.deepEqual(test.stats(), baseline); assert.equal(snapshot().pairProbeOwners, 0); assert.equal(snapshot().pairProbeTraceCount, 0); assert.equal(Focus.request(captured), false);
+assert.deepEqual(test.stats(), baseline); assert.equal(snapshot().pairProbeOwners, 0); assert.equal(snapshot().pairProbeTraceCount, 0); assert.equal(snapshot().pairProbeArmOwners, 0); assert.equal(Focus.request(captured), false);
 for (let i = 0; i < 20; i++) {
   shown.value = true; epoch.value++; test.flush(); await until(() => node('Pair'), 'fresh owner'); check(await click('Pair'), 1);
   shown.value = false; test.flush(); await until(() => snapshot().hostedControlCount === 0 && snapshot().liveViews === snapshot().nodes.length, 'retirement');
-  assert.equal(snapshot().pairProbeOwners, 0); assert.equal(snapshot().pairProbeTraceCount, 0); assert.equal(snapshot().layoutSurfaceCount, surfaces); assert.deepEqual(test.stats(), baseline);
+  assert.equal(snapshot().pairProbeOwners, 0); assert.equal(snapshot().pairProbeTraceCount, 0); assert.equal(snapshot().pairProbeArmOwners, 0); assert.equal(snapshot().layoutSurfaceCount, surfaces); assert.deepEqual(test.stats(), baseline);
 }
 assert.equal(setups, 21); assert.equal(disposals, setups); test.request('debug.close'); await app; assert.equal(snapshot().pairProbeTraceCount, 0); assert.equal(snapshot().liveViews, 0); assert.equal(snapshot().liveCells, 0);
 console.log('PASS native pair prototype: actual optional/void/spatial group ends, raw changed values, normal/high/simultaneous controls, held epoch rejection, stable field identity, disable/removal, bounded drain and 20 owner lifetimes; pointer intervals are not group sessions');

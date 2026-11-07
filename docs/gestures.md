@@ -413,18 +413,39 @@ The current adapter's actual offscreen Command-click results include:
   These outcomes describe this adapter and installed SDK; they are not a general
   cross-hardware conflict policy.
 
-A separate readiness test reproduces an unresolved re-arming gap. Start a one/two-
-tap group with one click, advance the epoch while it waits for the second click,
-then click again before the old group finishes. The old completion is rejected,
-but the first fresh click is consumed by that pending native group. A later click
-works after it becomes inactive. The fixture characterizes this limitation; it
-must change to require immediate current-epoch completion when the bug is fixed.
-An epoch filter is therefore insufficient for production group cancellation.
+The pending-group re-arming gap is fixed in the test adapter. An epoch change
+removes the old optional gesture and arms the other of two fixed gesture slots.
+The child content stays outside that change of recognizer identity. Slot selection
+toggles for each observed epoch change, so skipped/even-numbered epochs also retire
+the previous recognizer. The installed SDK exposes Optional's Gesture conformance
+on macOS 10.15+, within the macOS 14 target.
 
-Before public exposure, implement native cancellation/re-arming that preserves
-child control identity and supports a reliable recognition/completion sequence.
-Then add group-token dispatch, leaf callback/path semantics, immutable public
-optional values, transient branch-state reset, and sheet/lazy/owned-window tests.
-The current prototype verifies stable captured field identity, held epoch drops,
-disable/removal and held shutdown, malformed input rejection, bounded draining and
-20 owner lifetimes. Existing native gesture and lifecycle regressions are retained.
+Start capture is cleared on re-arming. If the pointer is already held, the new
+recognizer stays blocked until release; it cannot adopt the old press or its
+movement. Disable/re-enable and appearance use the same arming lifecycle. Native
+records validate both the callback definition's epoch and captured start epoch,
+plus the currently armed slot. Arm metadata clears on retirement/shutdown and
+superseded epochs. Descriptor/priority changes require a strictly newer epoch;
+backward epochs are rejected before graph mutation.
+
+Each accepted native group end now gets a monotonically increasing `completion`
+number from the host. Two ends sharing a pointer-observer interval still have
+distinct completion numbers. This is terminal completion identity, not a causal
+session for future per-leaf callbacks. Values remain raw private traces; no public
+group dispatch or compound callback API is added.
+
+The former lost-click test now requires the first fresh click to complete in the
+current epoch. A dedicated fixture repeats pending replacements twenty times
+across all priorities, even/odd epoch jumps and slot reuse. It changes the click
+position and checks the new spatial point, asserts that input arrives before the
+old timeout, and retains the captured native field target and focus through
+configuration changes. Rapid replacements while held/moving reject the old press
+and accept the fresh one after release. The full optional-value/control matrix,
+bounded trace draining, malformed/gated input, held shutdown and 20 owner lifetimes
+remain verified.
+
+Before public exposure, add owned group-token dispatch, leaf callback/path and
+causal-session semantics, immutable public optional results, transient branch-state
+reset, and sheet/lazy/owned-window composition tests. Long-press leaves and nested
+groups remain outside this tap/spatial prototype. Hardware/minimum-OS validation
+and the existing inactive-pointer limitations remain open.

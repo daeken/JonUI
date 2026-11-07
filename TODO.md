@@ -1651,8 +1651,9 @@ cannot serve as the group's unique recognition-session ID. **Concrete re-arming
 gap:** start a one/two-tap pair with one click, advance its epoch while it waits,
 then click before that old group finishes. The old completion is dropped, but the
 first fresh click is consumed by the pending native group; a later click works.
-The fixture characterizes this failure rather than claiming the public behavior
-is complete. Keep all compound/public composition coverage unchecked.
+The original fixture characterized this failure. The re-arming follow-up below
+resolves it and replaces that characterization with a positive test; public
+composition coverage remains unchecked.
 
 Validation: native build, 197 unit/compiler cases, 11 coverage workflow tests,
 both type checkers and API classification pass. Twenty-three focused offscreen native gates pass: three
@@ -1672,6 +1673,49 @@ group descriptors/token dispatch, leaf callbacks/paths, immutable optional resul
 values and transient branch-state ownership. Long-press leaves, nested groups,
 sheet/lazy/owned-window composition and hardware/unmodified inactive input remain
 outside this prototype's verified subset.
+
+
+Native pair re-arming follow-up (2026-11-07): the recorded lost-first-click gap is
+fixed in the internal adapter. Two stable gesture slots hold optional native
+SimultaneousGesture values. Reconfiguration removes the old recognizer and arms
+the other slot without replacing the child content. Toggling occurs per observed
+epoch change, including jumps by an even number; it does not rely on parity. SDK
+audit confirms Optional's Gesture conformance is macOS 10.15+ within the existing
+target. No delayed re-arm task, timer, global event monitor or public API is added.
+
+A held pointer blocks the new recognizer until release. Re-arming clears start
+capture; callback definition/start epochs and active slot are checked before a
+native group end is recorded. Source descriptor/priority changes require a newer
+epoch, and backward epochs are rejected atomically. Disable/re-enable/appearance
+follow the same arming lifecycle. Live arm metadata is bounded by live probe nodes
+and clears on supersession, graph retirement and shutdown. Each accepted native
+end now has a globally monotonic completion number, separate from the provisional
+pointer interval. This supplies unique terminal completion identity; causal
+sessions and leaf callback ownership remain unimplemented.
+
+The old gap characterization is replaced with a positive assertion: the first
+fresh click before the old timeout completes in the current epoch. A new fixture
+repeats twenty pending replacements across priorities, even/odd epoch jumps and
+slot reuse, comparing old/fresh spatial points and preserving the captured native
+field target, focus and Unicode text. Rapid double replacements while held and
+moving neither adopt nor complete the old press; a fresh press works after release.
+The complete native optional-value/control matrix still passes, as do malformed
+input, trace bounds/drain, held shutdown and 20 owner lifetimes.
+
+Validation: native build, 197 unit/compiler cases, 11 coverage workflow tests,
+both type checkers and API classification pass. Twenty-four focused offscreen
+native gates pass: the new re-arm fixture, three pair-probe gates, typed values/
+state, ordinary/spatial priority, spatial/tap/window/shape/layout/appearance/
+shortcut/contracts, both long-press main/window modes and all four lazy layouts.
+No full-suite pass or fix for the recorded mixed-sheet close SIGSEGV is claimed.
+The public gesture surface is unchanged; keep broad composition unchecked.
+
+Next: continue the group prototype with owned group-token dispatch and explicit
+leaf callback/path and causal-session semantics, using native completion identity
+rather than the input observer interval. Define/freeze optional public result
+values and branch-state ownership before exposing a composition method. Add
+sheet/lazy/owned-window, nested-group and long-press composition coverage before
+claiming those cases; hardware and minimum-OS checks remain open.
 
 ## 3. Application and operating-system integration
 
