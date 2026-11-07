@@ -1623,6 +1623,56 @@ High-priority nested long presses, hardware/unmodified inactive delivery and the
 recorded mixed-sheet AppKit close crash remain unresolved; no full-suite pass is
 claimed.
 
+
+Native simultaneous-pair prototype (2026-11-07), continuing composition ownership:
+added a private offscreen/layout-test-only native modifier and bounded drainable
+trace collector. One real SwiftUI SimultaneousGesture combines type-erased tap/
+spatial leaves (count 1/2); a zero-distance simultaneous drag observes input-start
+intervals. No public composition method, application callback/event dispatch,
+Node callback registry, native binding cell, extra timer or global monitor is
+introduced. SDK audit confirms optional first/second values and macOS 10.15
+availability within the existing deployment target. Void taps have explicit
+presence tags, spatial values have local points, and absent branches are null.
+
+Native traces established mixed-count partial ends, equal-count double-click
+ends and actual normal/high/simultaneous Button outcomes. Normal is not a promise
+that controls always win: two two-tap leaves can win a matching double click;
+high allows the Button when both two-tap leaves fail; simultaneous allows both.
+Changed-phase branch values are not completion signals. Pure value mapping is
+required: an initial stamp-in-map prototype reused cached ownership stamps.
+The retained implementation reads the start capture at callback delivery and
+rejects stale epochs/live-node retirements. Traces are bounded to 128 per live
+owner, drain on request, and clear on graph retirement/shutdown. Guards reject
+missing layout mode, malformed descriptors/queries and invalid targets.
+
+The prototype remains in progress for production ownership. Equal one-tap leaves
+can emit two native group ends within one pointer-observer interval; that interval
+cannot serve as the group's unique recognition-session ID. **Concrete re-arming
+gap:** start a one/two-tap pair with one click, advance its epoch while it waits,
+then click before that old group finishes. The old completion is dropped, but the
+first fresh click is consumed by the pending native group; a later click works.
+The fixture characterizes this failure rather than claiming the public behavior
+is complete. Keep all compound/public composition coverage unchecked.
+
+Validation: native build, 197 unit/compiler cases, 11 coverage workflow tests,
+both type checkers and API classification pass. Twenty-three focused offscreen native gates pass: three
+new probe gates (missing-layout rejection, held shutdown and full matrix), typed
+values/state, ordinary/spatial priority, spatial/tap/window/shape/layout/appearance/
+shortcut/contracts, both long-press main/owned-window modes and four lazy layouts.
+The matrix verifies optional/void/spatial end values, control precedence, stale
+held epoch rejection, stable captured field identity, disable/held removal,
+bounded drain and 20 owner lifetimes.
+No full-suite pass or fix for the recorded mixed-sheet close SIGSEGV is claimed.
+
+Next: continue this recorded prototype by canceling and re-arming native compound
+recognition on epoch changes without replacing child controls. Replace the lost-
+click characterization with successful immediate current-epoch completion and
+introduce a reliable native recognition/completion sequence. Only then add public
+group descriptors/token dispatch, leaf callbacks/paths, immutable optional result
+values and transient branch-state ownership. Long-press leaves, nested groups,
+sheet/lazy/owned-window composition and hardware/unmodified inactive input remain
+outside this prototype's verified subset.
+
 ## 3. Application and operating-system integration
 
 Button Command shortcuts completed (2026-11-07), continuing keyboard navigation:

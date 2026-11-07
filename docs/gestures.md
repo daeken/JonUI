@@ -368,3 +368,63 @@ Before compound values are exposed, the implementation must establish:
 Native masks, general updating, generic transient values, high-rate coalescing,
 reset transactions and hardware checks remain open. The existing high-priority
 nested long-press blocker is unchanged.
+
+## Internal simultaneous-pair probe
+
+The native test harness now has a private `testGesturePair` modifier and drainable
+`debug.pairTrace` collector. They require all three flags: `JONUI_TEST=1`,
+`JONUI_TEST_OFFSCREEN=1` and `JONUI_TEST_LAYOUT=1`. This is an internal experiment;
+there is no public `Gesture.simultaneously` method or compound application callback.
+The installed SDK declares SimultaneousGesture with optional first/second values
+and macOS 10.15 availability, within JonUI's macOS 14 target.
+
+The probe attaches one real `SimultaneousGesture` of type-erased tap/spatial leaves
+(count 1 or 2), plus a simultaneous zero-distance drag observer to capture an
+input interval and epoch. It traces native changed/end/reset phases. A present
+void tap is encoded as `{ kind: 'tap' }`, a spatial value as
+`{ kind: 'spatial', x, y }`, and an absent branch as `null`. Those tags preserve the
+difference between absent and void-valued branches. These are raw private traces,
+not the final public result schema. Changed-phase presence does not establish
+branch completion: a two-tap branch can have a changed value and then be absent
+in the group's single-click end value.
+
+Mapping stays a pure payload transformation. The first experimental version
+placed ownership stamps in mapped values; native probes showed cached stamps
+surviving repeated recognitions/configuration changes. Ownership is now read at
+callback delivery from the pointer-start capture. Old epochs are rejected by the
+live-node collector, including a demonstrated completion after an epoch changes
+while the mouse is held. The collector retains at most 128 records per live probe
+node, drains explicitly, and clears owners on graph retirement and shutdown.
+There is no application-event dispatch, Node callback registry, native binding
+cell, extra timer or global event monitor for this experiment.
+
+The current adapter's actual offscreen Command-click results include:
+
+- Equal one-tap leaves produce two group ends for a queued double click. Both
+  ends can share one pointer-observer interval, so that interval is not a unique
+  native recognition-session ID.
+- Mixed one/two-tap leaves end with one absent branch after a single click and
+  both present after a double click. Both two-tap leaves produce no single-click
+  group end and one double-click group end.
+- Normal groups with a one-tap branch let a Button act. A group of two two-tap
+  leaves can win a matching double click at normal priority. High groups suppress
+  the Button when they recognize, but allow a single-click Button action when
+  both two-tap branches fail. Simultaneous priority permits Button actions too.
+  These outcomes describe this adapter and installed SDK; they are not a general
+  cross-hardware conflict policy.
+
+A separate readiness test reproduces an unresolved re-arming gap. Start a one/two-
+tap group with one click, advance the epoch while it waits for the second click,
+then click again before the old group finishes. The old completion is rejected,
+but the first fresh click is consumed by that pending native group. A later click
+works after it becomes inactive. The fixture characterizes this limitation; it
+must change to require immediate current-epoch completion when the bug is fixed.
+An epoch filter is therefore insufficient for production group cancellation.
+
+Before public exposure, implement native cancellation/re-arming that preserves
+child control identity and supports a reliable recognition/completion sequence.
+Then add group-token dispatch, leaf callback/path semantics, immutable public
+optional values, transient branch-state reset, and sheet/lazy/owned-window tests.
+The current prototype verifies stable captured field identity, held epoch drops,
+disable/removal and held shutdown, malformed input rejection, bounded draining and
+20 owner lifetimes. Existing native gesture and lifecycle regressions are retained.

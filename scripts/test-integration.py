@@ -196,6 +196,9 @@ for mode in ['vertical-stack', 'horizontal-stack', 'vertical-grid', 'horizontal-
     run('tests/integration/tap-lazy.mjs', case='spatial-' + mode, timeout=90, layout=True)
 for mode, message in [('spatial-throw', 'intentional tap failure'), ('spatial-high-throw', 'intentional tap failure'), ('spatial-simultaneous-promise', 'must be synchronous')]:
     run('tests/integration/taps-error.mjs', case=mode, failure=message, layout=True)
+run('tests/integration/gesture-pair-probe.mjs', case='no-layout')
+run('tests/integration/gesture-pair-probe.mjs', case='close', layout=True)
+run('tests/integration/gesture-pair-probe.mjs', timeout=120, layout=True)
 run('tests/integration/gesture-values.mjs', timeout=90, layout=True)
 run('tests/integration/gesture-state.mjs', timeout=90, layout=True)
 run('tests/integration/long-press-priority.mjs', timeout=120, layout=True)

@@ -100,6 +100,17 @@ private func validateLayout(_ kind: String, _ props: [String: Any]) throws {
         }
     case "modifier":
         switch props["name"] as? String {
+        case "testGesturePair":
+            try keys(["name", "first", "second", "priority", "epoch"])
+            let environment = ProcessInfo.processInfo.environment
+            guard environment["JONUI_TEST"] == "1", environment["JONUI_TEST_OFFSCREEN"] == "1", environment["JONUI_TEST_LAYOUT"] == "1",
+                  let epoch = props["epoch"].flatMap(layoutNumber), epoch > 0, epoch.rounded() == epoch, epoch < Double(Int.max),
+                  let priority = props["priority"] as? String, ["normal", "high", "simultaneous"].contains(priority) else { throw BridgeError("Invalid test gesture pair") }
+            for key in ["first", "second"] {
+                guard let leaf = props[key] as? [String: Any], Set(leaf.keys) == Set(["kind", "count"]),
+                      let kind = leaf["kind"] as? String, ["tap", "spatial"].contains(kind),
+                      let count = leaf["count"].flatMap(layoutNumber), [1.0, 2.0].contains(count) else { throw BridgeError("Invalid test gesture pair leaf") }
+            }
         case "onLongPressGesture":
             try keys(["name", "minimumDuration", "maximumDistance", "priority", "observesPressing", "tracksPressing", "press"])
             guard let priority = props["priority"] as? String, ["normal", "simultaneous"].contains(priority),
@@ -378,6 +389,73 @@ private struct NativeLongPressGesture: View {
         // A native countdown from that old presentation must not perform later.
         .onChange(of: enabled) { _, value in if !value { reset(token) } }
         .onDisappear { recognitionToken = nil; pressingActive = false; pendingZeroRecognition = nil; reset(token) }
+    }
+}
+
+// Test-only native composition probe. It records real SimultaneousGesture values;
+// it neither dispatches application callbacks nor joins separate Node events.
+private struct PairProbeStamp: Equatable { let epoch: Int; let interval: Int }
+private struct PairProbeSample: Equatable {
+    let kind: String
+    let location: CGPoint?
+    var wire: [String: Any] {
+        var value: [String: Any] = ["kind": kind]
+        if let location { value["x"] = location.x; value["y"] = location.y }
+        return value
+    }
+}
+private struct NativeGesturePairProbe: View {
+    let content: AnyView
+    let first: [String: Any], second: [String: Any]
+    let priority: String
+    let epoch: Int
+    let nextInterval: () -> Int
+    let record: (Int, Int, String, Any, Any) -> Void
+    @Environment(\.isEnabled) private var enabled
+    @GestureState private var groupActive = false
+    @GestureState private var pointerActive = false
+    @State private var capture: PairProbeStamp?
+    @State private var pointerDown = false
+    @State private var presented = false
+    private func leaf(_ definition: [String: Any]) -> AnyGesture<PairProbeSample> {
+        let count = definition["count"] as? Int ?? 1
+        if definition["kind"] as? String == "spatial" {
+            return AnyGesture(SpatialTapGesture(count: count, coordinateSpace: .local).map {
+                PairProbeSample(kind: "spatial", location: $0.location)
+            })
+        }
+        return AnyGesture(TapGesture(count: count).map { PairProbeSample(kind: "tap", location: nil) })
+    }
+    private func report(_ phase: String, _ first: PairProbeSample? = nil, _ second: PairProbeSample? = nil) {
+        // map must stay a pure payload transform: SwiftUI may cache mapped values
+        // across recognitions. Epoch/interval ownership is read at delivery instead.
+        record(capture?.epoch ?? epoch, capture?.interval ?? 0, capture == nil ? "uncaptured" : phase,
+               first?.wire as Any? ?? NSNull(), second?.wire as Any? ?? NSNull())
+    }
+    var body: some View {
+        let pair = SimultaneousGesture(leaf(first), leaf(second))
+            .updating($groupActive) { _, active, _ in active = true }
+            .onChanged { report("changed", $0.first, $0.second) }
+            .onEnded { if enabled && presented { report("ended", $0.first, $0.second) } }
+        let pointer = DragGesture(minimumDistance: 0, coordinateSpace: .local)
+            .updating($pointerActive) { _, active, _ in active = true }
+            .onChanged { _ in
+                if !pointerDown {
+                    pointerDown = true
+                    if !groupActive || capture == nil { capture = PairProbeStamp(epoch: epoch, interval: nextInterval()) }
+                    report("began")
+                }
+            }
+        return content
+            .gesture(pair, including: enabled && presented && priority == "normal" ? .all : .subviews)
+            .highPriorityGesture(pair, including: enabled && presented && priority == "high" ? .all : .subviews)
+            .simultaneousGesture(pair, including: enabled && presented && priority == "simultaneous" ? .all : .subviews)
+            .simultaneousGesture(pointer, including: enabled && presented ? .all : .subviews)
+            .onChange(of: pointerActive) { _, active in if !active { pointerDown = false; report("released") } }
+            .onChange(of: groupActive) { _, active in if !active { report("inactive") } }
+            .onChange(of: enabled) { _, active in if !active { report("reset"); capture = nil; pointerDown = false } }
+            .onAppear { presented = true }
+            .onDisappear { report("reset"); capture = nil; pointerDown = false; presented = false }
     }
 }
 
@@ -780,6 +858,11 @@ private struct NativeView: View {
             case "sheet":
                 let surfaceID = box.children.count > 1 ? box.children[1].id : 0
                 return AnyView(child().sheet(isPresented: boolBinding()) { host.testLayoutRoot(child(1), id: surfaceID) })
+            case "testGesturePair":
+                let id = box.id
+                return AnyView(NativeGesturePairProbe(content: child(), first: box.props["first"] as? [String: Any] ?? [:], second: box.props["second"] as? [String: Any] ?? [:], priority: box.string("priority"), epoch: box.props["epoch"] as? Int ?? 0,
+                    nextInterval: { [weak host] in host?.nextPairProbeInterval() ?? 0 },
+                    record: { [weak host] epoch, interval, phase, first, second in host?.recordPairProbe(id, epoch: epoch, interval: interval, phase: phase, first: first, second: second) }))
             case "onLongPressGesture":
                 let id = box.id, token = box.props["press"] as? Int ?? 0
                 return AnyView(NativeLongPressGesture(content: child(), minimumDuration: Double(box.number("minimumDuration") ?? 0.5), maximumDistance: box.number("maximumDistance") ?? 10, priority: box.string("priority"), token: token,
@@ -1094,6 +1177,8 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var tapTestEvents: [Int64: Int] = [:]
     private var tapTestResults: [Int: Bool] = [:]
     private var tapTestTimers: [Int: [Timer]] = [:]
+    private var pairProbeInterval = 0, pairProbeRejected = 0, pairProbeRejectedEnds = 0
+    private var pairProbeTraces: [Int: [[String: Any]]] = [:]
     let testing = ProcessInfo.processInfo.environment["JONUI_TEST"] == "1"
     var layoutTesting: Bool { testing && ProcessInfo.processInfo.environment["JONUI_TEST_LAYOUT"] == "1" }
     var layoutFrames: [Int: CGRect] = [:]
@@ -1170,6 +1255,16 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
         emit(event)
     }
+    func nextPairProbeInterval() -> Int { pairProbeInterval += 1; return pairProbeInterval }
+    func recordPairProbe(_ id: Int, epoch: Int, interval: Int, phase: String, first: Any, second: Any) {
+        guard testing && layoutTesting && offscreen, !stopping,
+              let box = liveNode(id), box.string("name") == "testGesturePair" else { return }
+        guard box.props["epoch"] as? Int == epoch else { pairProbeRejected += 1; if phase == "ended" { pairProbeRejectedEnds += 1 }; return }
+        var traces = pairProbeTraces[id] ?? []
+        if traces.count == 128 { traces.removeFirst() }
+        traces.append(["epoch": epoch, "interval": interval, "phase": phase, "first": first, "second": second])
+        pairProbeTraces[id] = traces
+    }
     // Reset owned transient state without synthesizing a pressing observer callback.
     func resetLongPress(_ id: Int, token: Int) {
         guard !stopping, let box = liveNode(id), box.kind == "modifier", box.string("name") == "onLongPressGesture",
@@ -1217,7 +1312,7 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
         for coordinator in hostedControls.values { coordinator.invalidate() }
         window?.contentView = nil
         root = nil; nodes.removeAll(); cells.removeAll(); webViews.removeAll(); hostedControls.removeAll(); layoutFrames.removeAll()
-        retiredWindowNodes.removeAll()
+        retiredWindowNodes.removeAll(); pairProbeTraces.removeAll()
         shortcutTestEvents.removeAll(); shortcutTestResults.removeAll()
         // Balance held test mouse-downs before tearing down their tracking loops.
         for timers in Array(tapTestTimers.values) { timers.last?.fire(); for timer in timers { timer.invalidate() } }; tapTestTimers.removeAll()
@@ -1823,7 +1918,8 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 let kind = value?["kind"] as? String ?? nodes[id]!.kind
                 let children = value?["children"] as? [Int] ?? nodes[id]!.children.map(\.id)
                 let modifier = props["name"] as? String ?? ""
-                let modifiers: Set<String> = ["font", "foregroundStyle", "padding", "frame", "fixedSize", "layoutPriority", "navigationTitle", "accessibilityIdentifier", "contentShape", "disabled", "focusSection", "onAppear", "onDisappear", "onTapGesture", "onSpatialTapGesture", "onLongPressGesture", "tag", "sheet", "window"]
+                var modifiers: Set<String> = ["font", "foregroundStyle", "padding", "frame", "fixedSize", "layoutPriority", "navigationTitle", "accessibilityIdentifier", "contentShape", "disabled", "focusSection", "onAppear", "onDisappear", "onTapGesture", "onSpatialTapGesture", "onLongPressGesture", "tag", "sheet", "window"]
+                if testing && layoutTesting && offscreen { modifiers.insert("testGesturePair") }
                 if kind == "modifier" && !modifiers.contains(modifier) { throw BridgeError("Unknown view modifier") }
                 try validateLayout(kind, props)
                 try validateInput(kind, props)
@@ -1887,6 +1983,7 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 coordinator.invalidate(); hostedControls.removeValue(forKey: id)
             }
             nodes = nodes.filter { reachable.contains($0.key) }
+            pairProbeTraces = pairProbeTraces.filter { reachable.contains($0.key) && nodes[$0.key]?.string("name") == "testGesturePair" }
             layoutSurfaces = layoutSurfaces.filter { reachable.contains($0.key) }
             retiredWindowNodes.formIntersection(reachable)
             namedFocusNodes = focusNames
@@ -1905,6 +2002,7 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
             let snapshot: [String: Any] = ["nodes": views, "states": states, "liveViews": ViewBox.live, "liveCells": Cell.live,
                 "webViewCount": webViews.count, "textInputCount": textCount, "hostedControlCount": hostedControls.count,
                 "ownedWindowCount": ownedWindows.count, "focusWindowCount": focusWindows.count,
+                "pairProbeTraceCount": pairProbeTraces.values.reduce(0) { $0 + $1.count }, "pairProbeOwners": pairProbeTraces.count,
                 "layoutSurfaceCount": layoutSurfaces.count, "pointerTimerCount": tapTestTimers.values.reduce(0) { $0 + $1.filter { $0.isValid }.count },
                 "availabilityWatchCount": availabilityWatches.count, "availabilityNotificationCount": availabilityNotifications.count,
                 "applicationEventRouting": NSApp is JonUIApplication, "mainThread": Thread.isMainThread,
@@ -2032,6 +2130,12 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
                  "current": surface.view?.window != nil && surface.view?.window === currentFocusWindow(),
                  "frames": surface.frames.filter { liveNode($0.key) != nil }.map { ["id": $0.key, "rect": rectangle($0.value)] as [String: Any] }] as [String: Any]
             }]
+        case "debug.pairTrace" where testing && layoutTesting && offscreen:
+            guard Set(message.keys).isSubset(of: ["op", "id"]),
+                  let value = message["id"].flatMap(layoutNumber), value > 0, value.rounded() == value, value < Double(Int.max),
+                  let box = liveNode(Int(value)), box.string("name") == "testGesturePair" else { throw BridgeError("Invalid test gesture pair target") }
+            let records = pairProbeTraces.removeValue(forKey: Int(value)) ?? []
+            return ["records": records, "rejected": pairProbeRejected, "rejectedEnds": pairProbeRejectedEnds]
         case "debug.tap" where testing && layoutTesting && offscreen:
             let target = try integer(message["id"])
             guard liveNode(target) != nil, let window = currentFocusWindow(),
