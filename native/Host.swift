@@ -100,6 +100,12 @@ private func validateLayout(_ kind: String, _ props: [String: Any]) throws {
         }
     case "modifier":
         switch props["name"] as? String {
+        case "onLongPressGesture":
+            try keys(["name", "minimumDuration", "maximumDistance", "observesPressing", "press"])
+            guard let duration = props["minimumDuration"].flatMap(layoutNumber), duration >= 0,
+                  let distance = props["maximumDistance"].flatMap(layoutNumber), distance >= 0,
+                  let token = props["press"].flatMap(layoutNumber), token > 0, token.rounded() == token, token < Double(Int.max),
+                  let observes = props["observesPressing"] as? NSNumber, CFGetTypeID(observes) == CFBooleanGetTypeID() else { throw BridgeError("Invalid long press gesture") }
         case "onTapGesture", "onSpatialTapGesture":
             try keys(["name", "count", "priority", "tap"])
             guard let priority = props["priority"] as? String, ["normal", "high", "simultaneous"].contains(priority),
@@ -329,6 +335,23 @@ private struct NativeSpatialTapGesture: View {
             .gesture(tap, including: enabled && priority == "normal" ? .all : .subviews)
             .highPriorityGesture(tap, including: enabled && priority == "high" ? .all : .subviews)
             .simultaneousGesture(tap, including: enabled && priority == "simultaneous" ? .all : .subviews)
+    }
+}
+
+private struct NativeLongPressGesture: View {
+    let content: AnyView
+    let minimumDuration: Double
+    let maximumDistance: CGFloat
+    let token: Int
+    let pressingChanged: (Int, Bool) -> Void
+    let performed: (Int) -> Void
+    @Environment(\.isEnabled) private var enabled
+    @State private var recognitionToken: Int?
+    var body: some View {
+        content.onLongPressGesture(minimumDuration: minimumDuration, maximumDistance: maximumDistance, pressing: { pressing in
+            if pressing { recognitionToken = token }
+            if enabled || !pressing { pressingChanged(recognitionToken ?? token, pressing) }
+        }, perform: { if enabled, let started = recognitionToken { performed(started) } })
     }
 }
 
@@ -731,6 +754,11 @@ private struct NativeView: View {
             case "sheet":
                 let surfaceID = box.children.count > 1 ? box.children[1].id : 0
                 return AnyView(child().sheet(isPresented: boolBinding()) { host.testLayoutRoot(child(1), id: surfaceID) })
+            case "onLongPressGesture":
+                let id = box.id, token = box.props["press"] as? Int ?? 0
+                return AnyView(NativeLongPressGesture(content: child(), minimumDuration: Double(box.number("minimumDuration") ?? 0.5), maximumDistance: box.number("maximumDistance") ?? 10, token: token,
+                    pressingChanged: { [weak host] started, pressing in host?.longPress(id, token: started, pressing: pressing) },
+                    performed: { [weak host] started in host?.longPress(id, token: started) }))
             case "onSpatialTapGesture":
                 let id = box.id, count = box.props["count"] as? Int ?? 1, token = box.props["tap"] as? Int ?? 0
                 return AnyView(NativeSpatialTapGesture(content: child(), count: count, priority: box.string("priority"), tapped: { [weak host] point in host?.tap(id, token: token, count: count, location: point) }))
@@ -1038,6 +1066,7 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var nextTapTest = 1
     private var tapTestEvents: [Int64: Int] = [:]
     private var tapTestResults: [Int: Bool] = [:]
+    private var tapTestTimers: [Int: [Timer]] = [:]
     let testing = ProcessInfo.processInfo.environment["JONUI_TEST"] == "1"
     var layoutTesting: Bool { testing && ProcessInfo.processInfo.environment["JONUI_TEST_LAYOUT"] == "1" }
     var layoutFrames: [Int: CGRect] = [:]
@@ -1105,6 +1134,15 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
         emit(event)
     }
+    func longPress(_ id: Int, token: Int, pressing: Bool? = nil) {
+        guard !stopping, let box = liveNode(id), box.kind == "modifier", box.string("name") == "onLongPressGesture", box.props["press"] as? Int == token else { return }
+        var event: [String: Any] = ["type": "longPress", "id": id, "token": token, "phase": pressing == nil ? "performed" : "pressing"]
+        if let pressing {
+            guard box.props["observesPressing"] as? Bool == true else { return }
+            event["pressing"] = pressing
+        }
+        emit(event)
+    }
     func textSubmit(_ id: Int, token: Int) {
         guard !stopping, let box = liveNode(id), ["textfield", "securefield"].contains(box.kind),
               box.props["submit"] as? Int == token, let state = box.props["state"] as? Int, let cell = cells[state] else { return }
@@ -1148,6 +1186,8 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
         root = nil; nodes.removeAll(); cells.removeAll(); webViews.removeAll(); hostedControls.removeAll(); layoutFrames.removeAll()
         retiredWindowNodes.removeAll()
         shortcutTestEvents.removeAll(); shortcutTestResults.removeAll()
+        // Balance held test mouse-downs before tearing down their tracking loops.
+        for timers in Array(tapTestTimers.values) { timers.last?.fire(); for timer in timers { timer.invalidate() } }; tapTestTimers.removeAll()
         tapTestEvents.removeAll(); tapTestResults.removeAll(); layoutSurfaces.removeAll()
     }
     func stopped(_ status: Int32) {
@@ -1750,7 +1790,7 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 let kind = value?["kind"] as? String ?? nodes[id]!.kind
                 let children = value?["children"] as? [Int] ?? nodes[id]!.children.map(\.id)
                 let modifier = props["name"] as? String ?? ""
-                let modifiers: Set<String> = ["font", "foregroundStyle", "padding", "frame", "fixedSize", "layoutPriority", "navigationTitle", "accessibilityIdentifier", "contentShape", "disabled", "focusSection", "onAppear", "onDisappear", "onTapGesture", "onSpatialTapGesture", "tag", "sheet", "window"]
+                let modifiers: Set<String> = ["font", "foregroundStyle", "padding", "frame", "fixedSize", "layoutPriority", "navigationTitle", "accessibilityIdentifier", "contentShape", "disabled", "focusSection", "onAppear", "onDisappear", "onTapGesture", "onSpatialTapGesture", "onLongPressGesture", "tag", "sheet", "window"]
                 if kind == "modifier" && !modifiers.contains(modifier) { throw BridgeError("Unknown view modifier") }
                 try validateLayout(kind, props)
                 try validateInput(kind, props)
@@ -1832,7 +1872,7 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
             let snapshot: [String: Any] = ["nodes": views, "states": states, "liveViews": ViewBox.live, "liveCells": Cell.live,
                 "webViewCount": webViews.count, "textInputCount": textCount, "hostedControlCount": hostedControls.count,
                 "ownedWindowCount": ownedWindows.count, "focusWindowCount": focusWindows.count,
-                "layoutSurfaceCount": layoutSurfaces.count,
+                "layoutSurfaceCount": layoutSurfaces.count, "pointerTimerCount": tapTestTimers.values.reduce(0) { $0 + $1.filter { $0.isValid }.count },
                 "availabilityWatchCount": availabilityWatches.count, "availabilityNotificationCount": availabilityNotifications.count,
                 "applicationEventRouting": NSApp is JonUIApplication, "mainThread": Thread.isMainThread,
                 "windowVisible": window?.isVisible ?? false, "sheetPresented": window?.attachedSheet != nil]
@@ -1991,9 +2031,50 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
             // Command-click is an actual background-window interaction. Use it
             // explicitly for inactive scroll descendants that reject first mouse.
             let flags: NSEvent.ModifierFlags = message["command"] as? Bool == true ? .command : []
+            var hold: Double?
+            if let raw = message["hold"] {
+                guard let duration = layoutNumber(raw), duration >= 0, duration <= 5, count == 1 else { throw BridgeError("Invalid test hold duration") }
+                hold = duration
+            }
+            var movement: (point: NSPoint, after: Double)?
+            if let raw = message["move"] {
+                guard let hold, let move = raw as? [String: Any], Set(move.keys) == Set(["x", "y", "after"]),
+                      let x = move["x"].flatMap(layoutNumber), let y = move["y"].flatMap(layoutNumber),
+                      let after = move["after"].flatMap(layoutNumber), after >= 0, after < hold else { throw BridgeError("Invalid test hold movement") }
+                movement = (NSPoint(x: point.x + x, y: point.y - y), after)
+            }
             let id = nextTapTest; nextTapTest += 1
             let base = ProcessInfo.processInfo.systemUptime
             tapTestResults[id] = false
+            if let hold {
+                guard let down = NSEvent.mouseEvent(with: .leftMouseDown, location: point, modifierFlags: flags, timestamp: base, windowNumber: window.windowNumber,
+                    context: nil, eventNumber: id, clickCount: 1, pressure: 1) else { throw BridgeError("Cannot create held press") }
+                tapTestEvents[Int64((down.timestamp * 1_000_000).rounded())] = id
+                let timer = Timer(timeInterval: max(hold, 0.001), repeats: false) { [weak self, weak window] _ in
+                    guard let self else { return }; self.tapTestTimers.removeValue(forKey: id)
+                    guard let window else { self.tapTestResults[id] = true; return }
+                    let now = ProcessInfo.processInfo.systemUptime
+                    if let up = NSEvent.mouseEvent(with: .leftMouseUp, location: point, modifierFlags: flags, timestamp: now, windowNumber: window.windowNumber,
+                        context: nil, eventNumber: id, clickCount: 1, pressure: 0) {
+                        self.tapTestEvents[Int64((up.timestamp * 1_000_000).rounded())] = id; NSApp.postEvent(up, atStart: false)
+                    }
+                    if let marker = NSEvent.otherEvent(with: .applicationDefined, location: .zero, modifierFlags: [], timestamp: now + 0.1, windowNumber: window.windowNumber, context: nil, subtype: 0, data1: 0, data2: 0) {
+                        self.tapTestEvents[Int64((marker.timestamp * 1_000_000).rounded())] = id; NSApp.postEvent(marker, atStart: false)
+                    }
+                }
+                var timers: [Timer] = []
+                if let movement {
+                    let moved = Timer(timeInterval: max(movement.after, 0.001), repeats: false) { [weak self, weak window] _ in
+                        guard let self, !self.stopping, let window, let event = NSEvent.mouseEvent(with: .leftMouseDragged, location: movement.point, modifierFlags: flags,
+                            timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil, eventNumber: id, clickCount: 1, pressure: 1) else { return }
+                        self.tapTestEvents[Int64((event.timestamp * 1_000_000).rounded())] = id; NSApp.postEvent(event, atStart: false)
+                    }
+                    timers.append(moved)
+                }
+                timers.append(timer); tapTestTimers[id] = timers
+                for timer in timers { RunLoop.main.add(timer, forMode: .common) }; NSApp.postEvent(down, atStart: false)
+                return ["id": id, "x": point.x, "y": point.y, "modifiers": flags.rawValue]
+            }
             for click in 1...count {
                 for (index, type) in [NSEvent.EventType.leftMouseDown, .leftMouseUp].enumerated() {
                     let time = base + Double(click * 2 + index) / 1000

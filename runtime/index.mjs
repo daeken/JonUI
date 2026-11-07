@@ -9,7 +9,7 @@ function request(op, args = {}) {
   if (result.error) throw new Error(result.error);
   return result;
 }
-let nextState = 1, nextView = 1, nextSubmit = 1, nextEditing = 1, nextAppearance = 1, nextTap = 1, active = null, root = null, stop = null;
+let nextState = 1, nextView = 1, nextSubmit = 1, nextEditing = 1, nextAppearance = 1, nextTap = 1, nextLongPress = 1, active = null, root = null, stop = null;
 let stopped = false, scheduled = false, mounting = false, flushing = false;
 const cells = new Map(), actions = new Map(), dirty = new Set(), updates = new Map();
 const recoveryScopes = [];
@@ -25,6 +25,7 @@ const textSubmits = new Map();
 const textEditings = new Map();
 const appearances = new Map();
 const taps = new Map();
+const longPresses = new Map();
 const windowViews = new Map();
 const viewMarker = Symbol('JonUI.View');
 const bindingMarker = Symbol('JonUI.Binding');
@@ -417,6 +418,13 @@ class ViewValue {
   }
   onTapGesture(callback, options = {}) { return tapModifier(this, 'onTapGesture', callback, options); }
   onSpatialTapGesture(callback, options = {}) { return tapModifier(this, 'onSpatialTapGesture', callback, options); }
+  onLongPressGesture(callback, options = {}) {
+    if (typeof callback !== 'function') throw new TypeError('onLongPressGesture expects a function');
+    const { minimumDuration = 0.5, maximumDistance = 10, onPressingChanged } = layoutOptions(options, ['minimumDuration', 'maximumDistance', 'onPressingChanged'], 'onLongPressGesture');
+    layoutNumber(minimumDuration, 'minimumDuration', true); layoutNumber(maximumDistance, 'maximumDistance', true);
+    if (onPressingChanged !== undefined && typeof onPressingChanged !== 'function') throw new TypeError('onPressingChanged expects a function');
+    return this.modifier('onLongPressGesture', { minimumDuration, maximumDistance, observesPressing: !!onPressingChanged, onLongPress: callback, onPressingChanged });
+  }
   focused(binding) {
     const projection = focusProjection(binding);
     if (this.kind === 'modifier' && this.children.length === 1) return new ViewValue(this.kind, this.props, [this.children[0].focused(binding)]);
@@ -1306,6 +1314,7 @@ function unmount(mounted) {
   textEditings.delete(mounted.editingToken);
   appearances.delete(mounted.appearanceToken);
   taps.delete(mounted.tapToken);
+  longPresses.delete(mounted.longPressToken);
   for (const cell of mounted.dependencies) cell.dependents.delete(mounted);
   try { unmountAll(mounted.children); } catch (error) { failures.push(error); }
   try { disposeComponent(mounted.component); } catch (error) { failures.push(error); }
@@ -1408,7 +1417,15 @@ function finishEvaluation(mounted, children) {
   });
   unmountAll(old.values());
   if (value.kind === 'modifier' && value.props.name === 'window') windowViews.set(mounted.id, mounted);
-  const { body, fallback, rows, row, action, onMessage, onError, api, onSubmit, onEditingChanged, onAppearance, onTap, focusBinding, definition, setup, componentProps, ...props } = value.props;
+  const { body, fallback, rows, row, action, onMessage, onError, api, onSubmit, onEditingChanged, onAppearance, onTap, onLongPress, onPressingChanged, focusBinding, definition, setup, componentProps, ...props } = value.props;
+  if (props.name !== 'onLongPressGesture' || mounted.longPressDuration !== props.minimumDuration || mounted.longPressDistance !== props.maximumDistance || mounted.longPressObserves !== props.observesPressing || !onLongPress) {
+    longPresses.delete(mounted.longPressToken); mounted.longPressToken = undefined;
+  }
+  if (value.kind === 'modifier' && props.name === 'onLongPressGesture') {
+    mounted.longPressToken ??= nextLongPress++;
+    mounted.longPressDuration = props.minimumDuration; mounted.longPressDistance = props.maximumDistance; mounted.longPressObserves = props.observesPressing;
+    longPresses.set(mounted.longPressToken, { id: mounted.id, callback: onLongPress, pressing: onPressingChanged }); props.press = mounted.longPressToken;
+  }
   if (mounted.tapCount !== props.count || mounted.tapPriority !== props.priority || mounted.tapMode !== props.name || !onTap) {
     taps.delete(mounted.tapToken); mounted.tapToken = undefined;
   }
@@ -1538,7 +1555,7 @@ function shutdown(error, partialMounts = []) {
   availabilityWatches.clear(); availabilityTokens.clear();
   for (const observer of [...computations]) disposeComputed(observer);
   for (const id of [...webAPIs.keys()]) disposeWebAPI(id);
-  dirty.clear(); updates.clear(); actions.clear(); webErrors.clear(); textSubmits.clear(); textEditings.clear(); appearances.clear(); taps.clear(); windowViews.clear();
+  dirty.clear(); updates.clear(); actions.clear(); webErrors.clear(); textSubmits.clear(); textEditings.clear(); appearances.clear(); taps.clear(); longPresses.clear(); windowViews.clear();
   for (const { listeners, cell } of cells.values()) { listeners.clear(); cell.dependents.clear(); }
   cells.clear();
   try { request('dispose'); } catch (caught) { failure ??= caught; }
@@ -1583,6 +1600,17 @@ bridge.listen(json => {
       if (result && typeof result.then === 'function') {
         Promise.resolve(result).catch(() => {});
         throw new TypeError('Tap callbacks must be synchronous; use scope.task for asynchronous work');
+      }
+    }
+    else if (event.type === 'longPress') {
+      const entry = longPresses.get(event.token);
+      if (!entry || entry.id !== event.id || !['performed', 'pressing'].includes(event.phase) || (event.phase === 'pressing' && typeof event.pressing !== 'boolean')) return;
+      const callback = event.phase === 'performed' ? entry.callback : entry.pressing;
+      if (!callback) return;
+      const result = taskStorage.run(undefined, () => untracked(() => event.phase === 'performed' ? callback() : callback(event.pressing)));
+      if (result && typeof result.then === 'function') {
+        Promise.resolve(result).catch(() => {});
+        throw new TypeError('Long-press callbacks must be synchronous; use scope.task for asynchronous work');
       }
     }
     else if (event.type === 'appearance') {
@@ -1647,5 +1675,5 @@ export const __testing = process.env.JONUI_TEST === '1' ? Object.freeze({
   computedStats: () => ({ active: computations.size, dependencies: [...computations].reduce((n, observer) => n + observer.dependencies.size, 0) }),
   focusStats: () => ({ listeners: focusListeners.size, watching: focusWatch !== null }),
   availabilityStats: () => ({ names: availabilityWatches.size, listeners: [...availabilityWatches.values()].reduce((n, watch) => n + watch.entries.size, 0) }),
-  stats: () => ({ actions: actions.size + focusListeners.size + [...availabilityWatches.values()].reduce((n, watch) => n + watch.entries.size, 0) + textSubmits.size + textEditings.size + appearances.size + taps.size + [...webErrors.values()].filter(Boolean).length + [...webAPIs.values()].reduce((n, entry) => n + Object.keys(entry.api).length, 0), cells: cells.size, dependencies: [...cells.values()].reduce((n, v) => n + v.cell.dependents.size, 0) }),
+  stats: () => ({ actions: actions.size + focusListeners.size + [...availabilityWatches.values()].reduce((n, watch) => n + watch.entries.size, 0) + textSubmits.size + textEditings.size + appearances.size + taps.size + [...longPresses.values()].reduce((n, entry) => n + 1 + Number(!!entry.pressing), 0) + [...webErrors.values()].filter(Boolean).length + [...webAPIs.values()].reduce((n, entry) => n + Object.keys(entry.api).length, 0), cells: cells.size, dependencies: [...cells.values()].reduce((n, v) => n + v.cell.dependents.size, 0) }),
 }) : undefined;

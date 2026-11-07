@@ -1,4 +1,4 @@
-# Native taps
+# Native gestures
 
 `view.onTapGesture(callback, { count: 1 | 2, priority: "normal" | "high" | "simultaneous" })`
 attaches SwiftUI's native `TapGesture`. Count defaults to 1 and priority to "normal".
@@ -101,7 +101,7 @@ Only interaction regions and these four primitive paths are supported. General
 Shape drawing/fill/stroke, custom paths, rounded-rectangle parameters, even-odd
 fill, preview/hover kinds, browser/AppKit hit-test interop, gesture masks and
 sequential/exclusive composition, different-count competition, global/named coordinates,
-long press/drag/magnification and animation/transition APIs remain open. Content
+drag/magnification and animation/transition APIs remain open. Content
 shapes do not promise occlusion detection or that an arbitrary NSView/WebView
 will adopt SwiftUI's hit region.
 
@@ -152,3 +152,56 @@ current callbacks/State, invalid payloads, native close, callback failures and 2
 owner lifetimes. Spatial priority tests also cover Button/Toggle/nested gesture
 competition. These results retain the inactive unmodified-pointer and hardware
 limits described above.
+
+## Long press
+
+`view.onLongPressGesture(action, options)` calls `action()` when SwiftUI recognizes
+a held press. Options are `minimumDuration` (seconds, default 0.5),
+`maximumDistance` (local logical points, default 10), and an optional synchronous
+`onPressingChanged(boolean)` observer. Duration and distance must be finite and
+nonnegative. Explicit gesture priorities, input kinds and event locations are
+not part of this first long-press API.
+
+```ts
+const count = scope.state(0), pressing = scope.state(false);
+Text(`Recognized ${count.value} times`)
+  .frame({ width: 260, height: 80 })
+  .contentShape('rectangle')
+  .onLongPressGesture(() => { count.value++; }, {
+    minimumDuration: 0.5,
+    maximumDistance: 10,
+    onPressingChanged: value => { pressing.value = value; },
+  });
+```
+
+Recognition occurs when the duration threshold is met and can run while the
+mouse is still down. The native pressing observer reports true at the start and
+false when the native press ends or cancels. Early release or excessive movement
+cancels recognition without running the action. Small movement within the distance
+limit can still recognize. Disabling an ancestor prevents the action; false
+notifications may still clear an ongoing press. These phases are verified with
+real held Command-mouse events, not a Node timer invoking the gesture callback.
+
+Action and pressing callbacks share one owned configuration token, stay in Node,
+run untracked outside task context, and must be synchronous. Throwing or returning
+a Promise stops/disposes the app. Current handler changes retain the token.
+Duration/distance changes or adding/removing the observer retire it. Native state
+captures the starting token, so an old countdown cannot complete through a newer
+handler/configuration. Removal/close retires callbacks and drops late events.
+
+Pressing notifications are not a GestureState binding or a guaranteed cleanup
+hook. Configuration replacement and logical retirement discard old notifications,
+including a possible final false; reset any shared external flag when you
+reconfigure and use `scope.onDispose` for guaranteed owner cleanup. Native lazy
+visibility and other controls may also affect recognition. Explicit cancellation
+reasons, automatic transient-state reset, priority/composition and positive
+sheet/owned-root/lazy long-press coverage remain open. No ordering guarantee is
+added beyond the native phase stream.
+
+Main-window automation covers threshold timing, early release, movement
+cancellation, zero thresholds, current handlers/configuration epochs, native field
+identity, disabling/removal during a hold and 20 lifetimes. Held test pointers use
+main-run-loop release/move timers; teardown balances mouse-up and invalidates them.
+Callback failures must exit with status 1, and shutdown while held must exit cleanly,
+so crashes cannot masquerade as expected failure in those gates. This test-only
+infrastructure adds no production timer.

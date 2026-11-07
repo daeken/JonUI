@@ -34,6 +34,8 @@ offscreen lazy rows; use `scope.onDispose` for guaranteed cleanup. See
 and before a gesture to include transparent margins; circle, ellipse and capsule
 interaction paths are supported too. `.onSpatialTapGesture(point => …)` supplies a
 frozen local `{ x, y }` snapshot with the same count and priority options.
+`.onLongPressGesture(action, { onPressingChanged })` adds held recognition and
+native pressing notifications.
 
 ## Build and run
 

@@ -29,6 +29,21 @@ Status meanings:
 
 ## Current review
 
+- Long-press review (2026-11-07): View.onLongPressGesture exposes native threshold
+  recognition and optional synchronous pressing notifications, finite nonnegative
+  seconds/point distance and owned configuration tokens. Native state pins each
+  press to its starting token; config/observer replacement and removal retire it.
+  Current handlers/native field identity survive updates. SDK audit: macOS 10.15+,
+  within the macOS 14 target. Real held Command-events verify early release,
+  distance cancellation, zero thresholds, disabled/removal while held, normal
+  recognition/State and 20 lifetimes. Held test timers release/balance on teardown;
+  shutdown exits 0 and four error modes require exactly 1, disposing once. Build,
+  189 unit/compiler cases, 11 coverage workflow tests, both type checkers and 24
+  focused native gates pass. No full-suite pass or sheet-close crash fix is
+  claimed. Pressing is not automatic GestureState/reset on retirement. Positive
+  sheet/owned/lazy long-press interop, cancel reasons, priority/composition,
+  hardware/unmodified inactive delivery and other gestures/animation remain open.
+
 - Spatial tap review (2026-11-07): View.onSpatialTapGesture/TapLocation deliver
   frozen finite local x/y snapshots with native single/double count and normal/
   high/simultaneous priority. Mode/count/priority epochs and native/Node guards
@@ -40,7 +55,7 @@ Status meanings:
   four lazy layouts, composition, failures and 20 owner lifetimes. Build, 186
   unit/compiler cases, 11 coverage workflow tests, both type checkers and 25
   focused native gates pass. No full-suite pass or sheet-close crash fix is
-  claimed. Global/named coordinates, input kinds, 3D/phase events, long press,
+  claimed. Global/named coordinates, input kinds, 3D events, general gesture phase state,
   other composition and hardware/unmodified inactive delivery remain open.
 
 - Interaction shape review (2026-11-07): View.contentShape adds native rectangle/
@@ -583,7 +598,7 @@ Status meanings:
 | Captured / named focus | Partial | Weak opaque physical target or exact UTF-8 name; currentName snapshot; optional active-window Tab cycle. | Text/date/WebKit focus/captures/Tab verified; Stepper/Picker/Button/Toggle/Slider registration and unavailable gates verified. Additional-control positive focus/capture/Tab remains gated by native availability/eligibility. <!-- api: FocusTarget, Focus.capture, Focus.request, Focus.requestNamed, Focus.currentName, Focus.setTraversal --> |
 | focusSection | Partial | Native grouping without a new state cell. | Native grouping/geometry/captures verified; wider control/hardware coverage remains. <!-- api: View.focusSection --> |
 | FocusedValue / FocusedBinding / FocusedObject | Missing | Active responder/scene scoped values and actions. | Requires responder-scoped propagation and ownership. |
-| GestureState | Missing | Transient gesture phase state with reset on end/cancel. | Gesture recognition, event coalescing and owner cleanup. |
+| GestureState | Missing | Transient gesture state with automatic reset on end/cancel. | Long-press boolean notifications exist, but no auto-reset state wrapper; event coalescing and ownership contracts remain. |
 | Namespace | Missing | Stable transition/matched-geometry namespace. | Requires animation and native identity coordination. |
 | EditMode | Missing | Inherited active/inactive/transient editing state. | Requires List/Table editing contracts. |
 | UndoManager | Missing | Window/document-scoped undo/redo transactions. | State revisions, grouped operations and callback ownership. |
@@ -615,7 +630,7 @@ Status meanings:
 | onTapGesture / double tap | Partial | Native count 1/2 and normal/high/simultaneous priority; synchronous current Node handler, owned modifier token, disabled ancestors and cleanup. | Actual main/owned-window recognition, keyed/count changes, local State, failures, cross-root/sheet-parent rejection, native-close retirement/reopen and 20 lifetimes verified. Native lazy stack/grid and sheet Command-taps verified; unmodified inactive scroll/sheet delivery remains unverified. Ordinary Button/Toggle/nested priority composition and stable field focus verified; primitive interaction regions and modifier order verified; separate SpatialTapGesture supplies local snapshots. General coordinates/shapes, different-count conflicts and broader control/browser/scroll composition remain. <!-- api: View.onTapGesture --> |
 | highPriorityGesture / simultaneousGesture | Partial (tap only) | onTapGesture priority selects native precedence; changes retire its token while preserving control identity. | Ordinary Button/Toggle/nested Command-click outcomes, disabled behavior and cleanup verified. General Gesture values, explicit masks, sequential/exclusive composition and broader native/browser/scroll interop remain. |
 | contentShape / interaction regions | Partial | Native rectangle/circle/ellipse/capsule paths for interaction only; immutable descriptor, no drawing/clipping/layout change. | Native margin/corner/order tests, stable keyed State/tokens/field focus, disabled owners, lazy rectangular-margin taps and cleanup verified. Custom/even-odd paths, preview/hover kinds, broad AppKit/browser interop and general Shape drawing remain. <!-- api: View.contentShape --> |
-| LongPressGesture | Missing | Press phase, duration/distance and cancellation. | Native/Node event phases and transient state. |
+| LongPressGesture | Partial (macOS view modifier) | Native recognition plus optional synchronous pressing booleans; seconds/point thresholds and owned config token, pinned at press start. | Main-window actual hold/early-release/distance cancellation, zero thresholds, current handlers/config retirement, native field identity, failure/shutdown cleanup and 20 lifetimes verified. No guaranteed final false on retirement; auto GestureState, explicit cancel reasons, priority/general Gesture composition, positive sheet/owned/lazy and hardware coverage remain. <!-- api: View.onLongPressGesture --> |
 | DragGesture | Missing | Translation, location, prediction and coordinate space. | High-rate event coalescing, GestureState and cleanup. |
 | MagnifyGesture / RotationGesture | Missing | Scale/angle phase and anchor. | Trackpad/touch availability and cancellation. |
 | SpatialTapGesture | Partial (macOS) | Readonly TapLocation local x/y snapshot via onSpatialTapGesture; count/priority/owner tokens, same synchronous cleanup as ordinary taps. | SDK macOS 13/14 overload audit; real points in resized/padded/main/sheet/owned/lazy layouts, control composition, stale/malformed payloads and 20 lifetimes verified. Named/global spaces, input-kind filters, other platforms and hardware remain. <!-- api: View.onSpatialTapGesture, TapLocation --> |
@@ -715,7 +730,7 @@ can still bypass local enforcement; this is not server-side branch protection.
 Repository instructions require the same review for contributors and automation.
 
 <!-- coverage-review:generated -->
-Review baseline (checkout HEAD before commit): `cedb5791bd531b7e28dda257ff198371fef8bf76`.
+Review baseline (checkout HEAD before commit): `a52b595ef99743bcfd9f2c272aa97101e40470aa`.
 
-Staged source-tree SHA-256 (excluding this catalog): `813003bd16c698bdd7493252048c8b3e814a394904b686878cf6624b00cac029`.
+Staged source-tree SHA-256 (excluding this catalog): `302498d526efb7edfcfd12e6e46417b015aae646d014d8f1fe5340cf8d73cffa`.
 <!-- /coverage-review:generated -->

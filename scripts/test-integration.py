@@ -38,6 +38,9 @@ def run(entry, case='', failure=None, driver=None, timeout=30, layout=False):
         assert all(result.stdout.count(marker) == 1 for marker in ['RPC_SCOPE_DISPOSE', 'RPC_STOP']), (result.stdout, result.stderr)
     if entry.endswith('focus-subscribe-error.mjs'):
         assert all(result.stdout.count(marker) == 1 for marker in ['FOCUS_SCOPE_DISPOSE', 'FOCUS_STOP']), (result.stdout, result.stderr)
+    if entry.endswith('long-press-error.mjs'):
+        assert result.returncode == (0 if case == 'close' else 1), (case, result.returncode, result.stdout, result.stderr)
+        assert all(result.stdout.count(marker) == 1 for marker in ['PRESS_DISPOSE', 'PRESS_STOP']), (case, result.stdout, result.stderr)
     if entry.endswith('taps-error.mjs'):
         assert all(result.stdout.count(marker) == 1 for marker in ['TAP_DISPOSE', 'TAP_STOP']), (case, result.stdout, result.stderr)
     if entry.endswith('shortcuts-error.mjs'):
@@ -193,3 +196,7 @@ for mode in ['vertical-stack', 'horizontal-stack', 'vertical-grid', 'horizontal-
     run('tests/integration/tap-lazy.mjs', case='spatial-' + mode, timeout=90, layout=True)
 for mode, message in [('spatial-throw', 'intentional tap failure'), ('spatial-high-throw', 'intentional tap failure'), ('spatial-simultaneous-promise', 'must be synchronous')]:
     run('tests/integration/taps-error.mjs', case=mode, failure=message, layout=True)
+run('tests/integration/long-press.mjs', timeout=90, layout=True)
+for mode, message in [('perform', 'intentional long press failure'), ('perform-promise', 'must be synchronous'), ('pressing', 'intentional long press failure'), ('pressing-promise', 'must be synchronous')]:
+    run('tests/integration/long-press-error.mjs', case=mode, failure=message, layout=True)
+run('tests/integration/long-press-error.mjs', case='close', layout=True)

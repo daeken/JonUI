@@ -1407,6 +1407,46 @@ gestures/animation unchecked. Next actionable increment: native long-press
 recognition, pressing/end/cancel semantics and owner/countdown cleanup. General
 coordinate conversions and remaining gesture composition are later work.
 
+Native long-press recognition completed (2026-11-07), first view-modifier subset:
+`view.onLongPressGesture(action, { minimumDuration, maximumDistance,
+onPressingChanged })` delegates to SwiftUI's native gesture. Duration is finite,
+nonnegative seconds (default 0.5); distance is finite, nonnegative local points
+(default 10). The recognition action can run at the threshold while still held.
+An optional synchronous native boolean observer reports pressing/end/cancellation
+notifications. Early release or excessive movement does not perform the action;
+small movement can still recognize. No explicit priority or cancellation-reason
+API is added. The SDK declares this native gesture/modifier on macOS 10.15+,
+within JonUI's macOS 14+ deployment target; hardware/minimum-OS checks remain open.
+
+A single owned configuration token covers action/observer callbacks. Both stay in
+Node, use untracked/task-isolated synchronous delivery, and dispose on throw or
+Promise. Current handler replacement retains the token. Duration/distance or
+observer-presence changes retire it; native state captures the starting token,
+so a pending old press cannot perform through updated configuration. Removal
+retires all callbacks and drops late native notifications. Pressing notifications
+are not an auto-reset GestureState binding: replacement/removal does not guarantee
+final false; shared external flags need explicit reset/onDispose cleanup. The
+demo now displays live pressing state and recognition count.
+
+Validation: native build, 189 unit/compiler cases, 11 coverage workflow tests,
+both type checkers and API classification pass. Twenty-four focused offscreen
+native gates pass: long-press recognition, four callback failure modes and held
+shutdown, spatial taps, both priority variants, eight ordinary/spatial lazy modes,
+shapes/taps/windows/layout/appearance/shortcuts/contracts. The strengthened native
+fixture passes again with observer-free recognition and false/reset after disabling
+while held. Real held Command-mouse events verify timing, early release, distance
+cancellation, zero thresholds, current handlers, config/observer epochs, retained
+native field focus, disable/removal while held and 20 owner lifetimes. Test-only
+release/move timers run in common modes, hold weak window/host references and
+balance mouse-up/invalidate on teardown. Held shutdown exits 0 with zero timers/
+views/cells; errors must exit exactly 1, so a crash cannot pass as expected failure.
+No full-suite pass or fix for the recorded focus-mixed-sheet AppKit close SIGSEGV
+is claimed. Keep broad gestures/animation unchecked. Next actionable increment:
+long-press recognition/cancellation in owned windows, sheets and lazy scrolled
+content, including native-close retirement. Automatic transient state, explicit
+cancel reasons, priority/composition and hardware/unmodified inactive delivery
+remain open; other gestures/animation follow those ownership checks.
+
 ## 3. Application and operating-system integration
 
 Button Command shortcuts completed (2026-11-07), continuing keyboard navigation:

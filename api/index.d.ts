@@ -186,6 +186,10 @@ export interface View {
   onTapGesture<Result>(callback: () => Result, options?: { count?: 1 | 2; priority?: "normal" | "high" | "simultaneous" }, ...validation: SynchronousCallbackValidation<Result>): View;
   /** Native spatial tap; local coordinates belong to the content at this modifier, including prior sizing/padding. */
   onSpatialTapGesture<Result>(callback: (location: TapLocation) => Result, options?: { count?: 1 | 2; priority?: "normal" | "high" | "simultaneous" }, ...validation: SynchronousCallbackValidation<Result>): View;
+  /** Native recognition plus optional pressing notifications; seconds/points. Retirement does not guarantee a final false notification; use scope.onDispose for cleanup. */
+  onLongPressGesture<Result, PressingResult = void>(callback: () => Result, options?: {
+    minimumDuration?: number; maximumDistance?: number; onPressingChanged?: (pressing: boolean) => PressingResult;
+  }, ...validation: SynchronousCallbackValidation<Result | PressingResult>): View;
   /** Attach an owned focus projection to a supported control through single-child modifiers; native availability/eligibility still apply. */
   focused(binding: FocusBinding): View;
   /** Button-only native Command shortcut; key is one lowercase ASCII letter/digit. Explicit modifier combinations are not supported yet. */

@@ -3,11 +3,12 @@ import { Button, Component, Picker, Text, Toggle, VStack, runApp } from 'jonui';
 
 const Demo = Component(scope => {
   const singles = scope.state(0), doubles = scope.state(0), actions = scope.state(0), taps = scope.state(0), disabled = scope.state(false);
+  const longs = scope.state(0), pressing = scope.state(false);
   const priority = scope.state<'normal' | 'high' | 'simultaneous'>('normal');
   const point = scope.state<TapLocation>({ x: 0, y: 0 });
   const shape = scope.state<'rectangle' | 'circle' | 'ellipse' | 'capsule'>('rectangle');
   return () => VStack([
-    Text('Native SwiftUI taps').font('headline'),
+    Text('Native SwiftUI gestures').font('headline'),
     Picker('Priority', { selection: priority.binding, options: [
       { value: 'normal', label: 'Normal' }, { value: 'high', label: 'High' }, { value: 'simultaneous', label: 'Together' },
     ], style: 'segmented' }),
@@ -23,6 +24,9 @@ const Demo = Component(scope => {
     Text(`Local tap: ${point.value.x.toFixed(1)}, ${point.value.y.toFixed(1)}`)
       .frame({ width: 360, height: 80 }).contentShape(shape.value)
       .onSpatialTapGesture(location => { point.value = location; }, { priority: priority.value }),
+    Text(`Long presses: ${longs.value} · ${pressing.value ? 'pressing' : 'idle'}`)
+      .frame({ width: 360, height: 60 }).contentShape(shape.value)
+      .onLongPressGesture(() => { longs.value++; }, { onPressingChanged: value => { pressing.value = value; } }),
     Text('Hit shapes change the padded labels’ interaction area without drawing or clipping.').font('caption'),
   ], { spacing: 20 })
     .padding(20);

@@ -545,3 +545,14 @@ Text('Invalid').onSpatialTapGesture(async point => point.x);
 Text('Invalid').onSpatialTapGesture(() => {}, { coordinateSpace: 'global' });
 // @ts-expect-error Spatial tap count is still single/double.
 Text('Invalid').onSpatialTapGesture(() => {}, { count: 3 });
+
+Text('Hold').onLongPressGesture(() => {}, { minimumDuration: 0.2, maximumDistance: 12, onPressingChanged: value => { const pressed: boolean = value; } });
+Text('Default hold').onLongPressGesture(() => 1);
+// @ts-expect-error Recognition callbacks are synchronous.
+Text('Invalid').onLongPressGesture(async () => {});
+// @ts-expect-error Pressing callbacks are synchronous too.
+Text('Invalid').onLongPressGesture(() => {}, { onPressingChanged: async () => {} });
+// @ts-expect-error Promise-returning observers are rejected.
+Text('Invalid').onLongPressGesture(() => {}, { onPressingChanged: () => Promise.resolve() });
+// @ts-expect-error Explicit priority is not part of this first long-press API.
+Text('Invalid').onLongPressGesture(() => {}, { priority: 'high' });
