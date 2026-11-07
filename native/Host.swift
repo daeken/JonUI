@@ -112,6 +112,9 @@ private func validateLayout(_ kind: String, _ props: [String: Any]) throws {
         case "onAppear", "onDisappear":
             try keys(["name", "appearance"])
             guard let token = props["appearance"].flatMap(layoutNumber), token > 0, token.rounded() == token, token < Double(Int.max) else { throw BridgeError("Invalid appearance token") }
+        case "contentShape":
+            try keys(["name", "shape"])
+            guard let shape = props["shape"] as? String, ["rectangle", "circle", "ellipse", "capsule"].contains(shape) else { throw BridgeError("Invalid interaction shape") }
         case "focusSection": try keys(["name"])
         case "disabled":
             try keys(["name", "value"])
@@ -282,6 +285,18 @@ private struct TestLayoutSurfaceProbe: NSViewRepresentable {
     func updateNSView(_ view: TestLayoutSurfaceView, context: Context) {}
     static func dismantleNSView(_ view: TestLayoutSurfaceView, coordinator: ()) {
         if view.surface.view === view { view.surface.view = nil; view.surface.frames.removeAll() }
+    }
+}
+
+private struct NativeInteractionShape: Shape {
+    let kind: String
+    func path(in rect: CGRect) -> Path {
+        switch kind {
+        case "circle": return Circle().path(in: rect)
+        case "ellipse": return Ellipse().path(in: rect)
+        case "capsule": return Capsule().path(in: rect)
+        default: return Rectangle().path(in: rect)
+        }
     }
 }
 
@@ -691,6 +706,7 @@ private struct NativeView: View {
             case "layoutPriority": return AnyView(child().layoutPriority(Double(box.number("value") ?? 0)))
             case "navigationTitle": return AnyView(child().navigationTitle(box.string("value")))
             case "accessibilityIdentifier": return AnyView(child().accessibilityIdentifier(box.string("value")))
+            case "contentShape": return AnyView(child().contentShape(.interaction, NativeInteractionShape(kind: box.string("shape"))))
             case "disabled": return AnyView(child().disabled(box.props["value"] as? Bool ?? false))
             case "focusSection": return AnyView(child().focusSection())
             case "onAppear", "onDisappear":
@@ -1710,7 +1726,7 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 let kind = value?["kind"] as? String ?? nodes[id]!.kind
                 let children = value?["children"] as? [Int] ?? nodes[id]!.children.map(\.id)
                 let modifier = props["name"] as? String ?? ""
-                let modifiers: Set<String> = ["font", "foregroundStyle", "padding", "frame", "fixedSize", "layoutPriority", "navigationTitle", "accessibilityIdentifier", "disabled", "focusSection", "onAppear", "onDisappear", "onTapGesture", "tag", "sheet", "window"]
+                let modifiers: Set<String> = ["font", "foregroundStyle", "padding", "frame", "fixedSize", "layoutPriority", "navigationTitle", "accessibilityIdentifier", "contentShape", "disabled", "focusSection", "onAppear", "onDisappear", "onTapGesture", "tag", "sheet", "window"]
                 if kind == "modifier" && !modifiers.contains(modifier) { throw BridgeError("Unknown view modifier") }
                 try validateLayout(kind, props)
                 try validateInput(kind, props)
@@ -1926,7 +1942,15 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
                   let frame = surface.frames[target], !frame.isEmpty else { throw BridgeError("Tap target not laid out in current window") }
             let count = message["count"] as? Int ?? 1
             guard [1, 2].contains(count) else { throw BridgeError("Invalid test tap count") }
-            let point = NSPoint(x: frame.midX, y: window.frame.height - frame.midY)
+            var fraction = CGPoint(x: 0.5, y: 0.5)
+            if let raw = message["at"] {
+                guard let at = raw as? [String: Any], Set(at.keys) == Set(["x", "y"]),
+                      let x = at["x"].flatMap(layoutNumber), let y = at["y"].flatMap(layoutNumber),
+                      (0...1).contains(x), (0...1).contains(y) else { throw BridgeError("Invalid test tap point") }
+                fraction = CGPoint(x: x, y: y)
+            }
+            let globalPoint = CGPoint(x: frame.minX + frame.width * fraction.x, y: frame.minY + frame.height * fraction.y)
+            let point = NSPoint(x: globalPoint.x, y: window.frame.height - globalPoint.y)
             // Lazy layout can retain geometry outside a clip. Never turn such
             // coordinates into a click on unrelated visible content.
             func path(_ node: ViewBox) -> [ViewBox]? {
@@ -1937,7 +1961,7 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
             }
             guard let content = window.contentView, content.bounds.contains(content.convert(point, from: nil)),
                   let root = liveNode(surface.id), let ancestors = path(root),
-                  ancestors.filter({ $0.kind == "scroll" }).allSatisfy({ surface.frames[$0.id]?.contains(CGPoint(x: frame.midX, y: frame.midY)) == true }) else {
+                  ancestors.filter({ $0.kind == "scroll" }).allSatisfy({ surface.frames[$0.id]?.contains(globalPoint) == true }) else {
                 throw BridgeError("Tap target outside visible viewport")
             }
             // Command-click is an actual background-window interaction. Use it

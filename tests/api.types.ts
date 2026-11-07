@@ -522,3 +522,12 @@ Button('Together', () => {}).onTapGesture(() => {}, { priority: 'simultaneous' }
 Text('Invalid').onTapGesture(() => {}, { priority: 'exclusive' });
 // @ts-expect-error A priority does not permit Promise callbacks.
 Text('Invalid').onTapGesture(async () => {}, { priority: 'high' });
+
+Text('Target').frame({ width: 240, height: 80 }).contentShape('rectangle').onTapGesture(() => {});
+Text('Circle').contentShape('circle').contentShape('ellipse').contentShape('capsule');
+// @ts-expect-error Arbitrary paths are not part of this primitive interaction API.
+Text('Invalid').contentShape('path');
+// @ts-expect-error Interaction kind options are not implemented.
+Text('Invalid').contentShape('rectangle', { kind: 'dragPreview' });
+// @ts-expect-error A native shape name is required.
+Text('Invalid').contentShape({ shape: 'circle' });

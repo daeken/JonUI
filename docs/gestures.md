@@ -1,7 +1,8 @@
 # Native taps
 
 `view.onTapGesture(callback, { count: 1 | 2, priority: "normal" | "high" | "simultaneous" })`
-attaches SwiftUI's native `TapGesture`. Count defaults to 1 and priority to "normal". Use it for native content, for example:
+attaches SwiftUI's native `TapGesture`. Count defaults to 1 and priority to "normal".
+Use it for native content, for example:
 
 ```ts
 Text(`Selected ${selected.value} times`)
@@ -15,7 +16,8 @@ A thrown error or returned Promise stops the app through normal owner cleanup.
 Handlers and functions stay in Node; only count, priority and an owned token cross
 the bridge. Ordinary property updates and keyed reorder retain the token and call
 the latest handler. Changing count or priority retires the token. Removal, window
-close and app disposal retire the owner. Events for old tokens/counts/owners are discarded.
+close and app disposal retire the owner. Events for old tokens/counts/owners are
+discarded.
 
 A disabled environment at the gesture modifier suppresses recognition. Disable
 an ancestor or apply `.disabled(true)` outside the tap modifier to disable it;
@@ -43,11 +45,33 @@ Button('Apply', apply)
   .onTapGesture(() => { observations.value++; }, { priority: 'simultaneous' });
 ```
 
-Content hit-testing remains native; padding or a frame alone does not promise an
-opaque rectangular region. Gesture masks and general sequential/exclusive
-composition, different-count competition on the same content, browser/scroll
-interoperability, location payloads, long press/drag/magnification and animation/
-transition APIs remain open.
+`view.contentShape("rectangle" | "circle" | "ellipse" | "capsule")` sets the
+native **interaction** region. It neither draws nor clips content and does not
+change layout. Rectangle covers its bounds; Circle, Ellipse and Capsule use
+SwiftUI's own paths. Apply sizing first, then the shape, then the gesture:
+
+```ts
+Text('Select')
+  .frame({ width: 260, height: 100 })
+  .contentShape('rectangle')
+  .onTapGesture(select);
+```
+
+This makes the transparent framed margin tappable. Applying contentShape before
+the frame keeps the interaction region at the smaller content size. Native
+margin/corner tests distinguish rectangular and curved regions and verify this
+modifier order. Changing shape preserves layout, keyed local State, the outer
+tap token/current handler and a captured native text-field focus target. No new
+callback registration, binding cell or observer is needed. Disabling an ancestor
+still suppresses taps. The demo changes shape at runtime.
+
+Only interaction regions and these four primitive paths are supported. General
+Shape drawing/fill/stroke, custom paths, rounded-rectangle parameters, even-odd
+fill, preview/hover kinds, browser/AppKit hit-test interop, gesture masks and
+sequential/exclusive composition, different-count competition, location payloads,
+long press/drag/magnification and animation/transition APIs remain open. Content
+shapes do not promise occlusion detection or that an arbitrary NSView/WebView
+will adopt SwiftUI's hit region.
 
 Run `bin/jonui examples/gestures/app.ts` to try single and double taps. Automated
 recognition checks post real AppKit mouse-down/up events to the main and owned
@@ -71,17 +95,20 @@ sheet. `command: true` belongs only to the internal native test driver; it is no
 an `onTapGesture` option or modifier filter. These are real native gesture events;
 tests neither activate the app nor override framework descendants' eligibility.
 
-The driver checks the target center against the native window content bounds
-and every ancestor ScrollView viewport. It rejects a partially realized row whose
-center is clipped, even when that coordinate is still within the window. It does
-not promise pixel-level visibility, opaque content shapes or freedom from
-occlusion. Each lazy variant verifies partial native realization with eager
-logical owners, retained local State/current tokens across keyed reorder and
-scrolling, count changes, offscreen logical removal and 20 owner lifetimes.
+The driver checks the requested point (center by default) against native window
+content bounds and every ancestor ScrollView viewport. Internal `at: { x, y }`
+fractions select test points within the target frame; this is not a public tap
+location API. A clipped center or edge is rejected even when that coordinate is
+still inside the window. Rectangular-margin Command-clicks pass in all four
+lazy variants, including rejection of a clipped edge while the center is visible.
+The driver does not detect occlusion or pixel-level visibility. Each lazy variant
+verifies partial native realization with eager logical owners, retained local
+State/current tokens across keyed reorder and scrolling, count changes,
+offscreen logical removal and 20 owner lifetimes.
 
 Ordinary unmodified first-mouse delivery to inactive scroll descendants and
 SwiftUI-owned sheets remains unverified: the unmodified lazy probe produced no
 callback, while Command-clicks passed. Active-window/hardware checks are still
-needed for that path. Broader control/browser/scroll gesture interoperability, location/content-shape/
-gesture-mask contracts and the separately recorded AppKit sheet-close SIGSEGV
+needed for that path. Broader control/browser/scroll gesture interoperability,
+tap location, general shape/gesture-mask contracts and the separately recorded AppKit sheet-close SIGSEGV
 also remain open.

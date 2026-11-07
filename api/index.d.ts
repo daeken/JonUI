@@ -169,6 +169,8 @@ export interface View {
   layoutPriority(value: number): View;
   navigationTitle(title: string): View;
   accessibilityIdentifier(identifier: string): View;
+  /** Native interaction hit region; apply after sizing and before the gesture. Does not draw or clip. */
+  contentShape(shape: "rectangle" | "circle" | "ellipse" | "capsule"): View;
   /** Disable interaction for this subtree. Defaults to true; an ancestor's disabling wins. */
   disabled(disabled?: boolean): View;
   /** Group native focusable descendants for SwiftUI sequential/directional movement. */

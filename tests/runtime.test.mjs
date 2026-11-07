@@ -396,6 +396,22 @@ test('owned availability applies per-controller task leases before validation an
   h.emit({ type: 'stop' }); await done;
 });
 
+test('content shapes validate interaction primitives and preserve keyed State/tap tokens without new registrations', async () => {
+  const h = await setup(), { ui } = h, shape = ui.State('rectangle'), reversed = ui.State(false), shown = ui.State(true); const calls = [], models = new Map(); let disposed = 0;
+  for (const value of [undefined, null, true, 1, '', 'path', {}, [], new String('circle')]) assert.throws(() => ui.Text('bad').contentShape(value), /native interaction shape/);
+  assert.throws(() => ui.Text('bad').contentShape('rectangle', { kind: 'dragPreview' }), /native interaction shape/);
+  const original = ui.Text('original'); assert.equal(original.kind, 'text'); const shaped = original.contentShape('ellipse'); assert.equal(shaped.children[0], original); assert.deepEqual(shaped.props, { name: 'contentShape', shape: 'ellipse' });
+  const Row = ui.Component((scope, id) => { const value = scope.state(id); models.set(id, value); scope.onDispose(() => disposed++); return () => ui.Text(value.value).contentShape(shape.value).onTapGesture(() => calls.push(value.value)); });
+  const done = launch(ui, ui.View(() => shown.value ? ui.ForEach(reversed.value ? ['b', 'a'] : ['a', 'b'], { id: id => id }, id => Row(id)) : ui.Text('removed'))); await tick();
+  const taps = () => [...h.nodes.values()].filter(n => n.props.tap), tokens = taps().map(n => [n.id, n.props.tap]), resources = ui.__testing.stats(), a = models.get('a');
+  for (const value of ['circle', 'ellipse', 'capsule', 'rectangle']) {
+    shape.value = value; reversed.value = !reversed.value; await tick(); assert.equal(models.get('a'), a); assert.equal(disposed, 0); assert.deepEqual(taps().map(n => [n.id, n.props.tap]), tokens); assert.deepEqual(ui.__testing.stats(), resources);
+    assert.ok([...h.nodes.values()].filter(n => n.props.name === 'contentShape').every(n => n.props.shape === value));
+  }
+  for (const n of taps()) h.emit({ type: 'tap', id: n.id, token: n.props.tap, count: 1 }); assert.deepEqual(calls, ['a', 'b']);
+  shown.value = false; await tick(); assert.equal(disposed, 2); assert.equal(ui.__testing.stats().actions, 0); h.emit({ type: 'stop' }); await done; assert.deepEqual(ui.__testing.stats(), { actions: 0, cells: 0, dependencies: 0 });
+});
+
 test('tap callbacks validate and copy count options before transport', async () => {
   const h = await setup(), { ui } = h;
   for (const callback of [null, 1, true, {}, []]) assert.throws(() => ui.Text('bad').onTapGesture(callback), /expects a function/);

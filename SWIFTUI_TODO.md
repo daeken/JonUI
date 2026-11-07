@@ -29,6 +29,19 @@ Status meanings:
 
 ## Current review
 
+- Interaction shape review (2026-11-07): View.contentShape adds native rectangle/
+  circle/ellipse/capsule interaction paths. Immutable descriptors and stable Shape
+  type preserve layout, keyed local State, tap tokens/current callbacks and native
+  field focus without new cells/registrations. Real native Command-clicks verify
+  margins/curved corners, modifier order, disabling, atomic rejection and 20 owner
+  lifetimes. All four lazy variants verify rectangular-margin recognition after
+  scrolling; pointer guards reject the requested clipped point even with a
+  visible center. The demo selects shapes live. Build, 184 unit/compiler cases,
+  11 coverage workflow tests, both type checkers and 16 focused native gates pass.
+  No full-suite pass or sheet-close crash fix is claimed. General shapes/drawing,
+  custom/even-odd paths, other region kinds, broad native/browser interop, tap
+  location, gesture masks and hardware/unmodified inactive delivery remain open.
+
 - Tap priority review (2026-11-07): View.onTapGesture adds validated native normal/
   high/simultaneous priority. Count or priority changes retire its owned callback
   token; current handlers/keyed updates retain it. Stable native modifier types
@@ -40,8 +53,9 @@ Status meanings:
   183 unit/compiler cases, 11 coverage workflow tests, both type checkers and 15
   focused native gates pass. No full-suite pass or sheet-close crash fix is
   claimed. General masks/sequential/exclusive composition, different-count
-  conflicts, broader AppKit/browser/scroll interop, location/content shapes and
-  hardware/unmodified inactive-delivery checks remain open.
+  conflicts, broader AppKit/browser/scroll interop, location and
+  hardware/unmodified inactive-delivery checks remain open; see the interaction
+  shape review above for the new primitive-region subset.
 
 - Lazy tap/Command-click review (2026-11-07): no public widget/state API added.
   Real single/double Command-clicks verify taps after scrolling in all four lazy
@@ -425,15 +439,15 @@ Status meanings:
 | VStack | Available | Tracked child array, alignment and optional spacing. | Native layout/keyed identity verified; baseline documentation in docs/layout.md. <!-- api: VStack --> |
 | HStack | Available | Tracked child array, vertical/baseline alignment and spacing. | Native geometry and dynamic alignment verified. <!-- api: HStack --> |
 | ZStack | Missing | Child array and two-axis alignment. | Layer order, hit testing, identity and accessibility. |
-| LazyVStack | Available | Eager logical keyed scopes; lazy native rows. | Actual partial realization/scrolling/removal, keyed local State and owner cleanup verified; visible native Command-taps after scroll and clipped-center rejection covered. <!-- api: LazyVStack --> |
-| LazyHStack | Available | Eager logical keyed scopes; lazy native columns. | Partial realization, horizontal scroll, keyed state and cleanup verified; native Command-taps after scroll and clipped-center rejection covered. <!-- api: LazyHStack --> |
-| LazyVGrid | Available | Detached fixed/flexible/adaptive tracks; keyed state. | Native geometry/repacking/scrolling and scoped cleanup verified; visible native Command-taps after scroll and clipped-center rejection covered. <!-- api: LazyVGrid, GridItem --> |
-| LazyHGrid | Available | Detached row tracks; keyed state. | Native horizontal grid measurement/repacking and cleanup verified; visible native Command-taps after scroll and clipped-center rejection covered. <!-- api: LazyHGrid --> |
+| LazyVStack | Available | Eager logical keyed scopes; lazy native rows. | Actual partial realization/scrolling/removal, keyed local State and owner cleanup verified; native rectangular-margin Command-taps after scroll and clipped-point rejection covered. <!-- api: LazyVStack --> |
+| LazyHStack | Available | Eager logical keyed scopes; lazy native columns. | Partial realization, horizontal scroll, keyed state and cleanup verified; native rectangular-margin Command-taps after scroll and clipped-point rejection covered. <!-- api: LazyHStack --> |
+| LazyVGrid | Available | Detached fixed/flexible/adaptive tracks; keyed state. | Native geometry/repacking/scrolling and scoped cleanup verified; native rectangular-margin Command-taps after scroll and clipped-point rejection covered. <!-- api: LazyVGrid, GridItem --> |
+| LazyHGrid | Available | Detached row tracks; keyed state. | Native horizontal grid measurement/repacking and cleanup verified; native rectangular-margin Command-taps after scroll and clipped-point rejection covered. <!-- api: LazyHGrid --> |
 | Grid | Missing | Eager rows/columns, alignment, spacing. | Cell spans, unsized axes, anchors and row identity. |
 | GridRow | Missing | Child cells and row alignment. | Requires Grid with span/alignment contracts. |
 | Spacer | Available | Optional finite nonnegative minimum length. | Native layout verified; no owned mutable state. <!-- api: Spacer --> |
 | Divider | Available | Stateless native separator. | Rendered in native hierarchy; style/orientation follow native layout. <!-- api: Divider --> |
-| ScrollView | Partial | Axes and indicator visibility; content owns state. | Native scroll/geometry and visible lazy Command-tap interaction verified; test driver rejects clipped centers. Position Binding, reader, bounce and target APIs remain. <!-- api: ScrollView --> |
+| ScrollView | Partial | Axes and indicator visibility; content owns state. | Native scroll/geometry and lazy rectangular-margin Command-taps verified; test driver rejects requested points outside ancestor viewports. Position Binding, reader, bounce and target APIs remain. <!-- api: ScrollView --> |
 | ScrollViewReader | Missing | Stable scroll target IDs and scroll actions. | Cancellation, unrealized lazy targets and window ownership. |
 | ScrollPosition / ScrollGeometry | Missing | Position/anchor and read-only scroll snapshots. | Define typed coalesced scroll events, Binding and revision rules. |
 | List | Partial | String/number/null single-selection Binding; keyed rows. | Basic Landmarks selection/state verified; editing, multi-select, sections/styles and drag/drop remain. <!-- api: List --> |
@@ -584,9 +598,9 @@ Status meanings:
 | onChange / onReceive | Partial analog | State.subscribe and component effects on Node. | Native value/event adapters and delivery/cancellation policy remain. |
 | task / refreshable | Partial analog | Scoped task cancellation exists. | Native view-appearance task, ID-triggered task and refresh UI integration remain. |
 | onSubmit / onEditingChanged | Partial | Native text revision snapshot before Node callback. | Supported text controls verified; richer submit scopes/triggers remain. |
-| onTapGesture / double tap | Partial | Native count 1/2 and normal/high/simultaneous priority; synchronous current Node handler, owned modifier token, disabled ancestors and cleanup. | Actual main/owned-window recognition, keyed/count changes, local State, failures, cross-root/sheet-parent rejection, native-close retirement/reopen and 20 lifetimes verified. Native lazy stack/grid and sheet Command-taps verified; unmodified inactive scroll/sheet delivery remains unverified. Ordinary Button/Toggle/nested priority composition and stable field focus verified; location/content shapes, different-count conflicts and broader control/browser/scroll composition remain. <!-- api: View.onTapGesture --> |
+| onTapGesture / double tap | Partial | Native count 1/2 and normal/high/simultaneous priority; synchronous current Node handler, owned modifier token, disabled ancestors and cleanup. | Actual main/owned-window recognition, keyed/count changes, local State, failures, cross-root/sheet-parent rejection, native-close retirement/reopen and 20 lifetimes verified. Native lazy stack/grid and sheet Command-taps verified; unmodified inactive scroll/sheet delivery remains unverified. Ordinary Button/Toggle/nested priority composition and stable field focus verified; primitive interaction regions and modifier order verified; location payloads, general shapes, different-count conflicts and broader control/browser/scroll composition remain. <!-- api: View.onTapGesture --> |
 | highPriorityGesture / simultaneousGesture | Partial (tap only) | onTapGesture priority selects native precedence; changes retire its token while preserving control identity. | Ordinary Button/Toggle/nested Command-click outcomes, disabled behavior and cleanup verified. General Gesture values, explicit masks, sequential/exclusive composition and broader native/browser/scroll interop remain. |
-| contentShape / interaction regions | Missing | Native interaction shape separate from layout/clipping. | Define supported shapes/kinds and hit-test behavior for transparent space, nesting, scrolling and disabled owners. |
+| contentShape / interaction regions | Partial | Native rectangle/circle/ellipse/capsule paths for interaction only; immutable descriptor, no drawing/clipping/layout change. | Native margin/corner/order tests, stable keyed State/tokens/field focus, disabled owners, lazy rectangular-margin taps and cleanup verified. Custom/even-odd paths, preview/hover kinds, broad AppKit/browser interop and general Shape drawing remain. <!-- api: View.contentShape --> |
 | LongPressGesture | Missing | Press phase, duration/distance and cancellation. | Native/Node event phases and transient state. |
 | DragGesture | Missing | Translation, location, prediction and coordinate space. | High-rate event coalescing, GestureState and cleanup. |
 | MagnifyGesture / RotationGesture | Missing | Scale/angle phase and anchor. | Trackpad/touch availability and cancellation. |
@@ -686,7 +700,7 @@ can still bypass local enforcement; this is not server-side branch protection.
 Repository instructions require the same review for contributors and automation.
 
 <!-- coverage-review:generated -->
-Review baseline (checkout HEAD before commit): `d3f0a40887bf35817d299bbb6293b9da81114196`.
+Review baseline (checkout HEAD before commit): `d161ac80bd41d7162ba32b5bab1356bef965e199`.
 
-Staged source-tree SHA-256 (excluding this catalog): `558561c1d74f32a0140c49699a76900be2faf9901286f4fcca44e78241507185`.
+Staged source-tree SHA-256 (excluding this catalog): `d3d618cf0ab2832a5d9fb9940dfdde117940919672f14d7e62c42e8a3f5a5aa9`.
 <!-- /coverage-review:generated -->

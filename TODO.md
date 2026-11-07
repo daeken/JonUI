@@ -1338,6 +1338,40 @@ bounded/AppKit/browser/scroll recognizer interoperability and platform coverage.
 Next actionable increment: native interaction content-shape semantics and tap
 location/coordinate contracts, followed by long-press phases and cancellation.
 
+Native interaction shapes completed (2026-11-07), continuing tap contracts:
+`view.contentShape("rectangle" | "circle" | "ellipse" | "capsule")` delegates to
+SwiftUI's native interaction paths. It does not draw, clip or affect layout.
+A stable Shape proxy switches native primitive paths without replacing the
+content type. Only an immutable shape-name descriptor crosses the bridge; no
+callback table entry, state cell, observer or new lifetime token is introduced.
+Both runtime and native validation reject unsupported shapes/options before
+mutation. Apply sizing/padding first, contentShape second, and the gesture last;
+placing the shape before a frame preserves the smaller content hit region.
+
+Real native Command-clicks verify transparent rectangular margins versus curved
+corners, all four paths, modifier order, unchanged measured geometry, current
+keyed State/handler/token identity, captured native field focus, disabled
+ancestors, atomic rejection and 20 owner lifetimes. All four lazy stack/grid
+variants now recognize rectangular-margin taps after scrolling, with existing
+keyed/retirement/lifetime checks. The internal pointer driver accepts validated
+normalized test positions and rejects the requested point outside window or
+ancestor-scroll bounds, including a clipped edge whose row center is visible.
+It still lets SwiftUI decide shape membership; no shape-aware fake callback or
+manual ellipse/capsule math is used. The demo selects interaction shape live.
+
+Validation: native build, 184 unit/compiler cases, 11 coverage workflow tests,
+both type checkers and API classification pass. Sixteen focused offscreen native
+gates pass: interaction shapes, four lazy variants, priority composition, four
+tap failures, taps/windows, layout, appearance, shortcuts and contracts. No
+full-suite pass or fix for the recorded focus-mixed-sheet AppKit close SIGSEGV
+is claimed. Unmodified inactive scroll/sheet pointer delivery and hardware checks
+remain open. Keep gestures/animation unchecked. General paths/drawing, even-odd
+fill, other content-shape kinds, broader native/browser hit-testing, gesture
+masks and animation remain future work. Next actionable increment: native tap
+location payloads with explicit local-coordinate semantics and stale-owner/count/
+priority guards; then long-press phases and cancellation. Internal test-position
+fractions do not constitute a public location API.
+
 ## 3. Application and operating-system integration
 
 Button Command shortcuts completed (2026-11-07), continuing keyboard navigation:

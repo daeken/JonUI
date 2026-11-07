@@ -6,7 +6,7 @@ const models = new Map(), events = []; let setups = 0, disposals = 0;
 const Row = Component((scope, id) => {
   const value = scope.state(0); models.set(id, value); setups++; let retired = false;
   scope.onDispose(() => { retired = true; disposals++; });
-  return () => { const version = revision.value; return Text(`Row ${id}: ${value.value}`).frame({ width: grid || horizontal ? 110 : 220, height: horizontal ? 60 : 44 })
+  return () => { const version = revision.value; return Text(`Row ${id}: ${value.value}`).frame({ width: grid || horizontal ? 110 : 220, height: horizontal ? 60 : 44 }).contentShape('rectangle')
     .onTapGesture(() => { assert.equal(retired, false); value.value++; events.push([id, version, value.value]); }, { count: double.value ? 2 : 1 }); };
 });
 const Rows = Component(() => () => {
@@ -37,7 +37,7 @@ const scroll = end => test.request('debug.scroll', { index: 0, x: horizontal ? e
 // offscreen first-mouse delivery remains a separate manual/platform gap.
 async function click(id, count = 1) {
   await until(() => visible(id), `visible ${id}`); const before = events.length, old = models.get(id).value;
-  const queued = test.request('debug.tap', { id: tapNode(id).id, count, command: true });
+  const queued = test.request('debug.tap', { id: tapNode(id).id, count, at: { x: 0.1, y: 0.5 }, command: true });
   assert.equal(queued.modifiers, 1 << 20, 'explicit native Command-click without activation');
   await until(() => test.request('debug.tapResult', { id: queued.id }).done, 'mouse dispatch');
   await until(() => events.length === before + 1, `recognition ${id}`); assert.deepEqual(events.at(-1), [id, revision.value, old + 1]);
@@ -48,6 +48,14 @@ shown.value = true; test.flush(); await until(() => setups === 60 && visible(0),
 const first = tapNode(0), last = tapNode(59), model = models.get(0), token = first.props.tap;
 assert.ok(!visible(59)); assert.ok(snapshot().nodes.filter(n => n.props.tap).length > layout().frames.filter(f => snapshot().nodes.find(n => n.id === f.id)?.props.tap).length, 'logical callbacks are eager while native row layout is partial'); reject(last);
 await click(0);
+// A visible center does not make every point in that row visible.
+scroll(horizontal ? 10 : 5);
+await until(() => {
+  const frames = layout().frames, target = frames.find(f => f.id === first.id)?.rect;
+  const viewport = frames.find(f => snapshot().nodes.find(n => n.id === f.id)?.kind === 'scroll')?.rect;
+  return visible(0) && target && viewport && (horizontal ? target.x < viewport.x : target.y < viewport.y);
+}, 'visible center with clipped edge');
+assert.throws(() => test.request('debug.tap', { id: first.id, at: horizontal ? { x: 0.03, y: 0.5 } : { x: 0.1, y: 0.03 } }), /outside visible viewport/);
 // Keep part of row 0 realized while its center falls outside the scroll clip,
 // but remains within the native window. This must hit the viewport guard.
 scroll(horizontal ? 60 : 24);
@@ -70,4 +78,4 @@ for (let i = 0; i < 20; i++) {
 }
 assert.equal(setups, 460); assert.equal(disposals, setups); test.request('debug.close'); await app;
 assert.deepEqual(test.stats(), { actions: 0, cells: 0, dependencies: 0 }); assert.equal(snapshot().liveCells, 0); assert.equal(snapshot().liveViews, 0); assert.equal(snapshot().layoutSurfaceCount, 0);
-console.log(`PASS lazy taps ${mode}: real visible single/double Command-click recognition after scroll, partial native realization, viewport rejection, current keyed handlers/local State, offscreen removal and 20 owner lifetimes without activation`);
+console.log(`PASS lazy taps ${mode}: real rectangular-margin single/double Command-click recognition after scroll, partial native realization, viewport rejection, current keyed handlers/local State, offscreen removal and 20 owner lifetimes without activation`);

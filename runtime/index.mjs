@@ -388,6 +388,10 @@ class ViewValue {
   layoutPriority(value) { return this.modifier('layoutPriority', { value: layoutNumber(value, 'layoutPriority') }); }
   navigationTitle(value) { return this.modifier('navigationTitle', { value }); }
   accessibilityIdentifier(value) { return this.modifier('accessibilityIdentifier', { value }); }
+  contentShape(shape, ...unsupported) {
+    if (unsupported.length || !['rectangle', 'circle', 'ellipse', 'capsule'].includes(shape)) throw new TypeError('contentShape expects one native interaction shape');
+    return this.modifier('contentShape', { shape });
+  }
   disabled(value = true) {
     if (typeof value !== 'boolean') throw new TypeError('disabled expects a boolean');
     return this.modifier('disabled', { value });
