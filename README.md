@@ -62,6 +62,16 @@ The launcher executes TypeScript using Node's built-in type stripping. Use
 TypeScript syntax that Node can erase. Application modules can use Node filesystem
 APIs, JSON imports, timers, and top-level `await`.
 
+Application modules use normal Node package resolution, so dependencies installed
+in your app project with npm can be imported normally. The offscreen integration
+check loads the installed TypeScript package through both ESM import and CommonJS
+require, executes its API, and renders the result through the embedded launcher.
+Native addons need a compatible runtime/architecture build. Browser dependencies
+inside WebViews currently need your own transpilation/bundling; JonUI does not yet
+bundle browser npm imports automatically. The live playground editor currently
+compiles a synchronous function body, so module `import` syntax is not yet wired
+into that editor.
+
 ```ts
 import { Button, State, View, runApp } from "jonui";
 

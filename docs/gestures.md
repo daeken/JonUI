@@ -455,8 +455,8 @@ and the existing inactive-pointer limitations remain open.
 
 The test-only `__testing.gesturePair(view, first, second, callback, options)`
 attaches one owned synchronous group-end callback. It accepts tap/spatial leaves
-**without leaf callbacks** and a normal/high/simultaneous priority. Callback-bearing
-leaves and long-press/nested groups are rejected. All three native test flags above
+with optional onEnded callbacks and a normal/high/simultaneous priority. Long-press
+leaves and nested groups remain rejected. All three native test flags above
 remain required; this is not a public composition API.
 
 Each accepted end produces a copied, frozen `{ first, second }` snapshot with the
@@ -466,8 +466,9 @@ committing the public API to this representation. No leaf callback is synthesize
 from a group result; changed values still do not establish completed branches.
 
 A mounted group owns a token independent of other attachments. Count/kind/priority,
-disabled eligibility and ancestor sheet/window presentation changes retire the
-token; current callback rebuilds preserve it. Presentation bindings are tracked
+disabled eligibility, ancestor sheet/window presentation changes and switching
+between leaf-dispatch/root-only mode retire the token; current callback rebuilds
+preserve it. Presentation bindings are tracked
 by the modifier even when the logical group description is static. Delivery also
 checks current ancestry before calling a handler. Callbacks run untracked outside
 task context; throws or thenables stop the app and dispose its owners.
@@ -478,7 +479,8 @@ handler runs, a synchronous native claim must consume the completion once under
 the matching live node/token/arm. This prevents an end queued before native
 retirement from surviving a later reset queued behind it. Completion sequence and
 arm high-water checks reject repeats and old leases. Native pending completions
-are bounded to 128 per arm; overflow aborts instead of silently dropping ends.
+are bounded to 128 per arm; overflow retires native ownership and reports a managed
+Node failure instead of silently dropping ends.
 Claims, re-arming, graph retirement and shutdown release pending entries.
 
 Native checks cover current callbacks and State writes, equal-count double-click
@@ -490,7 +492,7 @@ causal sessions, branch GestureState and lazy/owned-window dispatch remain futur
 work. Existing raw recognition/control tests do not prove those dispatch paths.
 
 
-### Native completed-branch receipts and proposed callback policy
+### Native completed-branch receipts
 
 The raw private modifier accepts `traceLeaves: true` to attach real native
 `onEnded` observers to its two leaves. It requires the same three test flags.
@@ -528,7 +530,7 @@ Offscreen native measurements establish this tap/spatial subset:
   the first fresh point belongs to a new cohort. Native sheet disappearance also
   retires pending receipts while keeping logical owner State for re-entry.
 
-The proposed Node leaf-callback contract is to deliver actual leaf-end receipts
+The internal Node leaf-callback contract delivers actual leaf-end receipts
 in observed native order, before the associated group end. A receipt fires once;
 a retained leaf value in a later group result does not fire it again. Native claims
 must revalidate ownership before **each** callback so a handler that replaces or
@@ -536,12 +538,64 @@ removes its group suppresses remaining retired leaf/group events. Each callback
 uses the latest handler and the existing synchronous, untracked, task-isolated
 failure rules. No path-sorted batch or synthetic leaf completion is planned.
 
-This contract is specified but leaf dispatch is not implemented. The receipt
-cohort is a completed-branch correlation model, not a general gesture session:
-it does not identify branches that have begun but have not completed. It currently
-releases receipts at native group completion, before queued Node leaf handlers
-could claim them. Next work needs bounded native receipt leases, per-callback
-claims/retirement, current-handler delivery, reentrant mutation/failure tests and
-an earlier session/state model for branch GestureState reset. Callback-bearing
-leaves therefore remain rejected. Long/nested groups, lazy/owned-window receipt
-ownership, general cancellation and hardware/minimum-OS validation remain open.
+The receipt cohort remains a completed-branch correlation model, not a general
+gesture session: it does not identify branches that have begun but have not
+completed. Trace-only cohorts retire at native group completion. The dispatch mode
+below retains claimable leases separately; earlier session/state identity for
+branch GestureState reset remains open. Long/nested groups, lazy/owned-window
+receipt ownership, general cancellation and hardware/minimum-OS validation remain
+open.
+
+
+### Internal claimed leaf callbacks
+
+The test helper now accepts tap/spatial leaves with `onEnded` handlers. If either
+leaf has a handler, it enables native leaf tracing and dispatch together. Functions
+stay in Node. Each leaf event must claim its exact live node/configuration/arm,
+cohort, receipt and constructor path before invoking the latest handler. Claims
+are single-use. Tap callbacks receive no arguments; spatial callbacks receive a
+copied, frozen `{ x, y }`, matching their existing typed leaf contract. Group-end
+callbacks retain the private frozen tagged optional `{ first, second }` snapshot.
+
+Native leases survive group completion and retain a claimed bit until the group
+itself is claimed. The group claim requires every correlated leaf dependency to
+have been claimed, then releases exactly those leases. A leaf without a handler
+still gets acknowledged in this mode so it cannot strand its group's dependencies.
+A one-tap leaf can already have run while its two-tap sibling waits: a subsequent
+partial group result does not invoke it again. Delivered leaf effects are not
+rolled back if a later configuration change retires the group.
+
+After each successful user leaf callback, the runtime reconciles its synchronous
+State writes before processing another queued leaf/group claim. Handler-only
+changes preserve the token and later receipts use the new handlers. Removing one
+handler while the other remains active preserves native recognition; removing the
+last handler retires the token and switches to root-only mode. Count/priority,
+disable, presentation or owner changes suppress remaining retired events. Native
+claims also reject queued events after physical disappearance, even before Node
+receives its reset. Callbacks run untracked outside task context. A throw or
+thenable stops the app and disposes its owners; no retired sibling/group callback
+runs after the failure.
+
+Each native owner has at most 256 outstanding leaf leases (claimed or unclaimed)
+and 128 pending group completions. Lease/dependency registries retire on group
+claim, canceled-cohort inactivity, rearming, disabling/disappearance, graph removal
+and shutdown. Queue overflow or failed native correlation retires the affected
+native arm and reports a managed failure through the available bridge queue, so
+Node cleanup hooks can run. This differs from exhaustion of the bridge's own event
+queue, where graceful delivery is unavailable and the existing runtime abort
+policy still applies.
+
+Native checks cover the full tap-count/priority/Button matrix, observed callback
+order, current handlers, handler removal, synchronous first-leaf revision/config/
+disable/removal changes, sheet dismissal inside a leaf callback, pending leases,
+strict direct claims and root dependency gating, both queue bounds, throw/thenable/
+held/pending shutdown, stable eligible field focus and twenty owner lifetimes.
+Failure gates require exact exit status and one stop/disposal. Overflow checks
+also verify native lease/dependency retirement inside disposal; normal/close gates
+verify zero native leases/dependencies/views/cells/timers. Disabled fields correctly
+refuse focus requests; tests preserve the user's native eligibility settings.
+
+This remains an internal prototype. Public composition/result types, earlier
+branch session identity and transient-state reset, nested/long groups, lazy/owned
+windows, hardware and minimum-OS checks remain unfinished. No compound method is
+exposed on the public Gesture interface.

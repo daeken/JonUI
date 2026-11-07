@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
 import { Component, State, TapGesture, SpatialTapGesture, Text, runApp, __testing as test } from 'jonui';
+const leafMode = process.env.JONUI_CASE === 'leaves', leafEvents = []; let dismissFromLeaf = false;
 const presented = State(false), count = State(2); const events = []; let setups = 0, disposals = 0, hits;
 const Owner = Component(scope => {
   setups++; hits = scope.state(0); scope.onDispose(() => disposals++);
-  return () => test.gesturePair(Text('Sheet pair').frame({ width: 260, height: 80 }).contentShape('rectangle'), SpatialTapGesture(), TapGesture({ count: count.value }), value => { hits.value++; events.push(value); });
+  return () => test.gesturePair(Text('Sheet pair').frame({ width: 260, height: 80 }).contentShape('rectangle'), leafMode ? SpatialTapGesture().onEnded(point => { assert.ok(Object.isFrozen(point)); leafEvents.push(0); if (dismissFromLeaf) presented.value = false; }) : SpatialTapGesture(), leafMode ? TapGesture({ count: count.value }).onEnded(() => leafEvents.push(1)) : TapGesture({ count: count.value }), value => { hits.value++; events.push(value); });
 });
 const app = runApp({ title: 'Pair sheet ownership', width: 420, height: 280, content: Text('Base').sheet({ isPresented: presented.binding, content: Owner() }) });
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms)), snapshot = () => test.request('debug.snapshot'), node = () => snapshot().nodes.find(n => n.props.dispatch);
@@ -23,7 +24,11 @@ await click(10); assert.equal(events.length, 1); presented.value = false; test.f
 await until(() => !test.request('debug.focusContext').sheet && snapshot().pairDispatchArmOwners === 0, 'dismiss pending'); await sleep(650); assert.equal(events.length, 1);
 presented.value = true; test.flush(); await until(ready, 're-entry'); assert.equal(node().id, initial.id); assert.notEqual(node().props.epoch, initial.props.epoch); assert.equal(setups, 1); assert.equal(hits.value, 1);
 count.value = 1; test.flush(); await until(ready, 'new count'); await click(60); assert.equal(events.length, 2); assert.equal(events[1].second.kind, 'tap');
+if (leafMode) {
+  const before = events.length, beforeLeaves = leafEvents.length; dismissFromLeaf = true; await click(80);
+  assert.deepEqual(leafEvents.slice(beforeLeaves), [0]); assert.equal(events.length, before); assert.equal(presented.value, false);
+}
 presented.value = false; test.flush(); await until(() => !test.request('debug.focusContext').sheet && snapshot().pairDispatchArmOwners === 0, 'dismiss');
-assert.equal(disposals, 0); assert.equal(snapshot().pairDispatchPendingCount, 0); test.request('debug.close'); await app; assert.equal(disposals, 1);
+assert.equal(disposals, 0); assert.equal(snapshot().pairDispatchPendingCount, 0); assert.equal(snapshot().pairDispatchLeafLeaseCount, 0); assert.equal(snapshot().pairDispatchDependencyCount, 0); test.request('debug.close'); await app; assert.equal(disposals, 1);
 assert.equal(snapshot().liveViews, 0); assert.equal(snapshot().liveCells, 0); assert.equal(snapshot().pairDispatchArmOwners, 0); assert.equal(snapshot().pairDispatchPendingCount, 0); assert.deepEqual(test.pairStats(), { active: 0, armed: 0 });
-console.log('PASS pair sheet: delayed partial result canceled by native disappearance, new epoch on retained owner re-entry, frozen full values and cleanup without activation');
+console.log(`PASS pair sheet ${leafMode ? 'with leaf callbacks' : 'root only'}: delayed partial result canceled by native disappearance, new epoch on retained owner re-entry, frozen values, callback dismissal and cleanup without activation`);

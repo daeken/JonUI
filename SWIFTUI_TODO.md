@@ -29,6 +29,30 @@ Status meanings:
 
 ## Current review
 
+- Framework development paused at the user's request (2026-11-07), after the
+  tested leaf-dispatch/npm checkpoint. The backlog and partial coverage remain
+  recorded; the pause itself changes no widget/state/API classification.
+
+- Claimed leaf-dispatch review (2026-11-07): the internal tap/spatial pair accepts
+  onEnded handlers and claims exact native receipt/path/cohort/arm/config leases
+  once before current-handler delivery. Leases survive native completion until
+  the dependent group claim; absent handlers are acknowledged. Leaf State writes
+  reconcile before later callbacks, so handler replacement is current and config/
+  disable/presentation/removal suppress retired queued delivery. Last-handler
+  removal retires native leaf mode. The 256-leaf/128-root bounds now report managed
+  failure after native retirement, preserving Node stop/disposal; bridge-queue
+  exhaustion retains its separate abort policy. Build, 208 unit/compiler cases,
+  11 workflow tests, both type checkers, classification and 30 focused native gates
+  pass. New native count/priority/control/order, mutation/current-handler, sheet,
+  direct-claim/dependency, both overflow, throw/thenable/close and twenty-lifetime
+  checks pass; disabled fields preserve native ineligibility. Public coverage is
+  unchanged. Earlier branch sessions/GestureState reset, nested/long/lazy/owned
+  composition, hardware/minimum OS and the recorded mixed-sheet close crash remain.
+  An npm import smoke test verifies the embedded launcher's normal package
+  resolution/CommonJS interop using existing TypeScript, with native output and
+  offscreen cleanup. README distinguishes app imports from the live body editor
+  and browser bundling; no widget, dependency or resolver contract changes.
+
 - Native leaf-receipt review (2026-11-07): opt-in native onEnded observers record
   constructor paths and unique receipts; terminal group values correlate exactly
   to their completed branches within an epoch/armed slot. One/two-tap siblings
@@ -751,7 +775,7 @@ Status meanings:
 | task / refreshable | Partial analog | Scoped task cancellation exists. | Native view-appearance task, ID-triggered task and refresh UI integration remain. |
 | onSubmit / onEditingChanged | Partial | Native text revision snapshot before Node callback. | Supported text controls verified; richer submit scopes/triggers remain. |
 | onTapGesture / double tap | Partial | Native count 1/2 and normal/high/simultaneous priority; synchronous current Node handler, owned modifier token, disabled ancestors and cleanup. | Actual main/owned-window recognition, keyed/count changes, local State, failures, cross-root/sheet-parent rejection, native-close retirement/reopen and 20 lifetimes verified. Native lazy stack/grid and sheet Command-taps verified; unmodified inactive scroll/sheet delivery remains unverified. Ordinary Button/Toggle/nested priority composition and stable field focus verified; primitive interaction regions and modifier order verified; separate SpatialTapGesture supplies local snapshots. General coordinates/shapes, different-count conflicts and broader control/browser/scroll composition remain. <!-- api: View.onTapGesture --> |
-| SimultaneousGesture | Internal test prototype | Private frozen group-end dispatch owns a token/native arm/claim. Opt-in actual native leaf receipts have stable paths and exact completed-branch cohort correlation; callback-bearing leaves remain rejected. | Native count/control/priority matrix, native callback order, independent double-end cohorts, fresh points/stable field focus, pending/disabled/sheet/drain retirement, failure/shutdown and 20 lifetimes verified. Claimable Node leaf delivery, earlier causal sessions/branch state, public schema/composition, lazy/owned-window dispatch and nested/long groups remain. |
+| SimultaneousGesture | Internal test prototype | Private frozen group-end and current leaf callbacks use exact receipt/path/cohort/config/arm claims. Bounded leaf leases survive native completion until the dependent root claim. | Native count/control/priority/order, direct claims/dependencies, current handlers, reentrant handler/config/disable/removal/sheet changes, both overflow bounds, failure/close and 20 lifetimes verified. Earlier branch sessions/GestureState reset, public schema/composition, lazy/owned-window dispatch and nested/long groups remain. |
 | SequenceGesture / ExclusiveGesture | Missing | Ordered phase values and native conflict arbitration. | Compound epochs, branch-state reset, callback paths and actual control/cancellation/lifecycle tests required. |
 | Typed Gesture values | Partial (leaf descriptors) | Immutable reusable leaves; View.gesture attaches independent owned callback/config epochs. | Tap/spatial/long-press options, current callbacks, epochs, reuse, precedence and cleanup verified; long press has a recognized-boolean action value. No simultaneous-pair, sequence/exclusive result values, explicit masks or general updating API. <!-- api: Gesture, GesturePriority, TapGesture, SpatialTapGesture, LongPressGesture, View.gesture --> |
 | highPriorityGesture / simultaneousGesture | Partial | Typed leaf attachments and tap conveniences select native precedence; long presses support normal/simultaneous. Changes retire tokens while preserving control identity. | Ordinary/spatial taps and long-press Button/Toggle/nested Command-event outcomes, disabled behavior and cleanup verified. High long presses are blocked by native nested arbitration with pressing observation. General Gesture values, explicit masks, sequential/exclusive composition and broader native/browser/scroll interop remain. |
@@ -856,7 +880,7 @@ can still bypass local enforcement; this is not server-side branch protection.
 Repository instructions require the same review for contributors and automation.
 
 <!-- coverage-review:generated -->
-Review baseline (checkout HEAD before commit): `5e524a3a8369832dbe0149aae167f25859187c45`.
+Review baseline (checkout HEAD before commit): `632db83e2c91876c5da2f08e10d095b69f4565e5`.
 
-Staged source-tree SHA-256 (excluding this catalog): `4415fdf1b4466445a7f4ea3267afe5da8faa1e3e402540ff993496139bcda8fe`.
+Staged source-tree SHA-256 (excluding this catalog): `73745c7518a031f170a6578b5f7254da62dc228574909fafaade8ebd906ebf64`.
 <!-- /coverage-review:generated -->

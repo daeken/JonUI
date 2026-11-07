@@ -38,6 +38,14 @@ def run(entry, case='', failure=None, driver=None, timeout=30, layout=False):
         assert all(result.stdout.count(marker) == 1 for marker in ['RPC_SCOPE_DISPOSE', 'RPC_STOP']), (result.stdout, result.stderr)
     if entry.endswith('focus-subscribe-error.mjs'):
         assert all(result.stdout.count(marker) == 1 for marker in ['FOCUS_SCOPE_DISPOSE', 'FOCUS_STOP']), (result.stdout, result.stderr)
+    if entry.endswith('gesture-pair-leaf-error.mjs'):
+        assert result.returncode == (0 if case.endswith('close') else 1), (case, result.returncode, result.stdout, result.stderr)
+        markers = ['LEAF_DISPOSE', 'LEAF_STOP'] + (['LEAF_CLEAN'] if case.endswith('close') else [])
+        assert all(result.stdout.count(marker) == 1 for marker in markers), (case, result.stdout, result.stderr)
+    if entry.endswith('gesture-pair-leases.mjs'):
+        assert result.returncode == (1 if case.endswith('overflow') else 0), (case, result.returncode, result.stdout, result.stderr)
+        markers = ['LEASE_DISPOSE', 'LEASE_STOP', 'LEASE_RETIRED' if case.endswith('overflow') else 'LEASE_CLEAN']
+        assert all(result.stdout.count(marker) == 1 for marker in markers), (case, result.stdout, result.stderr)
     if entry.endswith('gesture-pair-error.mjs'):
         assert result.returncode == (0 if case == 'close' else 1), (case, result.returncode, result.stdout, result.stderr)
         assert all(result.stdout.count(marker) == 1 for marker in ['PAIR_DISPOSE', 'PAIR_STOP']), (case, result.stdout, result.stderr)
@@ -76,6 +84,7 @@ run('tests/integration/contracts.mjs', case='body-error', failure='intentional r
 run('tests/integration/contracts.mjs', case='timer-error', failure='intentional timer failure')
 run('tests/integration/contracts.mjs', case='overflow', failure='native event queue overflow')
 run('tests/integration/no-timers.mjs')
+run('tests/integration/npm-import.mjs')
 run('tests/integration/startup-error.mjs', failure='intentional body failure')
 run('examples/landmarks/app.ts', driver='tests/integration/landmarks-driver.mjs', timeout=180)
 
@@ -199,6 +208,13 @@ for mode in ['vertical-stack', 'horizontal-stack', 'vertical-grid', 'horizontal-
     run('tests/integration/tap-lazy.mjs', case='spatial-' + mode, timeout=90, layout=True)
 for mode, message in [('spatial-throw', 'intentional tap failure'), ('spatial-high-throw', 'intentional tap failure'), ('spatial-simultaneous-promise', 'must be synchronous')]:
     run('tests/integration/taps-error.mjs', case=mode, failure=message, layout=True)
+run('tests/integration/gesture-pair-leaf-dispatch.mjs', timeout=120, layout=True)
+run('tests/integration/gesture-pair-sheet.mjs', case='leaves', timeout=45, layout=True)
+run('tests/integration/gesture-pair-leases.mjs', timeout=45, layout=True)
+run('tests/integration/gesture-pair-leases.mjs', case='overflow', failure='Gesture pair leaf queue overflow', timeout=60, layout=True)
+run('tests/integration/gesture-pair-leases.mjs', case='root-overflow', failure='Gesture pair completion queue overflow', timeout=60, layout=True)
+for mode, failure in [('throw', 'intentional pair leaf failure'), ('promise', 'Gesture pair leaf callbacks must be synchronous'), ('close', None), ('held-close', None)]:
+    run('tests/integration/gesture-pair-leaf-error.mjs', case=mode, failure=failure, layout=True)
 for mode in ['', 'sheet', 'close', 'pending-close']:
     run('tests/integration/gesture-pair-leaves.mjs', case=mode, timeout=120, layout=True)
 run('tests/integration/gesture-pair-dispatch.mjs', timeout=90, layout=True)

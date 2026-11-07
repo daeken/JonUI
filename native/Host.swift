@@ -101,8 +101,9 @@ private func validateLayout(_ kind: String, _ props: [String: Any]) throws {
     case "modifier":
         switch props["name"] as? String {
         case "testGesturePair":
-            try keys(["name", "first", "second", "priority", "epoch", "dispatch", "traceLeaves"])
-            try boolean("dispatch"); try boolean("traceLeaves")
+            try keys(["name", "first", "second", "priority", "epoch", "dispatch", "traceLeaves", "dispatchLeaves"])
+            try boolean("dispatch"); try boolean("traceLeaves"); try boolean("dispatchLeaves")
+            if props["dispatchLeaves"] as? Bool == true, props["dispatch"] as? Bool != true || props["traceLeaves"] as? Bool != true { throw BridgeError("Leaf dispatch requires group dispatch and leaf tracing") }
             let environment = ProcessInfo.processInfo.environment
             guard environment["JONUI_TEST"] == "1", environment["JONUI_TEST_OFFSCREEN"] == "1", environment["JONUI_TEST_LAYOUT"] == "1",
                   let epoch = props["epoch"].flatMap(layoutNumber), epoch > 0, epoch.rounded() == epoch, epoch < Double(Int.max),
@@ -414,6 +415,7 @@ private struct PairProbeEvent {
 }
 private struct PairProbeArm: Equatable { let epoch: Int; let slot: Int }
 private struct PairProbeReceipt { let id: Int; let value: [String: Any] }
+private struct PairDispatchLeafLease { let arm: Int, cohort: Int, path: Int; var claimed = false }
 private struct PairProbeCohort {
     let id: Int, arm: PairProbeArm
     var receipts: [Int: PairProbeReceipt] = [:]
@@ -1231,6 +1233,8 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var pairProbeCohortSerial = 0, pairProbeCorrelationErrors = 0
     private var pairDispatchArms: [Int: Int] = [:]
     private var pairDispatchPending: [Int: Set<Int>] = [:]
+    private var pairDispatchLeaves: [Int: [Int: PairDispatchLeafLease]] = [:]
+    private var pairDispatchDependencies: [Int: [Int: Set<Int>]] = [:]
     private var pairDispatchSerial = 0
     private var pairProbeTraces: [Int: [[String: Any]]] = [:]
     let testing = ProcessInfo.processInfo.environment["JONUI_TEST"] == "1"
@@ -1310,6 +1314,13 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
         emit(event)
     }
     func nextPairProbeInterval() -> Int { pairProbeInterval += 1; return pairProbeInterval }
+    private func failPairDispatch(_ id: Int, _ message: String) {
+        pairProbeArms.removeValue(forKey: id); pairProbeCohorts.removeValue(forKey: id)
+        pairDispatchArms.removeValue(forKey: id); pairDispatchPending.removeValue(forKey: id)
+        pairDispatchLeaves.removeValue(forKey: id); pairDispatchDependencies.removeValue(forKey: id)
+        // The bridge queue is still available; let Node dispose its owned work.
+        emit(["type": "gesturePairFailure", "message": message])
+    }
     func recordPairProbe(_ id: Int, event: PairProbeEvent) {
         guard testing && layoutTesting && offscreen, !stopping,
               let box = liveNode(id), box.kind == "modifier", box.string("name") == "testGesturePair" else { return }
@@ -1318,13 +1329,13 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
               event.slot == nil || [0, 1].contains(event.slot!) else { pairProbeRejected += 1; if event.phase == "ended" { pairProbeRejectedEnds += 1 }; return }
         if event.phase == "armed", let slot = event.slot {
             pairProbeArms[id] = PairProbeArm(epoch: event.epoch, slot: slot)
-            pairProbeCohorts.removeValue(forKey: id)
+            pairProbeCohorts.removeValue(forKey: id); pairDispatchLeaves.removeValue(forKey: id); pairDispatchDependencies.removeValue(forKey: id)
             if box.props["dispatch"] as? Bool == true {
                 pairDispatchSerial += 1; pairDispatchArms[id] = pairDispatchSerial; pairDispatchPending.removeValue(forKey: id)
                 emit(["type": "gesturePairArm", "id": id, "token": event.epoch, "arm": pairDispatchSerial])
             }
         } else if event.phase == "reset" {
-            pairProbeArms.removeValue(forKey: id); pairProbeCohorts.removeValue(forKey: id); pairDispatchPending.removeValue(forKey: id)
+            pairProbeArms.removeValue(forKey: id); pairProbeCohorts.removeValue(forKey: id); pairDispatchPending.removeValue(forKey: id); pairDispatchLeaves.removeValue(forKey: id); pairDispatchDependencies.removeValue(forKey: id)
             if let arm = pairDispatchArms.removeValue(forKey: id) { emit(["type": "gesturePairReset", "id": id, "token": event.epoch, "arm": arm]) }
         }
         else if ["changed", "ended", "leafEnded"].contains(event.phase) {
@@ -1337,6 +1348,7 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
         var trace: [String: Any] = ["epoch": event.epoch, "interval": event.interval, "phase": event.phase,
                                     "slot": event.slot as Any? ?? NSNull(), "first": event.first, "second": event.second,
                                     "time": ProcessInfo.processInfo.systemUptime]
+        var completedReceipts = Set<Int>()
         if event.phase == "leafEnded" {
             guard box.props["traceLeaves"] as? Bool == true, let path = event.path, path == [0] || path == [1],
                   let arm = pairProbeArms[id], let value = (path == [0] ? event.first : event.second) as? [String: Any] else { return }
@@ -1350,6 +1362,13 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
             cohort.receipts[path[0]] = PairProbeReceipt(id: pairProbeLeafReceipt, value: value)
             pairProbeCohorts[id] = cohort
             trace["receipt"] = pairProbeLeafReceipt; trace["path"] = path; trace["cohort"] = cohort.id
+            if box.props["dispatchLeaves"] as? Bool == true, let dispatchArm = pairDispatchArms[id] {
+                guard (pairDispatchLeaves[id]?.count ?? 0) < 256 else { failPairDispatch(id, "Gesture pair leaf queue overflow"); return }
+                pairDispatchLeaves[id, default: [:]][pairProbeLeafReceipt] = PairDispatchLeafLease(arm: dispatchArm, cohort: cohort.id, path: path[0])
+                trace["dispatchArm"] = dispatchArm
+                emit(["type": "gesturePairLeaf", "id": id, "token": event.epoch, "arm": dispatchArm, "cohort": cohort.id,
+                      "receipt": pairProbeLeafReceipt, "path": path, "value": value])
+            }
         }
         if event.phase == "ended", box.props["traceLeaves"] as? Bool == true {
             // Correlate only actual native leaf ends, within one uninterrupted arm.
@@ -1365,17 +1384,26 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 }
             } ?? false
             if matches, let cohort {
+                completedReceipts = Set(cohort.receipts.values.map { $0.id })
                 trace["cohort"] = cohort.id
                 trace["receipts"] = ["first": cohort.receipts[0]?.id as Any? ?? NSNull(), "second": cohort.receipts[1]?.id as Any? ?? NSNull()]
-            } else { pairProbeCorrelationErrors += 1; trace["correlationError"] = true }
+            } else {
+                pairProbeCorrelationErrors += 1; trace["correlationError"] = true
+                if box.props["dispatchLeaves"] as? Bool == true { failPairDispatch(id, "Gesture pair leaf correlation failed"); return }
+            }
         }
-        if event.phase == "inactive", let cohort = pairProbeCohorts.removeValue(forKey: id) { trace["retiredCohort"] = cohort.id }
+        if event.phase == "inactive", let cohort = pairProbeCohorts.removeValue(forKey: id) {
+            for receipt in cohort.receipts.values { pairDispatchLeaves[id]?.removeValue(forKey: receipt.id) }
+            if pairDispatchLeaves[id]?.isEmpty == true { pairDispatchLeaves.removeValue(forKey: id) }
+            trace["retiredCohort"] = cohort.id
+        }
         if event.phase == "ended" {
             pairProbeCompletion += 1; trace["completion"] = pairProbeCompletion
             if box.props["dispatch"] as? Bool == true, let arm = pairDispatchArms[id] {
-                guard (pairDispatchPending[id]?.count ?? 0) < 128 else { ju_runtime_abort("Gesture pair completion queue overflow"); return }
+                guard (pairDispatchPending[id]?.count ?? 0) < 128 else { failPairDispatch(id, "Gesture pair completion queue overflow"); return }
                 trace["dispatchArm"] = arm
                 pairDispatchPending[id, default: []].insert(pairProbeCompletion)
+                if box.props["dispatchLeaves"] as? Bool == true { pairDispatchDependencies[id, default: [:]][pairProbeCompletion] = completedReceipts }
                 emit(["type": "gesturePair", "id": id, "token": event.epoch, "arm": arm, "completion": pairProbeCompletion,
                       "value": ["first": event.first, "second": event.second]])
             }
@@ -1429,7 +1457,7 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
         for coordinator in hostedControls.values { coordinator.invalidate() }
         window?.contentView = nil
         root = nil; nodes.removeAll(); cells.removeAll(); webViews.removeAll(); hostedControls.removeAll(); layoutFrames.removeAll()
-        retiredWindowNodes.removeAll(); pairProbeTraces.removeAll(); pairProbeArms.removeAll(); pairProbeCohorts.removeAll(); pairDispatchArms.removeAll(); pairDispatchPending.removeAll()
+        retiredWindowNodes.removeAll(); pairProbeTraces.removeAll(); pairProbeArms.removeAll(); pairProbeCohorts.removeAll(); pairDispatchArms.removeAll(); pairDispatchPending.removeAll(); pairDispatchLeaves.removeAll(); pairDispatchDependencies.removeAll()
         shortcutTestEvents.removeAll(); shortcutTestResults.removeAll()
         // Balance held test mouse-downs before tearing down their tracking loops.
         for timers in Array(tapTestTimers.values) { timers.last?.fire(); for timer in timers { timer.invalidate() } }; tapTestTimers.removeAll()
@@ -2053,7 +2081,7 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 }
                 if kind == "modifier", modifier == "testGesturePair", let previous = nodes[id], previous.kind == "modifier", previous.string("name") == modifier,
                    let oldEpoch = previous.props["epoch"] as? Int, let newEpoch = props["epoch"] as? Int {
-                    let changed = try jsonData([props["first"]!, props["second"]!, props["priority"]!, props["dispatch"] as? Bool ?? false, props["traceLeaves"] as? Bool ?? false]) != jsonData([previous.props["first"]!, previous.props["second"]!, previous.props["priority"]!, previous.props["dispatch"] as? Bool ?? false, previous.props["traceLeaves"] as? Bool ?? false])
+                    let changed = try jsonData([props["first"]!, props["second"]!, props["priority"]!, props["dispatch"] as? Bool ?? false, props["traceLeaves"] as? Bool ?? false, props["dispatchLeaves"] as? Bool ?? false]) != jsonData([previous.props["first"]!, previous.props["second"]!, previous.props["priority"]!, previous.props["dispatch"] as? Bool ?? false, previous.props["traceLeaves"] as? Bool ?? false, previous.props["dispatchLeaves"] as? Bool ?? false])
                     guard newEpoch >= oldEpoch, !changed || newEpoch > oldEpoch else { throw BridgeError("Test gesture pair changes require a newer epoch") }
                 }
                 if kind == "modifier" && modifier == "window", ![1, 2].contains(children.count) { throw BridgeError("Invalid child count for window") }
@@ -2110,6 +2138,8 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
             pairProbeCohorts = pairProbeCohorts.filter { pairProbeArms[$0.key] == $0.value.arm && nodes[$0.key]?.props["traceLeaves"] as? Bool == true }
             pairDispatchArms = pairDispatchArms.filter { pairProbeArms[$0.key] != nil && nodes[$0.key]?.props["dispatch"] as? Bool == true }
             pairDispatchPending = pairDispatchPending.filter { pairDispatchArms[$0.key] != nil }
+            pairDispatchLeaves = pairDispatchLeaves.filter { pairDispatchArms[$0.key] != nil && nodes[$0.key]?.props["dispatchLeaves"] as? Bool == true }
+            pairDispatchDependencies = pairDispatchDependencies.filter { pairDispatchArms[$0.key] != nil && nodes[$0.key]?.props["dispatchLeaves"] as? Bool == true }
             layoutSurfaces = layoutSurfaces.filter { reachable.contains($0.key) }
             retiredWindowNodes.formIntersection(reachable)
             namedFocusNodes = focusNames
@@ -2131,6 +2161,9 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 "pairProbeArmOwners": pairProbeArms.count, "pairProbeCohortOwners": pairProbeCohorts.count,
                 "pairProbeLeafReceipts": pairProbeCohorts.values.reduce(0) { $0 + $1.receipts.count }, "pairDispatchArmOwners": pairDispatchArms.count,
                 "pairDispatchPendingCount": pairDispatchPending.values.reduce(0) { $0 + $1.count },
+                "pairDispatchLeafLeaseCount": pairDispatchLeaves.values.reduce(0) { $0 + $1.count },
+                "pairDispatchUnclaimedLeafCount": pairDispatchLeaves.values.reduce(0) { $0 + $1.values.filter { !$0.claimed }.count },
+                "pairDispatchDependencyCount": pairDispatchDependencies.values.reduce(0) { $0 + $1.count },
                 "pairProbeTraceCount": pairProbeTraces.values.reduce(0) { $0 + $1.count }, "pairProbeOwners": pairProbeTraces.count,
                 "layoutSurfaceCount": layoutSurfaces.count, "pointerTimerCount": tapTestTimers.values.reduce(0) { $0 + $1.filter { $0.isValid }.count },
                 "availabilityWatchCount": availabilityWatches.count, "availabilityNotificationCount": availabilityNotifications.count,
@@ -2267,8 +2300,28 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
             guard Set(message.keys) == Set(["op", "id", "token", "arm", "completion"]) else { throw BridgeError("Invalid gesture pair claim") }
             let id = try counter("id"), token = try counter("token"), arm = try counter("arm"), completion = try counter("completion")
             guard !stopping, let box = liveNode(id), box.kind == "modifier", box.string("name") == "testGesturePair", box.props["dispatch"] as? Bool == true,
-                  box.props["epoch"] as? Int == token, pairDispatchArms[id] == arm, pairDispatchPending[id]?.remove(completion) != nil else { return ["accepted": false] }
+                  box.props["epoch"] as? Int == token, pairDispatchArms[id] == arm, pairDispatchPending[id]?.contains(completion) == true else { return ["accepted": false] }
+            let dependencies = pairDispatchDependencies[id]?[completion] ?? []
+            guard dependencies.allSatisfy({ pairDispatchLeaves[id]?[$0]?.claimed == true && pairDispatchLeaves[id]?[$0]?.arm == arm }) else { return ["accepted": false] }
+            pairDispatchPending[id]?.remove(completion)
+            for receipt in dependencies { pairDispatchLeaves[id]?.removeValue(forKey: receipt) }
+            pairDispatchDependencies[id]?.removeValue(forKey: completion)
             if pairDispatchPending[id]?.isEmpty == true { pairDispatchPending.removeValue(forKey: id) }
+            if pairDispatchLeaves[id]?.isEmpty == true { pairDispatchLeaves.removeValue(forKey: id) }
+            if pairDispatchDependencies[id]?.isEmpty == true { pairDispatchDependencies.removeValue(forKey: id) }
+            return ["accepted": true]
+        case "gesturePair.leafClaim" where testing && layoutTesting && offscreen:
+            func counter(_ key: String) throws -> Int {
+                guard let value = message[key].flatMap(layoutNumber), value > 0, value.rounded() == value, value <= 9007199254740991 else { throw BridgeError("Invalid gesture pair leaf claim") }
+                return Int(value)
+            }
+            guard Set(message.keys) == Set(["op", "id", "token", "arm", "cohort", "receipt", "path"]), let raw = message["path"] as? [Any], raw.count == 1,
+                  let path = raw[0] as? NSNumber, CFGetTypeID(path) != CFBooleanGetTypeID(), [0.0, 1.0].contains(path.doubleValue) else { throw BridgeError("Invalid gesture pair leaf claim") }
+            let id = try counter("id"), token = try counter("token"), arm = try counter("arm"), cohort = try counter("cohort"), receipt = try counter("receipt")
+            guard !stopping, let box = liveNode(id), box.kind == "modifier", box.string("name") == "testGesturePair", box.props["dispatchLeaves"] as? Bool == true,
+                  box.props["epoch"] as? Int == token, pairDispatchArms[id] == arm, let lease = pairDispatchLeaves[id]?[receipt],
+                  lease.arm == arm, lease.cohort == cohort, lease.path == path.intValue, !lease.claimed else { return ["accepted": false] }
+            pairDispatchLeaves[id]?[receipt]?.claimed = true
             return ["accepted": true]
         case "debug.pairTrace" where testing && layoutTesting && offscreen:
             guard Set(message.keys).isSubset(of: ["op", "id"]),

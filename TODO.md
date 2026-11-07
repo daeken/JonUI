@@ -1,5 +1,11 @@
 # JonUI TODO
 
+Scheduled framework development is **paused at the user's request (2026-11-07)**.
+The next direction is an agent application built on JonUI, with an editable
+interface. Keep the remaining framework backlog for later; resume scheduled
+backlog development only on an explicit user request. The tested leaf-dispatch
+increment below is saved as the final checkpoint before this pause.
+
 Work in priority order. Keep completed items checked, split large items into
 reviewable increments, and mark an item complete only after its behavior and
 cleanup are implemented and verified. Record useful implementation notes beside
@@ -1751,7 +1757,8 @@ schema and hardware/minimum-OS behavior remain open; keep broad gestures uncheck
 Native leaf receipt/callback-order probe (2026-11-07), continuing session ownership:
 
 - [x] Observe actual native tap/spatial leaf ends with stable constructor paths; correlate each terminal group value to exact completed-branch receipts and verify cleanup.
-- [ ] Add owned native leaf-receipt leases and per-callback claims, current-handler dispatch, reentrant mutation/error cleanup and branch-state/session ownership.
+- [x] Add owned native leaf-receipt leases and per-callback claims, current-handler dispatch and reentrant mutation/error cleanup for the internal tap/spatial pair.
+- [ ] Establish earlier branch-session identity and transient GestureState ownership/reset before public composition.
 
 The raw test modifier now has opt-in `traceLeaves`; changing it requires a newer
 epoch and malformed flags fail atomically. Real native leaf onEnded observers
@@ -1795,12 +1802,68 @@ fix for the recorded mixed-sheet close crash is claimed. Public coverage is
 unchanged; lazy/owned-window dispatch, nested/long groups and hardware/minimum-OS
 behavior remain open.
 
-Next: retain native leaf receipts under bounded claimable leases long enough for
-queued Node handlers, with per-callback owner/config validation and explicit group
-correlation. Test handler replacement, mutation/disposal during the first leaf,
-errors/thenables and repeated lifecycle cleanup before accepting callback-bearing
-leaves. Establish earlier branch session identity and transient-state reset before
-exposing public composition; keep observer intervals diagnostic.
+Claimable leaf-dispatch prototype (2026-11-07), continuing composition ownership:
+`__testing.gesturePair` now accepts tap/spatial onEnded handlers and automatically
+enables native tracing/leaf dispatch when any handler exists. No public compound
+method, new binding cell, timer or monitor is added. Long/nested groups and branch
+GestureState remain unsupported. Callback functions stay in Node; each actual leaf
+end must claim its exact live node/configuration/arm/cohort/receipt/path once.
+Tap handlers receive no arguments; spatial handlers receive a detached frozen
+local point. Group results keep their private frozen optional tagged snapshots.
+
+Native leases keep a claimed bit through group completion. A group claim requires
+all correlated leaf dependencies to have been claimed, then releases just those
+leases. Missing user handlers are still acknowledged so they cannot strand the
+root. A completed one-tap branch is not re-fired from a later partial/full result.
+Native order is preserved, including second-before-first for reverse counts.
+Callback reads are untracked and task-isolated. Each successful leaf reconciles
+synchronous State writes before the next claim: current handler changes take
+effect immediately, while count/priority/disable/presentation/removal retire later
+queued events. Removing one of two handlers keeps the token; removing the last
+switches to root-only mode and retires it. Already delivered leaf effects are not
+rolled back when a later group is retired.
+
+Native owners retain at most 256 leaf leases and 128 pending root completions.
+Group claims, canceled-cohort inactivity, rearm/disappearance/disable, graph pruning
+and shutdown clear their registries. Direct native claims reject wrong paths,
+cohorts, arms/configs, duplicates, malformed input and root delivery before leaves.
+Overflow testing exposed the old hard-abort path bypassing Node cleanup. Pair
+queue overflow/correlation failures now retire native ownership and report one
+managed failure through the still-available bridge queue; scope disposal and stop
+hooks run once. The separate bridge-queue exhaustion hard-abort policy is unchanged.
+
+Validation: native build, 208 unit/compiler cases, 11 coverage workflow tests,
+both type checkers and API classification pass. Thirty focused offscreen
+native gates pass, including nine new leaf/lease/sheet/failure/bounds gates and
+an npm import gate through the embedded launcher.
+The new native matrix verifies count/priority/control outcomes and callback order,
+void/frozen-point arguments, immediate current handlers, first-leaf revision/
+handler/config/disable/removal changes without manual flushing, last-handler mode
+switch, sheet dismissal inside a callback and retained-owner re-entry, pending
+claimed leases, exact single-use claims and root dependency gating. Both queue
+limits produce exit 1, one stop/dispose and verified native lease/dependency
+retirement; throw/thenable failures also stop/dispose once. Normal, held and
+callback-close paths plus twenty owner lifetimes return callbacks, cells, views,
+leases/dependencies, cohorts and timers to baseline. Disabled fields correctly
+refuse captured-focus requests; eligible field identity/focus/Unicode survive
+configuration changes. Existing receipt/probe/rearm/root dispatch/error/sheet,
+typed values/state, tap/spatial and layout/appearance/contracts regressions pass.
+No full-suite pass or mixed-sheet-close fix is claimed. Public coverage is unchanged.
+
+The npm follow-up confirms normal application package resolution is already
+supported: an installed CommonJS TypeScript package imports from ESM, shares its
+module instance with createRequire, executes its API and renders natively in an
+offscreen smoke test. README documents this and the separate manual WebView
+bundling/native-addon compatibility boundaries. The live playground compiler
+currently accepts synchronous function bodies, not module import declarations;
+normal application imports are separate. No dependency or resolver change.
+
+Next: establish native branch-session identity before the first completion and
+owned transient branch-state/reset semantics. The completed-branch cohort/receipt
+model does not yet identify began-but-unfinished branches. Test cancellation and
+replacement without an old reset touching new branch state; then expand nested/
+long and lazy/owned-window composition dispatch before exposing a public method.
+Hardware/minimum-OS checks remain open and broad gestures stay unchecked.
 
 ## 3. Application and operating-system integration
 

@@ -415,10 +415,12 @@ function testGesturePair(view, first, second, callback, options = {}) {
   layoutEnum(priority, ['normal', 'high', 'simultaneous'], 'pair priority');
   const leaf = value => {
     const definition = gestureValue(value);
-    if (definition.callback !== undefined || !['onTapGesture', 'onSpatialTapGesture'].includes(definition.method)) throw new TypeError('Pair dispatch supports only tap/spatial leaves without callbacks');
+    if (!['onTapGesture', 'onSpatialTapGesture'].includes(definition.method)) throw new TypeError('Pair dispatch supports only tap/spatial leaves');
     return Object.freeze({ kind: definition.method === 'onTapGesture' ? 'tap' : 'spatial', count: definition.options.count });
   };
-  return view.modifier('testGesturePair', { first: leaf(first), second: leaf(second), priority, dispatch: true, onPair: callback });
+  const onPairLeaves = Object.freeze([gestureValue(first).callback, gestureValue(second).callback]);
+  const dispatchLeaves = onPairLeaves.some(Boolean);
+  return view.modifier('testGesturePair', { first: leaf(first), second: leaf(second), priority, dispatch: true, traceLeaves: dispatchLeaves, dispatchLeaves, onPair: callback, onPairLeaves });
 }
 function pairInputActive(mounted) {
   let enabled = true;
@@ -1542,15 +1544,15 @@ function finishEvaluation(mounted, children) {
   });
   unmountAll(old.values());
   if (value.kind === 'modifier' && value.props.name === 'window') windowViews.set(mounted.id, mounted);
-  const { body, fallback, rows, row, action, onMessage, onError, api, onSubmit, onEditingChanged, onAppearance, onTap, onLongPress, onPressingChanged, onPair, pressingState, focusBinding, definition, setup, componentProps, ...props } = value.props;
+  const { body, fallback, rows, row, action, onMessage, onError, api, onSubmit, onEditingChanged, onAppearance, onTap, onLongPress, onPressingChanged, onPair, onPairLeaves, pressingState, focusBinding, definition, setup, componentProps, ...props } = value.props;
   const ownedPair = props.name === 'testGesturePair' && props.dispatch === true && typeof onPair === 'function';
   const pairActive = ownedPair ? track(mounted, () => pairInputActive(mounted)) : false;
-  const pairSignature = ownedPair ? JSON.stringify([props.first, props.second, props.priority, pairActive]) : null;
+  const pairSignature = ownedPair ? JSON.stringify([props.first, props.second, props.priority, props.dispatchLeaves, pairActive]) : null;
   if (!ownedPair || mounted.pairSignature !== pairSignature) { pairGroups.delete(mounted.pairToken); mounted.pairToken = undefined; }
   if (ownedPair) {
     mounted.pairToken ??= nextPair++; mounted.pairSignature = pairSignature;
-    const entry = pairGroups.get(mounted.pairToken) ?? { id: mounted.id, arm: 0, lastArm: 0, completion: 0 };
-    Object.assign(entry, { callback: onPair, mounted, active: pairActive, first: props.first, second: props.second });
+    const entry = pairGroups.get(mounted.pairToken) ?? { id: mounted.id, arm: 0, lastArm: 0, completion: 0, receipt: 0 };
+    Object.assign(entry, { callback: onPair, leafCallbacks: onPairLeaves, mounted, active: pairActive, first: props.first, second: props.second });
     pairGroups.set(mounted.pairToken, entry); props.epoch = mounted.pairToken;
   }
   const gesture = pressingState === undefined ? undefined : gestureProjection(pressingState);
@@ -1741,12 +1743,33 @@ bridge.listen(json => {
         throw new TypeError('Tap callbacks must be synchronous; use scope.task for asynchronous work');
       }
     }
-    else if (['gesturePairArm', 'gesturePairReset', 'gesturePair'].includes(event.type)) {
+    else if (event.type === 'gesturePairFailure' && typeof event.message === 'string') throw new Error(event.message);
+    else if (['gesturePairArm', 'gesturePairReset', 'gesturePairLeaf', 'gesturePair'].includes(event.type)) {
       const entry = pairGroups.get(event.token);
       if (!entry || entry.id !== event.id || !Number.isSafeInteger(event.arm) || event.arm < 1) return;
       if (event.type === 'gesturePairArm') { if (event.arm > entry.lastArm) entry.arm = entry.lastArm = event.arm; return; }
       if (event.type === 'gesturePairReset') { if (event.arm === entry.arm) entry.arm = 0; return; }
-      if (entry.arm !== event.arm || !entry.active || !untracked(() => pairInputActive(entry.mounted)) || !Number.isSafeInteger(event.completion) || event.completion <= entry.completion) return;
+      if (entry.arm !== event.arm || !entry.active || !untracked(() => pairInputActive(entry.mounted))) return;
+      if (event.type === 'gesturePairLeaf') {
+        if (!entry.leafCallbacks?.some(Boolean) || !Array.isArray(event.path) || event.path.length !== 1 || ![0, 1].includes(event.path[0]) || !Number.isSafeInteger(event.cohort) || event.cohort < 1 || !Number.isSafeInteger(event.receipt) || event.receipt <= entry.receipt) return;
+        const path = event.path[0], key = path === 0 ? 'first' : 'second';
+        const snapshot = pairSnapshot({ first: null, second: null, [key]: event.value }, entry); if (!snapshot) return;
+        if (!request('gesturePair.leafClaim', { id: event.id, token: event.token, arm: event.arm, cohort: event.cohort, receipt: event.receipt, path: event.path }).accepted) return;
+        entry.receipt = event.receipt;
+        const callback = entry.leafCallbacks[path];
+        if (callback) {
+          const sample = snapshot[key];
+          const result = taskStorage.run(undefined, () => untracked(() => sample.kind === 'tap' ? callback() : callback(Object.freeze({ x: sample.x, y: sample.y }))));
+          if (result && typeof result.then === 'function') {
+            Promise.resolve(result).catch(() => {});
+            throw new TypeError('Gesture pair leaf callbacks must be synchronous; use scope.task for asynchronous work');
+          }
+          // Reconcile callback writes before the next queued leaf/group claim.
+          flush();
+        }
+        return;
+      }
+      if (!Number.isSafeInteger(event.completion) || event.completion <= entry.completion) return;
       const value = pairSnapshot(event.value, entry); if (!value) return;
       if (!request('gesturePair.claim', { id: event.id, token: event.token, arm: event.arm, completion: event.completion }).accepted) return;
       entry.completion = event.completion;
@@ -1836,5 +1859,5 @@ export const __testing = process.env.JONUI_TEST === '1' ? Object.freeze({
   computedStats: () => ({ active: computations.size, dependencies: [...computations].reduce((n, observer) => n + observer.dependencies.size, 0) }),
   focusStats: () => ({ listeners: focusListeners.size, watching: focusWatch !== null }),
   availabilityStats: () => ({ names: availabilityWatches.size, listeners: [...availabilityWatches.values()].reduce((n, watch) => n + watch.entries.size, 0) }),
-  stats: () => ({ actions: actions.size + pairGroups.size + focusListeners.size + [...availabilityWatches.values()].reduce((n, watch) => n + watch.entries.size, 0) + textSubmits.size + textEditings.size + appearances.size + taps.size + [...longPresses.values()].reduce((n, entry) => n + 1 + Number(!!entry.pressing), 0) + [...webErrors.values()].filter(Boolean).length + [...webAPIs.values()].reduce((n, entry) => n + Object.keys(entry.api).length, 0), cells: cells.size, dependencies: [...cells.values()].reduce((n, v) => n + v.cell.dependents.size, 0) }),
+  stats: () => ({ actions: actions.size + [...pairGroups.values()].reduce((n, entry) => n + 1 + (entry.leafCallbacks?.filter(Boolean).length ?? 0), 0) + focusListeners.size + [...availabilityWatches.values()].reduce((n, watch) => n + watch.entries.size, 0) + textSubmits.size + textEditings.size + appearances.size + taps.size + [...longPresses.values()].reduce((n, entry) => n + 1 + Number(!!entry.pressing), 0) + [...webErrors.values()].filter(Boolean).length + [...webAPIs.values()].reduce((n, entry) => n + Object.keys(entry.api).length, 0), cells: cells.size, dependencies: [...cells.values()].reduce((n, v) => n + v.cell.dependents.size, 0) }),
 }) : undefined;
