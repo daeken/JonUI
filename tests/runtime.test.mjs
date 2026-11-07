@@ -17,6 +17,7 @@ async function setup() {
       if (message.op === 'web.claim') result = { accepted: focus.rpcActive !== false };
       if (message.op === 'focus.named') result = { focused: focus.focused };
       if (message.op === 'focus.currentName') result = { name: focus.name };
+      if (message.op === 'focus.watch') result = focus.watchError ? { error: focus.watchError } : { name: focus.name, sequence: 0, context: 1 };
       if (message.op === 'focus.direction') result = { moved: focus.focused };
       if (message.op === 'focus.traversal') result = { configured: focus.configured };
       if (message.op === 'state.create') {
@@ -100,6 +101,7 @@ test('document replacement/unmount cancel RPC continuations, subscriptions, late
   const gates = [], signals = [], lateNames = []; let cleanups = 0, lateAllocations = 0, commits = 0;
   const done = launch(ui, ui.View(() => shown.value ? ui.WebView({ html: html.value, api: { async slow() {
     const context = ui.WebRequest.current; signals.push(context.signal); context.onCancel(() => { cleanups++; shared.value = 'cleanup'; });
+    ui.Focus.subscribe(() => assert.fail('retired RPC focus listener must be released'));
     shared.subscribe(() => assert.fail('cancelled subscription must be released'));
     await new Promise(resolve => gates.push(resolve));
     lateNames.push(ui.Focus.currentName());
@@ -118,6 +120,9 @@ test('document replacement/unmount cancel RPC continuations, subscriptions, late
   shared.value = 'current'; gates.forEach(resolve => resolve()); await tick();
   assert.equal(shared.value, 'current'); assert.equal(lateAllocations, 2); assert.equal(commits, 0); assert.ok(!h.calls.some(c => c.op === 'web.reply'));
   assert.deepEqual(lateNames, [null, null]); assert.ok(!h.calls.some(c => c.op === 'focus.currentName'));
+  assert.deepEqual(ui.__testing.focusStats(), { listeners: 0, watching: false });
+  assert.equal(h.calls.filter(c => c.op === 'focus.watch').length, 2);
+  assert.equal(h.calls.filter(c => c.op === 'focus.unwatch').length, 2);
   assert.deepEqual(ui.__testing.webRequestStats(), { apis: 0, pending: 0 });
   h.emit({ type: 'stop' }); await done;
 });
@@ -255,6 +260,68 @@ test('focus name reads reject render/computed purity and skip canceled task cont
   shown.value = false; await tick(); const before = h.calls.length;
   release(); await tick(); assert.equal(lateResult, null); assert.equal(h.calls.length, before);
   h.emit({ type: 'stop' }); await done;
+  assert.deepEqual(ui.__testing.stats(), { actions: 0, cells: 0, dependencies: 0 });
+});
+
+test('focus subscriptions share a session, reject stale events and preserve exact Unicode without replay', async () => {
+  const h = await setup(), { ui } = h, done = launch(ui, ui.Text('focus'));
+  const first = [], second = [];
+  for (const callback of [null, 1, {}, []]) assert.throws(() => ui.Focus.subscribe(callback), /focus listener/);
+  const a = ui.Focus.subscribe(name => first.push(name)), b = ui.Focus.subscribe(name => second.push(name));
+  assert.deepEqual(first, []); assert.equal(h.calls.filter(c => c.op === 'focus.watch').length, 1);
+  const token = h.calls.find(c => c.op === 'focus.watch').token;
+  const emit = (sequence, name, context = 1) => h.emit({ type: 'focusChanged', token, sequence, context, name });
+  emit(0, 'old'); emit(1, 'café'); emit(2, 'cafe\u0301'); emit(3, 'cafe\u0301'); emit(1, 'old');
+  emit(4, 1); emit(4, ''); emit(4, '\ud800'); emit(4, 'invalid context', 0); emit(4, 'next', 2); emit(5, 'old window', 1); emit(5, null, 2);
+  assert.deepEqual(first, ['café', 'cafe\u0301', 'next', null]); assert.deepEqual(second, first);
+  a(); a(); assert.equal(h.calls.filter(c => c.op === 'focus.unwatch').length, 0);
+  b(); b(); assert.equal(h.calls.filter(c => c.op === 'focus.unwatch').length, 1);
+  assert.deepEqual(ui.__testing.focusStats(), { listeners: 0, watching: false });
+  const c = ui.Focus.subscribe(name => first.push(name));
+  emit(100, 'retired'); const newToken = h.calls.filter(c => c.op === 'focus.watch').at(-1).token; assert.ok(newToken > token);
+  h.emit({ type: 'focusChanged', token: newToken, sequence: 1, context: 1, name: 'fresh' }); assert.equal(first.at(-1), 'fresh');
+  c(); h.emit({ type: 'stop' }); await done;
+  const count = h.calls.length; ui.Focus.subscribe(() => assert.fail())(); assert.equal(h.calls.length, count);
+});
+
+test('focus subscription failure rolls back resources and listeners can remove siblings or add listeners during delivery', async () => {
+  const h = await setup(), { ui } = h; h.focus.watchError = 'no mounted window';
+  assert.throws(() => ui.Focus.subscribe(() => {}), /no mounted window/);
+  assert.deepEqual(ui.__testing.focusStats(), { listeners: 0, watching: false });
+  h.focus.watchError = null; const done = launch(ui, ui.Text('focus')), received = [];
+  let stopSecond, stopThird;
+  const stopFirst = ui.Focus.subscribe(name => { received.push(`first:${name}`); stopSecond(); stopThird ??= ui.Focus.subscribe(value => received.push(`third:${value}`)); });
+  stopSecond = ui.Focus.subscribe(name => received.push(`second:${name}`));
+  const token = h.calls.filter(c => c.op === 'focus.watch').at(-1).token;
+  h.emit({ type: 'focusChanged', token, sequence: 1, context: 1, name: 'a' }); assert.deepEqual(received, ['first:a']);
+  h.emit({ type: 'focusChanged', token, sequence: 2, context: 1, name: 'b' }); assert.deepEqual(received, ['first:a', 'first:b', 'third:b']);
+  stopFirst(); stopThird(); h.emit({ type: 'stop' }); await done;
+  assert.deepEqual(ui.__testing.stats(), { actions: 0, cells: 0, dependencies: 0 });
+});
+
+test('focus subscriptions respect reactive purity and effect/task cleanup including late subscriptions', async () => {
+  const h = await setup(), { ui } = h, shown = ui.State(true); let release; const received = [];
+  const Owner = ui.Component(scope => {
+    scope.effect(() => ui.Focus.subscribe(name => received.push(name)));
+    scope.task(async () => { ui.Focus.subscribe(name => received.push(name)); await new Promise(resolve => { release = resolve; }); ui.Focus.subscribe(() => assert.fail()); });
+    return () => ui.Text('owner');
+  });
+  const done = launch(ui, ui.View(() => { assert.throws(() => ui.Focus.subscribe(() => {}), /outside view bodies/); return shown.value ? Owner() : ui.Text('hidden'); }));
+  await tick(); assert.deepEqual(ui.__testing.focusStats(), { listeners: 2, watching: true });
+  const derived = ui.Computed(() => ui.Focus.subscribe(() => {})); assert.throws(() => derived.value, /Computed callbacks cannot subscribe/);
+  shown.value = false; await tick(); const before = h.calls.length; release(); await tick(); assert.equal(h.calls.length, before);
+  assert.deepEqual(ui.__testing.focusStats(), { listeners: 0, watching: false });
+  assert.equal(h.calls.filter(c => c.op === 'focus.unwatch').length, 1);
+  h.emit({ type: 'stop' }); await done;
+});
+
+test('focus listener failures stop the app and release every subscription', async () => {
+  const h = await setup(), { ui } = h, done = launch(ui, ui.Text('focus'));
+  ui.Focus.subscribe(() => { throw new Error('focus listener failed'); }); ui.Focus.subscribe(() => assert.fail('delivery must stop'));
+  const token = h.calls.find(c => c.op === 'focus.watch').token;
+  const failure = assert.rejects(done, /focus listener failed/);
+  h.emit({ type: 'focusChanged', token, sequence: 1, context: 1, name: 'a' }); await failure;
+  assert.equal(h.status(), 1); assert.deepEqual(ui.__testing.focusStats(), { listeners: 0, watching: false });
   assert.deepEqual(ui.__testing.stats(), { actions: 0, cells: 0, dependencies: 0 });
 });
 

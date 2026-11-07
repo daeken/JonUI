@@ -4,6 +4,8 @@ const presented = State(false), mainName = State('Jonathan Swift');
 const Sheet = Component(scope => {
   const name = scope.state(''), secret = scope.state(''), notes = scope.state('');
   const status = scope.state('Return remembers a field and advances inside this sheet.');
+  const actual = scope.state<string | null>(null);
+  scope.effect(() => Focus.subscribe(name => { actual.value = name; }));
   let saved: FocusTarget | null = null;
   const rememberAndNext = () => { saved = Focus.capture(); Focus.next(); };
   return () => VStack([
@@ -27,6 +29,7 @@ const Sheet = Component(scope => {
       Button('Native order', () => { Focus.setTraversal([]); status.value = 'Native commands and Tab order'; }),
     ]),
     Text(status.value).font('caption'),
+    Text(`Focused: ${actual.value === 'sheet-demo-name' ? 'Name' : actual.value === 'sheet-demo-secret' ? 'Demo secret' : actual.value === 'sheet-demo-notes' ? 'Notes' : 'none'}`).font('caption'),
     Text(`${name.value}; demo secret length: ${secret.value.length}; notes length: ${notes.value.length}`).font('caption'),
     Button('Done', () => { presented.value = false; }),
   ], { alignment: 'leading', spacing: 12 }).frame({ width: 520, height: 390 }).padding(20);

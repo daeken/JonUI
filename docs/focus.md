@@ -113,6 +113,46 @@ as other focus operations: detecting a new active window retires old captures an
 cycles. It does not establish a declarative two-way FocusState binding. Generation-
 safe desired/observed focus synchronization remains future work.
 
+## Focus-change subscriptions
+
+`Focus.subscribe(listener)` reports changes to the actual eligible responder's
+declared name and returns an idempotent unsubscribe function. It uses the same
+name/null rules as `currentName()`, including exact Unicode, active-sheet
+isolation, and disabled/passive controls. It does not replay the current name on
+subscription. Use `currentName()` when a separate synchronous snapshot is needed.
+
+```ts
+const actual = scope.state<string | null>(null);
+scope.effect(() => Focus.subscribe(name => { actual.value = name; }));
+// Return the unsubscribe function so unmount/effect cleanup releases it.
+```
+
+Subscriptions are asynchronous and coalesced. Rapid native movements can produce
+only the final name; they do not promise every intermediate responder transition.
+Switching DOM inputs within one named browser does not change its name. Committed
+renames, removal, availability and sheet-context changes are sampled as well as
+responder movement. A callback can lag a synchronous snapshot: keep observed
+focus separate from desired focus requests. This API does not write focus or
+provide a two-way binding.
+
+All listeners share one active-window native observation session. Its token,
+sequence and window-context counter reject events from retired sessions and
+out-of-order deliveries. Native callbacks queue a fresh responder read rather
+than preserving a possibly stale framework observation. AppKit's documented
+[KVO-compliant firstResponder](https://developer.apple.com/documentation/appkit/nswindow/firstresponder)
+property supplies responder changes; window notifications and committed graph
+updates cover shared field-editor assignment, sheets and descriptor changes.
+No input events, framework delegates or user keyboard preferences are changed.
+
+Register outside render/computed bodies in a mounted app. Tasks own subscriptions
+created in their async context and release them on cancellation; late canceled
+subscriptions and post-shutdown registrations are inert. For component/effect
+ownership, return cleanup as above. Otherwise explicitly unsubscribe or retain
+the listener until app shutdown. Stopping the last listener invalidates the KVO
+and notification registrations. Listener failures follow the normal callback
+error path and stop the app with owner cleanup. Delivery is untracked; it does
+not add dependencies to the effect that registered the listener.
+
 ## Captured responder targets
 
 `Focus.capture()` returns an opaque `FocusTarget` for the current eligible native

@@ -696,6 +696,38 @@ and preserved caret, exact Unicode, empty/unnamed/unavailable names, repeated
 reads without editing-session churn, keyed rename/removal/reassignment, sheet
 isolation and 20 focused owner retirements with baseline resources.
 
+`Focus.subscribe` shares a `focus.watch` session among Node listeners. A new
+monotonically increasing token starts native observation and acknowledges a
+baseline `{ name, sequence, context }` without initial callback replay. A stale
+watch token is rejected before replacing a session; a stale `focus.unwatch`
+cannot stop a newer one. Last-listener cleanup stops the matching session.
+
+The host observes the active NSWindow's documented KVO-compliant firstResponder
+property. Window update, sheet begin/end and close notifications plus graph
+commits schedule a coalesced main-queue sample. The sample lays out the active
+window, rebinds KVO on a context switch, and resolves the actual live named
+responder. It never consumes the KVO payload's old responder. UTF-8 comparison
+detects canonically equivalent name changes. It emits `focusChanged` with token,
+increasing sequence, context counter and nullable name only when the name/context
+changes. Sampling guards prevent reentrant layout notifications from queuing a
+feedback loop. Stop/disposal invalidate KVO and all notification registrations;
+queued samples also require their original session token.
+
+Node validates name/sequence/context and ignores retired/out-of-order events.
+Context-only changes update the baseline without duplicate public name callbacks.
+Listeners run untracked outside the delivering task context; task-owned listeners
+retain their own cancellation checks and cleanup. Components use effect cleanup.
+Callbacks may stop siblings or add listeners without changing the current delivery
+set. Failure takes the normal app-stop/owner-disposal path. Observer callbacks
+contribute to callback counts; they allocate no native state cells or capture IDs.
+
+The offscreen subscription gate covers native text/date/WebKit and shared field
+editors without polling for one traversal, DOM-name stability, exact Unicode
+renames, inherited disabled/passive eligibility, active sheet context switches,
+shared observers and 20 queued focused owner retirements. A separate native
+failure gate verifies one stop/disposal. These observations remain asynchronous;
+desired-focus generation acknowledgements and two-way binding are still pending.
+
 An experimental two-way boolean FocusState adapter was discarded:
 late framework observations could revive an obsolete blur request, so it is not
 part of the public API or native graph validation. SwiftUI accessibility identifiers

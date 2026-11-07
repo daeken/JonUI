@@ -36,6 +36,8 @@ def run(entry, case='', failure=None, driver=None, timeout=30, layout=False):
         assert result.stdout.count('NAMES_FAILURE_CLEANUP') == 1, (result.stdout, result.stderr)
     if entry.endswith('web-rpc-error.mjs'):
         assert all(result.stdout.count(marker) == 1 for marker in ['RPC_SCOPE_DISPOSE', 'RPC_STOP']), (result.stdout, result.stderr)
+    if entry.endswith('focus-subscribe-error.mjs'):
+        assert all(result.stdout.count(marker) == 1 for marker in ['FOCUS_SCOPE_DISPOSE', 'FOCUS_STOP']), (result.stdout, result.stderr)
     if failure:
         assert result.returncode != 0 and failure in result.stderr, (entry, result.returncode, result.stdout, result.stderr)
         print(f'PASS expected failure: {failure}', flush=True)
@@ -127,3 +129,5 @@ run('tests/integration/focus-date-names.mjs', timeout=60, layout=True)
 run('tests/integration/focus-direction.mjs', timeout=90, layout=True)
 run('tests/integration/focus-mixed-sheet.mjs', timeout=90)
 run('tests/integration/focus-current-name.mjs', timeout=60)
+run('tests/integration/focus-subscribe.mjs', timeout=60)
+run('tests/integration/focus-subscribe-error.mjs', failure='intentional focus listener failure')

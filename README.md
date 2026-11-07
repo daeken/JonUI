@@ -132,6 +132,10 @@ form navigation; see [native focus](docs/focus.md) for ordering and cleanup rule
 `Focus.currentName()` reads the actual eligible responder's declared name, or
 null for cleared/unnamed focus, in the active window or sheet. It is a synchronous
 snapshot; it does not subscribe or establish a two-way focus binding.
+`Focus.subscribe(name => ...)` observes coalesced name changes. Return its cleanup
+from `scope.effect` for component ownership; task subscriptions cancel with their
+task. See [focus subscriptions](docs/focus.md#focus-change-subscriptions) for delivery
+and initial-snapshot rules.
 `Focus.capture()` remembers the current native responder as a weak opaque target;
 `Focus.request(target)` restores it while its identity remains available. Adding
 or removing view handles retires saved captures; value updates/keyed reorder keep

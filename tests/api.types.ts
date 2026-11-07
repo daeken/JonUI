@@ -132,6 +132,9 @@ WebView({ html: '', api: { date: () => new Date() } });
 WebView({ html: '', api: { then: () => 1 } });
 const namedFocused: boolean = Focus.requestNamed('editor'); void namedFocused;
 const currentFocusName: string | null = Focus.currentName(); void currentFocusName;
+const stopFocus = Focus.subscribe(name => { const actual: string | null = name; void actual; }); stopFocus();
+// @ts-expect-error Focus listeners receive a nullable name.
+Focus.subscribe((name: number) => { void name; });
 // @ts-expect-error Current native focus is nullable.
 const alwaysFocusedName: string = Focus.currentName(); void alwaysFocusedName;
 // @ts-expect-error Focus name snapshots take no arguments.

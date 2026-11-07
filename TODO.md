@@ -706,6 +706,36 @@ desired request. Define native observation/acknowledgement and owner/window
 retirement semantics before exposing a two-way binding. Eligible named controls
 and IME/AX/hardware coverage remain open.
 
+Focus observation completed (2026-11-07): `Focus.subscribe` reports coalesced
+actual native name changes without replay or desired-state writes. One shared
+native KVO observer follows the active window; window notifications and commits
+also schedule fresh responder samples for sheets, shared field editors, names
+and availability. The public callback receives the same nullable-name contract
+as currentName. Internal watch acknowledgement and events carry a fresh session
+token, sequence and context counter; old sessions, nonmonotonic sequences and
+older contexts cannot replace a newer observation. Native samples read actual
+focus on delivery instead of trusting queued framework values. Context-only
+events update the baseline without duplicate public callbacks.
+
+Last-listener cleanup invalidates KVO/notification registrations, task cancellation
+owns subscriptions, and components return cleanup from effects. Queued samples
+and callbacks are inert after retirement. Native listeners never write a desired
+request, activate windows or change event dispatch. The sheet example displays
+an observed field label. Four runtime tests cover exact Unicode, malformed/stale
+events, failure rollback, listener reentrancy, shared sessions, reactive purity,
+task/effect cleanup and callback-error shutdown (116 total tests).
+Focused offscreen validation passes for native text/date/WebKit, shared field
+editor movement without query polling, DOM-name stability, canonical Unicode
+rename, disabled/passive controls, sheet observer/context retirement, 20 queued
+focused owner removals and intentional callback-failure teardown. RPC cancellation
+also releases task-owned focus subscriptions in runtime tests. Final validation:
+native build, all 70 offscreen native integration scenarios, 116 unit tests,
+Deno/TypeScript checks and API classification pass. Keep broad focus/navigation unchecked.
+Next: define generation-stamped desired requests and their native acknowledgements
+against observation sequence/context before exposing a two-way Binding; the
+current asynchronous observation stream may lag a synchronous snapshot. Keyboard-
+access/IME/AX and safe nested-sheet coverage remain blocked as recorded above.
+
 ## 3. Application and operating-system integration
 
 - [ ] Support multiple windows with independent roots and explicit window ownership.

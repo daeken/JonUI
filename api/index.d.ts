@@ -187,6 +187,8 @@ export const Focus: {
   readonly requestNamed: (name: string) => boolean;
   /** Current eligible responder's declared name in the active window; null for unnamed/cleared focus. A snapshot, not a tracked State. */
   readonly currentName: () => string | null;
+  /** Coalesced actual-name changes, without initial replay. Return cleanup from an effect; task subscriptions cancel automatically. */
+  readonly subscribe: (listener: (name: string | null) => void) => () => void;
   /** Cycle for next/previous and optional Tab in the active window/sheet. [] restores native behavior. False keeps a valid prior cycle. */
   readonly setTraversal: (targets: readonly FocusTarget[], options?: { tabNavigation?: boolean }) => boolean;
 };

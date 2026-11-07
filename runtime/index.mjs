@@ -634,6 +634,32 @@ export function Picker(title, options) {
 }
 export const Button = (title, action) => new ViewValue('button', { title, action });
 const focusTargets = new WeakMap();
+const focusListeners = new Set();
+let focusWatch = null, nextFocusWatch = 1;
+function stopFocusListener(entry) {
+  if (!focusListeners.delete(entry)) return;
+  entry.unregister();
+  if (!focusListeners.size && focusWatch) {
+    const token = focusWatch.token; focusWatch = null;
+    request('focus.unwatch', { token });
+  }
+}
+function receiveFocusChange(event) {
+  const watch = focusWatch;
+  if (!watch || event.token !== watch.token || !Number.isSafeInteger(event.sequence) || event.sequence <= watch.sequence ||
+      !Number.isSafeInteger(event.context) || event.context < watch.context ||
+      event.name !== null && (typeof event.name !== 'string' || !event.name.length || !event.name.isWellFormed())) return;
+  const changed = watch.name !== event.name;
+  watch.sequence = event.sequence; watch.context = event.context; watch.name = event.name;
+  if (!changed) return;
+  taskStorage.run(undefined, () => untracked(() => {
+    for (const entry of [...focusListeners]) {
+      if (focusWatch !== watch || !focusListeners.has(entry)) continue;
+      if (!entry.task) entry.callback(event.name);
+      else if (taskIsCurrent(entry.task)) taskStorage.run(entry.task, () => entry.callback(event.name));
+    }
+  }));
+}
 function focusName(value) {
   if (typeof value !== 'string' || !value.length || !value.isWellFormed()) throw new TypeError('Focus names must be nonempty well-formed strings');
   return value;
@@ -675,6 +701,20 @@ export const Focus = Object.freeze({
   currentName() {
     if (!canMoveFocus('read native focus')) return null;
     return request('focus.currentName').name;
+  },
+  subscribe(callback) {
+    if (!canMoveFocus('subscribe to native focus')) return () => {};
+    if (typeof callback !== 'function') throw new TypeError('Expected a focus listener');
+    const entry = { callback, task: taskStorage.getStore(), unregister: () => {} };
+    const unsubscribe = () => stopFocusListener(entry);
+    focusListeners.add(entry);
+    if (!focusWatch) {
+      const watch = { token: nextFocusWatch++ }; focusWatch = watch;
+      try { Object.assign(watch, request('focus.watch', { token: watch.token })); }
+      catch (error) { focusListeners.delete(entry); focusWatch = null; throw error; }
+    }
+    if (entry.task) entry.unregister = registerTaskCleanup(entry.task, unsubscribe);
+    return unsubscribe;
   },
   setTraversal(targets, options = {}) {
     if (!canMoveFocus()) return false;
@@ -999,6 +1039,7 @@ function shutdown(error) {
   let failure = error;
   try { stop?.onStop?.(); } catch (caught) { failure ??= caught; }
   try { if (root) unmount(root); } catch (caught) { failure ??= caught; } finally { root = null; }
+  focusListeners.clear(); focusWatch = null;
   for (const observer of [...computations]) disposeComputed(observer);
   for (const id of [...webAPIs.keys()]) disposeWebAPI(id);
   dirty.clear(); updates.clear(); actions.clear(); webErrors.clear(); textSubmits.clear(); textEditings.clear();
@@ -1016,6 +1057,7 @@ bridge.listen(json => {
     if (stopped) return;
     if (event.type === 'state') cells.get(event.id)?.accept(event);
     else if (event.type === 'action') actions.get(event.id)?.();
+    else if (event.type === 'focusChanged') receiveFocusChange(event);
     else if (event.type === 'textSubmit') {
       const submit = textSubmits.get(event.token);
       if (!submit || submit.id !== event.id || submit.state !== event.state?.id) return;
@@ -1066,5 +1108,6 @@ export const __testing = process.env.JONUI_TEST === '1' ? Object.freeze({
   taskStats: () => ({ pending: pendingTasks.size }),
   effectStats: () => ({ active: effects.size, pending: pendingEffects.size }),
   computedStats: () => ({ active: computations.size, dependencies: [...computations].reduce((n, observer) => n + observer.dependencies.size, 0) }),
-  stats: () => ({ actions: actions.size + textSubmits.size + textEditings.size + [...webErrors.values()].filter(Boolean).length + [...webAPIs.values()].reduce((n, entry) => n + Object.keys(entry.api).length, 0), cells: cells.size, dependencies: [...cells.values()].reduce((n, v) => n + v.cell.dependents.size, 0) }),
+  focusStats: () => ({ listeners: focusListeners.size, watching: focusWatch !== null }),
+  stats: () => ({ actions: actions.size + focusListeners.size + textSubmits.size + textEditings.size + [...webErrors.values()].filter(Boolean).length + [...webAPIs.values()].reduce((n, entry) => n + Object.keys(entry.api).length, 0), cells: cells.size, dependencies: [...cells.values()].reduce((n, v) => n + v.cell.dependents.size, 0) }),
 }) : undefined;

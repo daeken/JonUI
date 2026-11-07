@@ -829,6 +829,14 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var nextFocusTarget = 1
     private var namedFocusNodes: [Data: Int] = [:]
     private weak var focusContextWindow: NSWindow?
+    private var focusWatchToken: Int?
+    private var lastFocusWatchToken = 0
+    private var focusWatchSequence = 0, focusWatchContext = 0
+    private var focusWatchName: String?
+    private weak var focusWatchWindow: NSWindow?
+    private var focusResponderObservation: NSKeyValueObservation?
+    private var focusWindowNotifications: [NSObjectProtocol] = []
+    private var focusWatchScheduled = false, focusWatchSampling = false
     var cells: [Int: Cell] = [:]
     var nodes: [Int: ViewBox] = [:]
     var webViews: [Int: EmbeddedWebView.Coordinator] = [:]
@@ -900,6 +908,7 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
     func dispose() {
         disposed = true
+        stopFocusWatch()
         retireFocusTargets(); focusContextWindow = nil; namedFocusNodes.removeAll()
         for coordinator in webViews.values { coordinator.invalidate() }
         for coordinator in hostedControls.values { coordinator.invalidate() }
@@ -1038,6 +1047,47 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
         else { target = hostedControls[id]?.target(in: window) }
         guard let view = target, eligibleFocusView(view, in: window) else { return nil }
         return view
+    }
+    private func currentFocusName(in window: NSWindow) -> String? {
+        for id in namedFocusNodes.values {
+            guard let view = namedFocusView(id, in: window),
+                  let current = focusView(window.firstResponder) ?? window.firstResponder as? NSView,
+                  current === view || current.isDescendant(of: view),
+                  let name = nodes[id]?.props["focusName"] as? String else { continue }
+            return name
+        }
+        return nil
+    }
+    private func stopFocusWatch() {
+        focusWatchToken = nil; focusWatchScheduled = false
+        focusResponderObservation?.invalidate(); focusResponderObservation = nil
+        for observer in focusWindowNotifications { NotificationCenter.default.removeObserver(observer) }
+        focusWindowNotifications.removeAll(); focusWatchWindow = nil; focusWatchName = nil
+    }
+    private func watchFocusWindow(_ window: NSWindow) {
+        focusResponderObservation?.invalidate()
+        focusWatchWindow = window; focusWatchContext += 1
+        focusResponderObservation = window.observe(\.firstResponder, options: [.new]) { [weak self] _, _ in
+            self?.scheduleFocusWatch()
+        }
+    }
+    private func scheduleFocusWatch() {
+        guard let token = focusWatchToken, !stopping, !disposed, !focusWatchScheduled, !focusWatchSampling else { return }
+        focusWatchScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.focusWatchToken == token else { return }
+            self.focusWatchScheduled = false; self.focusWatchSampling = true
+            defer { self.focusWatchSampling = false }
+            guard !self.stopping, !self.disposed, let window = try? self.prepareFocusWindow() else { return }
+            let changedWindow = self.focusWatchWindow !== window
+            if changedWindow { self.watchFocusWindow(window) }
+            let name = self.currentFocusName(in: window)
+            // Swift strings compare canonically; declared names use exact UTF-8.
+            guard changedWindow || name.map({ Data($0.utf8) }) != self.focusWatchName.map({ Data($0.utf8) }) else { return }
+            self.focusWatchName = name; self.focusWatchSequence += 1
+            self.emit(["type": "focusChanged", "token": token, "sequence": self.focusWatchSequence,
+                "context": self.focusWatchContext, "name": name as Any? ?? NSNull()])
+        }
     }
     private func pruneFocusTargets() {
         focusTargets = focusTargets.filter { $0.value.view != nil }
@@ -1191,14 +1241,27 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
             return ["focused": accepted && focused()]
         case "focus.currentName":
             let window = try prepareFocusWindow()
-            guard let current = focusView(window.firstResponder) ?? window.firstResponder as? NSView else { return ["name": NSNull()] }
-            for id in namedFocusNodes.values {
-                guard let view = namedFocusView(id, in: window),
-                      current === view || current.isDescendant(of: view),
-                      let name = nodes[id]?.props["focusName"] as? String else { continue }
-                return ["name": name]
+            return ["name": currentFocusName(in: window) as Any? ?? NSNull()]
+        case "focus.watch":
+            let token = try integer(message["token"]), window = try prepareFocusWindow()
+            guard token > lastFocusWatchToken else { throw BridgeError("Focus observation token must increase") }
+            lastFocusWatchToken = token
+            stopFocusWatch(); focusWatchToken = token; focusWatchSequence = 0; focusWatchContext = 0
+            focusWatchSampling = true
+            watchFocusWindow(window); focusWatchName = currentFocusName(in: window)
+            focusWatchSampling = false
+            for name in [NSWindow.willBeginSheetNotification, NSWindow.didEndSheetNotification, NSWindow.didUpdateNotification, NSWindow.willCloseNotification] {
+                focusWindowNotifications.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: nil) { [weak self] notification in
+                    guard let self, let window = notification.object as? NSWindow,
+                          window === self.window || window === self.focusWatchWindow || window === self.currentFocusWindow() else { return }
+                    self.scheduleFocusWatch()
+                })
             }
-            return ["name": NSNull()]
+            return ["sequence": focusWatchSequence, "context": focusWatchContext, "name": focusWatchName as Any? ?? NSNull()]
+        case "focus.unwatch":
+            let token = try integer(message["token"])
+            if token == focusWatchToken { stopFocusWatch() }
+            return [:]
         case "focus.move":
             guard let direction = message["direction"] as? String, ["next", "previous", "clear"].contains(direction) else { throw BridgeError("Invalid focus direction") }
             let window = try prepareFocusWindow()
@@ -1322,6 +1385,7 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
             nodes = nodes.filter { reachable.contains($0.key) }
             namedFocusNodes = focusNames
             if let options = message["window"] as? [String: Any] { open(options) }
+            scheduleFocusWatch()
             return [:]
         case "dispose": stopping = true; dispose(); return [:]
         case "debug.snapshot" where testing:
@@ -1426,6 +1490,9 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
             return ["targets": focusTargets.count, "live": focusTargets.values.filter { $0.view != nil }.count]
         case "debug.focusNames" where testing:
             return ["count": namedFocusNodes.count]
+        case "debug.focusWatch" where testing:
+            return ["watching": focusWatchToken != nil, "observations": focusResponderObservation == nil ? 0 : 1,
+                "notifications": focusWindowNotifications.count, "sequence": focusWatchSequence, "context": focusWatchContext]
         case "debug.focusTraversal" where testing:
             return ["count": focusTraversal.count, "tabNavigation": focusTabNavigation]
         case "debug.tab" where testing:
