@@ -396,6 +396,67 @@ test('owned availability applies per-controller task leases before validation an
   h.emit({ type: 'stop' }); await done;
 });
 
+test('tap callbacks validate and copy count options before transport', async () => {
+  const h = await setup(), { ui } = h;
+  for (const callback of [null, 1, true, {}, []]) assert.throws(() => ui.Text('bad').onTapGesture(callback), /expects a function/);
+  for (const options of [null, [], 1, { count: 0 }, { count: 3 }, { count: true }, { count: '2' }, { location: true }]) assert.throws(() => ui.Text('bad').onTapGesture(() => {}, options));
+  const options = { count: 2 }, view = ui.Text('double').onTapGesture(() => {}, options); options.count = 1;
+  const done = launch(ui, ui.VStack([view, ui.Text('single').onTapGesture(() => {})])); await tick();
+  const nodes = [...h.nodes.values()].filter(n => n.props.tap);
+  assert.deepEqual(nodes.map(n => n.props.count), [2, 1]); assert.ok(nodes.every(n => !('onTap' in n.props)));
+  assert.equal(ui.__testing.stats().actions, 2); h.emit({ type: 'stop' }); await done;
+  assert.deepEqual(ui.__testing.stats(), { actions: 0, cells: 0, dependencies: 0 });
+});
+
+test('taps preserve keyed tokens/current handlers, replace count tokens and discard forged/retired events', async () => {
+  const h = await setup(), { ui } = h, order = ui.State(['a', 'b']), revision = ui.State(0), count = ui.State(1), shown = ui.State(true); const calls = [];
+  const Row = ui.Component((scope, id) => { scope.state(id); return () => { const version = revision.value; return ui.Text(id).onTapGesture(() => calls.push([id, version]), { count: count.value }); }; });
+  const done = launch(ui, ui.View(() => shown.value ? ui.ForEach(order.value, { id: id => id }, id => Row(id)) : ui.Text('removed'))); await tick();
+  const entries = () => [...h.nodes.values()].filter(n => n.props.tap).map(n => ({ id: n.id, token: n.props.tap, count: n.props.count }));
+  const send = entry => h.emit({ type: 'tap', ...entry }), original = entries();
+  send({ ...original[0], token: 0 }); send({ ...original[0], id: -1 }); send({ ...original[0], count: 2 }); assert.deepEqual(calls, []);
+  original.forEach(send); assert.deepEqual(calls, [['a', 0], ['b', 0]]);
+  revision.value = 1; order.value = ['b', 'a']; await tick(); assert.deepEqual(entries(), original);
+  original.forEach(send); assert.deepEqual(calls.slice(-2), [['a', 1], ['b', 1]]);
+  count.value = 2; await tick(); const changed = entries(); assert.ok(changed.every((e, i) => e.token !== original[i].token));
+  const before = calls.length; original.forEach(send); assert.equal(calls.length, before); changed.forEach(send); assert.equal(calls.length, before + 2);
+  shown.value = false; await tick(); changed.forEach(send); assert.equal(calls.length, before + 2); assert.equal(ui.__testing.stats().actions, 0);
+  h.emit({ type: 'stop' }); await done; assert.deepEqual(ui.__testing.stats(), { actions: 0, cells: 0, dependencies: 0 });
+});
+
+test('reusing a modifier as padding retires its tap handler and returning creates a fresh token', async () => {
+  const h = await setup(), { ui } = h, attached = ui.State(true); let calls = 0;
+  const done = launch(ui, ui.View(() => attached.value ? ui.Text('tap').onTapGesture(() => calls++) : ui.Text('tap').padding(2))); await tick();
+  const old = [...h.nodes.values()].find(n => n.props.tap), event = { type: 'tap', id: old.id, token: old.props.tap, count: 1 };
+  attached.value = false; await tick(); assert.equal(h.nodes.get(old.id).props.name, 'padding'); assert.equal(ui.__testing.stats().actions, 0);
+  h.emit(event); assert.equal(calls, 0); attached.value = true; await tick(); const next = h.nodes.get(old.id);
+  assert.notEqual(next.props.tap, old.props.tap); h.emit(event); assert.equal(calls, 0);
+  h.emit({ ...event, token: next.props.tap }); assert.equal(calls, 1); h.emit({ type: 'stop' }); await done;
+});
+
+test('tap State reads are untracked and writes render without replacing the callback token', async () => {
+  const h = await setup(), { ui } = h, value = ui.State(0); let bodies = 0;
+  const done = launch(ui, ui.VStack([ui.View(() => { bodies++; return ui.Text('tap').onTapGesture(() => { value.value++; }); }), ui.View(() => ui.Text(value.value))])); await tick();
+  const node = [...h.nodes.values()].find(n => n.props.tap), event = { type: 'tap', id: node.id, token: node.props.tap, count: 1 };
+  h.emit(event); await tick(); h.emit(event); await tick(); assert.equal(value.value, 2); assert.equal(bodies, 1);
+  assert.ok([...h.nodes.values()].some(n => n.props.value === 2)); assert.equal(h.nodes.get(node.id).props.tap, event.token);
+  h.emit({ type: 'stop' }); await done;
+});
+
+test('tap failures and Promise returns dispose owners and release registrations', async () => {
+  for (const mode of ['throw', 'promise', 'setup']) {
+    const h = await setup(), { ui } = h; let disposed = 0, stopped = 0;
+    const Owner = ui.Component(scope => { scope.state('owned'); scope.onDispose(() => disposed++); return () => ui.VStack([
+      ui.Text('tap').onTapGesture(() => { if (mode === 'promise') return Promise.reject(new Error('consumed')); throw new Error('tap failure'); }),
+      ui.View(() => { if (mode === 'setup') throw new Error('tap setup failure'); return ui.Text('ok'); }),
+    ]); });
+    const done = launch(ui, Owner(), () => stopped++);
+    if (mode !== 'setup') { await tick(); const node = [...h.nodes.values()].find(n => n.props.tap); h.emit({ type: 'tap', id: node.id, token: node.props.tap, count: 1 }); }
+    await assert.rejects(done, mode === 'promise' ? /must be synchronous/ : /tap.*failure/);
+    assert.equal(disposed, 1); assert.equal(stopped, 1); assert.deepEqual(ui.__testing.stats(), { actions: 0, cells: 0, dependencies: 0 });
+  }
+});
+
 test('appearance handlers retain tokens across replacement and keyed reorder, use latest callbacks and retire stale events', async () => {
   const h = await setup(), { ui } = h, order = ui.State(['a', 'b']), revision = ui.State(0), shown = ui.State(true); const calls = [];
   const Row = ui.Component((scope, id) => { const local = scope.state(id); return () => { const version = revision.value; return ui.Text(local.value).onAppear(() => calls.push(`appear:${id}:${version}`)).onDisappear(() => calls.push(`disappear:${id}:${version}`)); }; });

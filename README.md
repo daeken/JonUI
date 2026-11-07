@@ -26,6 +26,11 @@ offscreen lazy rows; use `scope.onDispose` for guaranteed cleanup. See
 [appearance semantics](docs/components.md#native-appearance-signals) and
 `bin/jonui examples/appearance/app.ts`.
 
+`view.onTapGesture(callback, { count: 2 })` adds native single/double taps
+(default count: 1), with synchronous callbacks and owned event tokens. See
+[tap semantics and current limits](docs/gestures.md) and
+`bin/jonui examples/gestures/app.ts`.
+
 ## Build and run
 
 Requires macOS 14+, Xcode's Swift 6 toolchain, Python 3.12+, and Ninja on `PATH`.

@@ -38,6 +38,8 @@ def run(entry, case='', failure=None, driver=None, timeout=30, layout=False):
         assert all(result.stdout.count(marker) == 1 for marker in ['RPC_SCOPE_DISPOSE', 'RPC_STOP']), (result.stdout, result.stderr)
     if entry.endswith('focus-subscribe-error.mjs'):
         assert all(result.stdout.count(marker) == 1 for marker in ['FOCUS_SCOPE_DISPOSE', 'FOCUS_STOP']), (result.stdout, result.stderr)
+    if entry.endswith('taps-error.mjs'):
+        assert all(result.stdout.count(marker) == 1 for marker in ['TAP_DISPOSE', 'TAP_STOP']), (case, result.stdout, result.stderr)
     if entry.endswith('shortcuts-error.mjs'):
         assert all(result.stdout.count(marker) == 1 for marker in ['SHORTCUT_DISPOSE', 'SHORTCUT_STOP']), (result.stdout, result.stderr)
     if entry.endswith('focus-selection-error.mjs'):
@@ -174,3 +176,7 @@ for mode, message in [('duplicate', 'Duplicate focus name'), ('cross', 'share th
     run('tests/integration/windows-error.mjs', case=mode, failure=message)
 run('tests/integration/shortcuts.mjs', timeout=90)
 run('tests/integration/shortcuts-error.mjs', failure='intentional shortcut action failure')
+
+run('tests/integration/taps.mjs', timeout=90, layout=True)
+run('tests/integration/taps-error.mjs', failure='intentional tap failure', layout=True)
+run('tests/integration/taps-error.mjs', case='promise', failure='must be synchronous', layout=True)

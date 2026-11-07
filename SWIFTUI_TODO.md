@@ -29,6 +29,19 @@ Status meanings:
 
 ## Current review
 
+- Tap gesture review (2026-11-07): View.onTapGesture adds native single/double
+  recognition with synchronous current Node callbacks and owned tokens/counts.
+  Keyed updates retain tokens; count/modifier replacement and owner teardown
+  retire them. Disabled ancestors, State writes, invalid wire descriptors,
+  failure disposal and 20 owner lifetimes are verified with actual AppKit events
+  in the main hidden window. First-mouse acceptance changes only in offscreen
+  tests; production keeps native first-click behavior. Native build, 182 unit/
+  compiler cases, 11 coverage workflow tests, both type checkers and nine focused
+  native gates pass. Full-suite mixed-sheet teardown remains blocked as recorded;
+  no clean full-suite pass or framework fix is claimed. Location, shape/priority/
+  composition and positive sheet/auxiliary/lazy/competing-control pointer coverage
+  remain open. Broad gesture/animation parity stays unchecked.
+
 - Button Command shortcut review (2026-11-07): View.keyboardShortcut accepts one
   lowercase ASCII letter/digit on a Button through single-child modifiers. Only
   an immutable key descriptor crosses the bridge; native SwiftUI Command handling
@@ -528,7 +541,7 @@ Status meanings:
 | onChange / onReceive | Partial analog | State.subscribe and component effects on Node. | Native value/event adapters and delivery/cancellation policy remain. |
 | task / refreshable | Partial analog | Scoped task cancellation exists. | Native view-appearance task, ID-triggered task and refresh UI integration remain. |
 | onSubmit / onEditingChanged | Partial | Native text revision snapshot before Node callback. | Supported text controls verified; richer submit scopes/triggers remain. |
-| onTapGesture / double tap | Missing | Tap count, location, handler token. | Native recognition and control/gesture priority. |
+| onTapGesture / double tap | Partial | Native count 1/2; synchronous current Node handler, owned modifier token, disabled ancestors and cleanup. | Actual main-window recognition, keyed/count changes, State writes, failures and 20 lifetimes verified. Location/content shapes, priority/composition and positive sheet/auxiliary/lazy/competing-control pointer coverage remain. <!-- api: View.onTapGesture --> |
 | LongPressGesture | Missing | Press phase, duration/distance and cancellation. | Native/Node event phases and transient state. |
 | DragGesture | Missing | Translation, location, prediction and coordinate space. | High-rate event coalescing, GestureState and cleanup. |
 | MagnifyGesture / RotationGesture | Missing | Scale/angle phase and anchor. | Trackpad/touch availability and cancellation. |
@@ -628,7 +641,7 @@ can still bypass local enforcement; this is not server-side branch protection.
 Repository instructions require the same review for contributors and automation.
 
 <!-- coverage-review:generated -->
-Review baseline (checkout HEAD before commit): `15519120763bfee8d6b2696e6f875431445aef92`.
+Review baseline (checkout HEAD before commit): `4660a9ba0064e73ea5b3591cb1c4de4f3a5c88b4`.
 
-Staged source-tree SHA-256 (excluding this catalog): `65ec90f55eaec6af603c01858ee74efbc797819880a89fa7dcf7045e41a9118a`.
+Staged source-tree SHA-256 (excluding this catalog): `8a659eea92778a366d897e3cd46a994adb3982b430d3251319141a4bf80ba619`.
 <!-- /coverage-review:generated -->

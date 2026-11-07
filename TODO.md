@@ -1208,6 +1208,36 @@ including root/session name scoping, event routing and close/cancellation policy
 Custom-drawn positive control focus, hardware keyboard/IME/AX/nested-sheet and the
 recorded AppKit sheet-close gaps remain open.
 
+Native tap callbacks completed (2026-11-07), a first gesture increment:
+`view.onTapGesture(callback, { count: 1 | 2 })` uses native SwiftUI TapGesture,
+defaulting to a single tap. Synchronous current handlers remain in Node, with
+owned modifier tokens/counts on the wire. Keyed/property updates retain tokens;
+count changes and modifier replacement retire them. Native and Node validation
+discard stale owner/token/count events; disabled ancestors suppress recognition.
+State writes render normally, callback reads are untracked, and throws/Promises
+use the normal stop/dispose path. See docs/gestures.md and examples/gestures/app.ts.
+
+Validation: native build, 182 unit/compiler cases, 11 coverage workflow tests and
+both TypeScript/Deno checks pass. Nine focused offscreen native gates pass: taps,
+throw/Promise failures, contracts, components, appearance, owned windows, shortcuts
+and shortcut failure. Actual mouse-down/up events traverse AppKit/SwiftUI in the
+main hidden window, verifying single/double recognition, latest keyed handlers,
+count changes, State writes, disabled ancestors, atomic native validation, removed
+target rejection and 20 owner lifetimes with baseline resources. A test-only host
+accepts first mouse because hidden windows never become key; production keeps
+ordinary AppKit first-click handling. No desktop activation occurs.
+
+Keep the gestures/animation/transitions item unchecked. Remaining tap work:
+location payloads, content shapes, explicit gesture priorities/composition and
+positive sheet/auxiliary-root/lazy/competing-control pointer coverage. Other gestures,
+animation and transactions remain independent work. The existing full-suite
+focus-mixed-sheet AppKit sheet-close SIGSEGV remains unresolved; this increment
+uses focused regression gates and does not claim a clean full-suite pass or a
+framework fix. Next: extend actual tap coverage to owned-window/sheet roots and
+lazy/competing-control content, then define location/priority contracts and native
+long-press phase/cancellation semantics. These can proceed independently of the
+blocked keyboard modifier/platform-focus paths.
+
 ## 3. Application and operating-system integration
 
 Button Command shortcuts completed (2026-11-07), continuing keyboard navigation:

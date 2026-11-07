@@ -100,6 +100,10 @@ private func validateLayout(_ kind: String, _ props: [String: Any]) throws {
         }
     case "modifier":
         switch props["name"] as? String {
+        case "onTapGesture":
+            try keys(["name", "count", "tap"])
+            guard let count = props["count"].flatMap(layoutNumber), [1.0, 2.0].contains(count),
+                  let token = props["tap"].flatMap(layoutNumber), token > 0, token.rounded() == token, token < Double(Int.max) else { throw BridgeError("Invalid tap gesture") }
         case "window":
             try keys(["name", "state", "title", "width", "height"])
             guard props["title"] is String, let width = props["width"].flatMap(layoutNumber), width > 0,
@@ -245,6 +249,23 @@ private func validateInput(_ kind: String, _ props: [String: Any]) throws {
             guard step > 0, step <= span, (span / step).isFinite else { throw BridgeError("Invalid numeric input step") }
         }
     default: break
+    }
+}
+
+// Hidden test windows never become key, so accept their first real mouse event.
+// Production hosting keeps AppKit’s ordinary first-click policy.
+private final class TestMouseHostingView<Content: View>: NSHostingView<Content> {
+    var acceptsTestMouse = false
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { acceptsTestMouse || super.acceptsFirstMouse(for: event) }
+}
+
+private struct NativeTapGesture: View {
+    let content: AnyView
+    let count: Int
+    let tapped: () -> Void
+    @Environment(\.isEnabled) private var enabled
+    var body: some View {
+        content.gesture(TapGesture(count: count).onEnded { if enabled { tapped() } }, including: enabled ? .all : .none)
     }
 }
 
@@ -644,6 +665,9 @@ private struct NativeView: View {
                 if phase == "onAppear" { return AnyView(child().onAppear { [weak host] in host?.appearance(id, token: token, phase: phase) }) }
                 return AnyView(child().onDisappear { [weak host] in host?.appearance(id, token: token, phase: phase) })
             case "sheet": return AnyView(child().sheet(isPresented: boolBinding()) { child(1) })
+            case "onTapGesture":
+                let id = box.id, count = box.props["count"] as? Int ?? 1, token = box.props["tap"] as? Int ?? 0
+                return AnyView(NativeTapGesture(content: child(), count: count, tapped: { [weak host] in host?.tap(id, token: token, count: count) }))
             case "window": return child()
             case "tag": return child()
             default: return AnyView(EmptyView())
@@ -893,6 +917,7 @@ private final class JonUIApplication: NSApplication {
         return host.handleTraversalKey(event, in: window)
     }
     override func sendEvent(_ event: NSEvent) {
+        if let host = delegate as? Host, host.handleTapTestEvent(event) { return }
         if let host = delegate as? Host, host.handleShortcutTestEvent(event) { return }
         if routeTraversalEvent(event) { return }
         super.sendEvent(event)
@@ -941,6 +966,9 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var nextShortcutTest = 1
     private var shortcutTestEvents: [TimeInterval: Int] = [:]
     private var shortcutTestResults: [Int: [String: Any]] = [:]
+    private var nextTapTest = 1
+    private var tapTestEvents: [Int64: Int] = [:]
+    private var tapTestResults: [Int: Bool] = [:]
     let testing = ProcessInfo.processInfo.environment["JONUI_TEST"] == "1"
     var layoutTesting: Bool { testing && ProcessInfo.processInfo.environment["JONUI_TEST_LAYOUT"] == "1" }
     var layoutFrames: [Int: CGRect] = [:]
@@ -979,6 +1007,14 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
             "currentFlags": NSApp.currentEvent?.modifierFlags.rawValue ?? 0]
         return true
     }
+    fileprivate func handleTapTestEvent(_ event: NSEvent) -> Bool {
+        guard testing, let id = tapTestEvents.removeValue(forKey: Int64((event.timestamp * 1_000_000).rounded())) else { return false }
+        if event.type == .applicationDefined {
+            // AppKit tracking loops can consume mouse-up without reentering sendEvent.
+            tapTestEvents = tapTestEvents.filter { $0.value != id }; tapTestResults[id] = true
+        } else if !stopping, event.window === currentFocusWindow() { event.window?.sendEvent(event) }
+        return true
+    }
     func action(_ id: Int) {
         guard !stopping, liveNode(id)?.kind == "button" else { return }
         emit(["type": "action", "id": id])
@@ -987,6 +1023,11 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
         guard !stopping, let box = liveNode(id), box.kind == "modifier", box.string("name") == phase,
               box.props["appearance"] as? Int == token, ["onAppear", "onDisappear"].contains(phase) else { return }
         emit(["type": "appearance", "id": id, "token": token, "phase": phase])
+    }
+    func tap(_ id: Int, token: Int, count: Int) {
+        guard !stopping, let box = liveNode(id), box.kind == "modifier", box.string("name") == "onTapGesture",
+              box.props["tap"] as? Int == token, box.props["count"] as? Int == count else { return }
+        emit(["type": "tap", "id": id, "token": token, "count": count])
     }
     func textSubmit(_ id: Int, token: Int) {
         guard !stopping, let box = liveNode(id), ["textfield", "securefield"].contains(box.kind),
@@ -1031,6 +1072,7 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
         root = nil; nodes.removeAll(); cells.removeAll(); webViews.removeAll(); hostedControls.removeAll(); layoutFrames.removeAll()
         retiredWindowNodes.removeAll()
         shortcutTestEvents.removeAll(); shortcutTestResults.removeAll()
+        tapTestEvents.removeAll(); tapTestResults.removeAll()
     }
     func stopped(_ status: Int32) {
         exitStatus = status; stopping = true; dispose()
@@ -1051,7 +1093,8 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
         window.title = options["title"] as? String ?? "JonUI"
         window.isReleasedWhenClosed = false; window.delegate = self
-        let content = NSHostingView(rootView: NativeView(box: root, host: self).onPreferenceChange(LayoutFrames.self) { [weak self] frames in self?.layoutFrames = frames })
+        let content = TestMouseHostingView(rootView: NativeView(box: root, host: self).onPreferenceChange(LayoutFrames.self) { [weak self] frames in self?.layoutFrames = frames })
+        content.acceptsTestMouse = testing && offscreen
         // AppOptions owns the initial window size. A transient intrinsic root
         // (such as a hidden-state label) must not impose a new window maximum.
         content.sizingOptions = []
@@ -1623,7 +1666,7 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 let kind = value?["kind"] as? String ?? nodes[id]!.kind
                 let children = value?["children"] as? [Int] ?? nodes[id]!.children.map(\.id)
                 let modifier = props["name"] as? String ?? ""
-                let modifiers: Set<String> = ["font", "foregroundStyle", "padding", "frame", "fixedSize", "layoutPriority", "navigationTitle", "accessibilityIdentifier", "disabled", "focusSection", "onAppear", "onDisappear", "tag", "sheet", "window"]
+                let modifiers: Set<String> = ["font", "foregroundStyle", "padding", "frame", "fixedSize", "layoutPriority", "navigationTitle", "accessibilityIdentifier", "disabled", "focusSection", "onAppear", "onDisappear", "onTapGesture", "tag", "sheet", "window"]
                 if kind == "modifier" && !modifiers.contains(modifier) { throw BridgeError("Unknown view modifier") }
                 try validateLayout(kind, props)
                 try validateInput(kind, props)
@@ -1824,6 +1867,33 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
         case "debug.closeWindow" where testing:
             guard let id = message["id"] as? Int, let window = ownedWindows[id]?.window else { throw BridgeError("Unknown test window") }
             window.performClose(nil); return [:]
+        case "debug.tap" where testing && layoutTesting && offscreen:
+            let target = try integer(message["id"])
+            guard liveNode(target) != nil, let window = currentFocusWindow(), window === self.window, let frame = layoutFrames[target], !frame.isEmpty else { throw BridgeError("Tap target not laid out") }
+            let count = message["count"] as? Int ?? 1
+            guard [1, 2].contains(count) else { throw BridgeError("Invalid test tap count") }
+            let point = NSPoint(x: frame.midX, y: window.frame.height - frame.midY)
+            let id = nextTapTest; nextTapTest += 1
+            let base = ProcessInfo.processInfo.systemUptime
+            tapTestResults[id] = false
+            for click in 1...count {
+                for (index, type) in [NSEvent.EventType.leftMouseDown, .leftMouseUp].enumerated() {
+                    let time = base + Double(click * 2 + index) / 1000
+                    guard let event = NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: time, windowNumber: window.windowNumber,
+                        context: nil, eventNumber: click * 2 + index, clickCount: click, pressure: index == 0 ? 1 : 0) else { throw BridgeError("Cannot create test tap") }
+                    tapTestEvents[Int64((event.timestamp * 1_000_000).rounded())] = id; NSApp.postEvent(event, atStart: false)
+                }
+            }
+            let end = base + 0.1
+            guard let marker = NSEvent.otherEvent(with: .applicationDefined, location: .zero, modifierFlags: [], timestamp: end,
+                windowNumber: window.windowNumber, context: nil, subtype: 0, data1: 0, data2: 0) else { throw BridgeError("Cannot create tap marker") }
+            tapTestEvents[Int64((marker.timestamp * 1_000_000).rounded())] = id; NSApp.postEvent(marker, atStart: false)
+            return ["id": id, "x": point.x, "y": point.y]
+        case "debug.tapResult" where testing && layoutTesting && offscreen:
+            let id = try integer(message["id"])
+            guard let done = tapTestResults[id] else { throw BridgeError("Unknown test tap") }
+            if done { tapTestResults.removeValue(forKey: id) }
+            return ["done": done]
         case "debug.shortcut" where testing:
             guard let window = currentFocusWindow(), let key = message["key"] as? String else { throw BridgeError("Invalid test shortcut") }
             let flags: NSEvent.ModifierFlags = .command

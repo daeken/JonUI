@@ -504,3 +504,14 @@ DatePicker('Invalid', { selection: instant.binding, min: new Date() });
 DatePicker('Invalid', { selection: instant.binding, components: 'seconds' });
 // @ts-expect-error Time zones are named strings.
 DatePicker('Invalid', { selection: instant.binding, timeZone: 3600 });
+
+Text('Tap').onTapGesture(() => { enabled.value = true; });
+Text('Double').onTapGesture(() => 1, { count: 2 });
+// @ts-expect-error Only single/double taps are supported.
+Text('Invalid').onTapGesture(() => {}, { count: 3 });
+// @ts-expect-error Tap callbacks are synchronous.
+Text('Invalid').onTapGesture(async () => {});
+// @ts-expect-error Promise-returning functions are rejected too.
+Text('Invalid').onTapGesture(() => Promise.resolve(), { count: 2 });
+// @ts-expect-error Location callbacks are not implemented.
+Text('Invalid').onTapGesture(() => {}, { location: true });
