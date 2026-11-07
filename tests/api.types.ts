@@ -150,6 +150,16 @@ WebView({ html: "", data: () => 1 });
 WebView({ url: "https://example.com" });
 
 const ScopedCounter = Component<{ label: string }>((scope, initial) => {
+  const window = Focus.captureWindow();
+  if (window) {
+    scope.focus(null, { window }); scope.focusBoolean(false, { window }); scope.focusSelection([1, 'one'], 1, { window });
+    // @ts-expect-error Physical windows are opaque native identities.
+    scope.focus(null, { window: {} });
+    // @ts-expect-error A physical window is not a captured responder.
+    Focus.request(window);
+    // @ts-expect-error Window guards have explicit option names.
+    scope.focusBoolean(false, { owner: window });
+  }
   const selectionFocus = scope.focusSelection([1, '1', 'editor'], 1);
   const stopRetry: () => void = selectionFocus.retryWhenReady(); void stopRetry;
   // @ts-expect-error Retry uses retained intent, not a new target.

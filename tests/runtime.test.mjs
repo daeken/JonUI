@@ -13,19 +13,20 @@ async function setup() {
       const message = JSON.parse(json); calls.push(message);
       let result = {};
       if (message.op === 'focus.capture') result = { target: focus.target };
+      if (message.op === 'focus.window.capture') result = { window: focus.window ?? 1 };
       if (message.op === 'focus.target') result = { focused: focus.focused };
       if (message.op === 'web.claim') result = { accepted: focus.rpcActive !== false };
       if (message.op === 'focus.named') result = { focused: focus.focused };
       if (message.op === 'focus.currentName') result = { name: focus.name };
       if (message.op === 'focus.availability') result = focus.availabilityError ? { error: focus.availabilityError } : { availability: focus.availability ?? 'ready' };
       if (message.op === 'focus.availability.watch') result = focus.availabilityWatchError ? { error: focus.availabilityWatchError } : { availability: focus.availability ?? 'ready', sequence: 0 };
-      if (message.op === 'focus.watch') result = focus.watchError ? { error: focus.watchError } : { name: focus.name, sequence: 0, context: focus.context ?? 1, generation: 0, responderRevision: focus.responderRevision ?? 1 };
-      if (message.op === 'focus.snapshot') result = focus.snapshotError ? { error: focus.snapshotError } : { accepted: true, observation: { token: message.token, sequence: ++focus.sequence, context: focus.context ?? 1, generation: focus.generation ?? 0, responderRevision: focus.responderRevision ?? 1, name: focus.name } };
+      if (message.op === 'focus.watch') result = focus.watchError ? { error: focus.watchError } : { name: focus.name, sequence: 0, context: focus.context ?? 1, window: focus.window ?? 1, generation: 0, responderRevision: focus.responderRevision ?? 1 };
+      if (message.op === 'focus.snapshot') result = focus.snapshotError ? { error: focus.snapshotError } : { accepted: true, observation: { token: message.token, sequence: ++focus.sequence, context: focus.context ?? 1, window: focus.window ?? 1, generation: focus.generation ?? 0, responderRevision: focus.responderRevision ?? 1, name: focus.name } };
       if (message.op === 'focus.direction') result = { moved: focus.focused };
       if (message.op === 'focus.traversal') result = { configured: focus.configured };
       if (message.focusRequest) {
         const oldName = focus.name;
-        const accepted = message.focusRequest.context === undefined || message.focusRequest.context === (focus.context ?? 1);
+        const accepted = (message.focusRequest.context === undefined || message.focusRequest.context === (focus.context ?? 1)) && (message.focusRequest.window === undefined || message.focusRequest.window === (focus.window ?? 1));
         if (accepted && message.op === 'focus.named' && focus.focused) focus.name = message.name;
         if (accepted && message.op === 'focus.move' && message.direction === 'clear') focus.name = null;
         if (message.op === 'focus.blurNamed') { result.cleared = accepted && focus.name === message.name; if (result.cleared) focus.name = null; }
@@ -33,7 +34,7 @@ async function setup() {
         focus.generation = message.focusRequest.generation;
         if (!accepted) result.focused = result.moved = false;
         if (focus.name !== oldName) focus.responderRevision = (focus.responderRevision ?? 1) + 1;
-        result.observation = { token: message.focusRequest.token, generation: message.focusRequest.generation, sequence: ++focus.sequence, context: focus.context ?? 1, responderRevision: focus.responderRevision ?? 1, name: focus.name };
+        result.observation = { token: message.focusRequest.token, generation: message.focusRequest.generation, sequence: ++focus.sequence, context: focus.context ?? 1, window: focus.window ?? 1, responderRevision: focus.responderRevision ?? 1, name: focus.name };
       }
       if (message.op === 'state.create') {
         result = { value: message.value, revision: 0 }; states.set(message.id, result);
@@ -579,6 +580,63 @@ test('owned availability subscription validation, purity, callback failures and 
     await assert.rejects(done, mode === 'snapshot' ? /context snapshot failed/ : mode === 'promise' ? /must be synchronous/ : /owned availability failed/);
     assert.equal(disposed, 1); assert.deepEqual(ui.__testing.availabilityStats(), { names: 0, listeners: 0 }); assert.deepEqual(ui.__testing.stats(), { actions: 0, cells: 0, dependencies: 0 });
   }
+});
+
+test('physical focus window handles are opaque, runtime branded and validated before controller allocation', async () => {
+  const h = await setup(), { ui } = h, foreign = await setup(); const window = ui.Focus.captureWindow();
+  assert.ok(Object.isFrozen(window)); assert.deepEqual(Object.keys(window), []); assert.equal(JSON.stringify(window), '{}');
+  const target = foreign.ui.Focus.captureWindow(); let scopeRef;
+  const Owner = ui.Component(scope => {
+    scopeRef = scope; const before = h.states.size;
+    for (const bad of [{}, target, null, 1]) for (const make of [() => scope.focus(null, { window: bad }), () => scope.focusBoolean(false, { window: bad }), () => scope.focusSelection([1], null, { window: bad })]) assert.throws(make, /captured FocusWindow/);
+    assert.throws(() => scope.focus(null, { unknown: true }), /Unknown focus option/); assert.equal(h.states.size, before);
+    return () => { assert.throws(() => ui.Focus.captureWindow(), /outside view bodies/); return ui.Text('owner'); };
+  });
+  const done = launch(ui, Owner()); await tick(); const computed = ui.Computed(() => ui.Focus.captureWindow()); assert.throws(() => computed.value, /Computed callbacks cannot capture focus windows/);
+  h.emit({ type: 'stop' }); await done; const count = h.calls.length; assert.equal(ui.Focus.captureWindow(), null); assert.equal(h.calls.length, count); assert.throws(() => scopeRef.focus(null, { window }), /during component setup/);
+});
+
+test('all focus controller variants pin physical window identity and resume cannot rebind it', async () => {
+  const h = await setup(), { ui } = h; h.focus.name = 'parent'; const window = ui.Focus.captureWindow(), options = { window }; let named, boolean, selected;
+  const Owner = ui.Component(scope => { named = scope.focus(null, options); boolean = scope.focusBoolean(false, options); selected = scope.focusSelection([1], null, options); return () => ui.Text('owner'); });
+  const done = launch(ui, Owner()); await tick(); options.window = {};
+  const controllers = [named, boolean, selected]; assert.ok(controllers.every(c => !c.retired.value));
+  const token = h.calls.find(c => c.op === 'focus.watch').token;
+  // Even equal name/context/revision metadata must expose a changed physical owner.
+  h.focus.window = 2; h.emit({ type: 'focusChanged', token, sequence: ++h.focus.sequence, context: 1, window: 2, generation: 0, responderRevision: 1, name: 'parent' }); await tick();
+  assert.ok(controllers.every(c => c.retired.value)); assert.deepEqual(ui.__testing.focusStats(), { listeners: 0, watching: false });
+  named.resume(); named.request('sheet'); named.retryWhenReady(); boolean.resume(); boolean.request(true); selected.resume(); selected.request(1); await tick();
+  assert.ok(controllers.every(c => c.retired.value)); assert.equal(h.calls.filter(c => c.op === 'focus.named').length, 0); assert.deepEqual(ui.__testing.availabilityStats(), { names: 0, listeners: 0 });
+  h.focus.window = 1; h.focus.context = 3; h.focus.focused = true; named.resume(); named.request('wanted'); boolean.resume(); selected.resume(); await tick();
+  assert.ok(controllers.every(c => !c.retired.value)); assert.equal(named.actual.value, 'wanted'); assert.equal(h.calls.find(c => c.op === 'focus.named').focusRequest.window, 1);
+  h.emit({ type: 'stop' }); await done; assert.deepEqual(ui.__testing.stats(), { actions: 0, cells: 0, dependencies: 0 });
+});
+
+test('native physical owner stamps reject queued requests and availability delivery retires before user callbacks', async () => {
+  for (const mode of ['request', 'availability', 'initial']) {
+    const h = await setup(), { ui } = h; h.focus.name = 'parent'; h.focus.availability = 'unrealized'; const window = ui.Focus.captureWindow(); let focus; const values = [];
+    if (mode === 'initial') h.focus.window = 2;
+    const Owner = ui.Component(scope => { focus = scope.focus(mode === 'initial' ? 'wanted' : null, { window }); return () => ui.Text('owner'); });
+    const done = launch(ui, Owner()); await tick();
+    if (mode === 'request') { focus.request('wanted'); h.focus.window = 2; await tick(); assert.equal(h.calls.find(c => c.op === 'focus.named').focusRequest.window, 1); }
+    if (mode === 'availability') {
+      focus.subscribeAvailability('wanted', value => values.push(value)); h.focus.window = 2; await tick(); assert.deepEqual(values, []);
+    }
+    assert.equal(focus.retired.value, true); assert.equal(focus.actual.value, null); assert.equal(h.focus.name, 'parent'); assert.deepEqual(ui.__testing.focusStats(), { listeners: 0, watching: false }); assert.deepEqual(ui.__testing.availabilityStats(), { names: 0, listeners: 0 });
+    h.emit({ type: 'stop' }); await done;
+  }
+});
+
+test('pinned retries and canceled captures preserve caller and owner lifetimes', async () => {
+  const h = await setup(), { ui } = h; h.focus.name = 'parent'; h.focus.availability = 'unrealized'; const window = ui.Focus.captureWindow(); let focus, cancelTask, release, late;
+  const Owner = ui.Component(scope => {
+    focus = scope.focus('wanted', { window }); cancelTask = scope.task(async () => { await new Promise(resolve => { release = resolve; }); late = ui.Focus.captureWindow(); }); return () => ui.Text('owner');
+  });
+  const done = launch(ui, Owner()); await tick(); focus.retryWhenReady(); await tick(); cancelTask(); const before = h.calls.filter(c => c.op === 'focus.window.capture').length; release(); await tick(); assert.equal(late, null); assert.equal(h.calls.filter(c => c.op === 'focus.window.capture').length, before);
+  h.focus.window = 2; h.focus.availability = 'ready'; const availabilityToken = h.calls.find(c => c.op === 'focus.availability.watch').token;
+  h.emit({ type: 'focusAvailability', token: availabilityToken, sequence: 1, availability: 'ready' }); await tick(); assert.equal(focus.retired.value, true); assert.equal(h.calls.filter(c => c.op === 'focus.named').length, 1);
+  h.focus.window = 1; h.focus.focused = true; focus.resume(); focus.retryWhenReady(); await tick(); assert.equal(focus.actual.value, 'wanted');
+  h.emit({ type: 'stop' }); await done; assert.deepEqual(ui.__testing.availabilityStats(), { names: 0, listeners: 0 });
 });
 
 test('retryWhenReady waits for retained intent, retries once and stops when satisfied', async () => {

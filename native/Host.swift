@@ -865,6 +865,9 @@ private final class JonUIApplication: NSApplication {
 
 private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private struct FocusReference { weak var view: NSView? }
+    private struct FocusWindowReference { weak var window: NSWindow? }
+    private var focusWindows: [Int: FocusWindowReference] = [:]
+    private var nextFocusWindow = 1
     private var focusTargets: [Int: FocusReference] = [:]
     private var focusTraversal: [Int] = []
     private var focusTabNavigation = false
@@ -965,7 +968,7 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
         disposed = true
         stopAvailabilityWatches()
         stopFocusWatch()
-        retireFocusTargets(); focusContextWindow = nil; namedFocusNodes.removeAll()
+        retireFocusTargets(); focusContextWindow = nil; namedFocusNodes.removeAll(); focusWindows.removeAll()
         for coordinator in webViews.values { coordinator.invalidate() }
         for coordinator in hostedControls.values { coordinator.invalidate() }
         window?.contentView = nil
@@ -1072,6 +1075,12 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
         guard var current = window else { return nil }
         while let sheet = current.attachedSheet { current = sheet }
         return current
+    }
+    private func focusWindowID(_ window: NSWindow) -> Int {
+        focusWindows = focusWindows.filter { $0.value.window != nil }
+        if let existing = focusWindows.first(where: { $0.value.window === window }) { return existing.key }
+        let id = nextFocusWindow; nextFocusWindow += 1
+        focusWindows[id] = FocusWindowReference(window: window); return id
     }
     private func prepareFocusWindow() throws -> NSWindow {
         guard let window = currentFocusWindow(), !stopping else { throw BridgeError("Focus requires a mounted window") }
@@ -1182,7 +1191,7 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
             guard changedWindow || changedResponder || name.map({ Data($0.utf8) }) != self.focusWatchName.map({ Data($0.utf8) }) else { return }
             self.focusWatchName = name; self.focusWatchSequence += 1
             self.emit(["type": "focusChanged", "token": token, "sequence": self.focusWatchSequence,
-                "context": self.focusWatchContext, "generation": self.focusRequestGeneration, "responderRevision": self.responderRevision, "name": name as Any? ?? NSNull()])
+                "context": self.focusWatchContext, "window": self.focusWindowID(window), "generation": self.focusRequestGeneration, "responderRevision": self.responderRevision, "name": name as Any? ?? NSNull()])
         }
     }
     private func pruneFocusTargets() {
@@ -1293,19 +1302,20 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
         updateResponderRevision(in: window)
         focusWatchName = currentFocusName(in: window); focusWatchSequence += 1
         return ["token": focusWatchToken!, "generation": focusRequestGeneration,
-            "sequence": focusWatchSequence, "context": focusWatchContext, "responderRevision": responderRevision, "name": focusWatchName as Any? ?? NSNull()]
+            "sequence": focusWatchSequence, "context": focusWatchContext, "window": focusWindowID(window), "responderRevision": responderRevision, "name": focusWatchName as Any? ?? NSNull()]
     }
     func handle(_ message: [String: Any]) throws -> Any {
         precondition(Thread.isMainThread)
         guard let raw = message["focusRequest"], !stopping, !disposed else { return try handleOperation(message) }
         guard let op = message["op"] as? String, ["focus.move", "focus.direction", "focus.named", "focus.target", "focus.blurNamed"].contains(op),
-              let stamp = raw as? [String: Any], Set(stamp.keys).isSubset(of: ["token", "generation", "context"]) else { throw BridgeError("Invalid focus request stamp") }
+              let stamp = raw as? [String: Any], Set(stamp.keys).isSubset(of: ["token", "generation", "context", "window"]) else { throw BridgeError("Invalid focus request stamp") }
         func counter(_ raw: Any?) throws -> Int {
             guard let raw, let number = layoutNumber(raw), number >= 1, number <= 9007199254740991, number.rounded() == number else { throw BridgeError("Invalid focus request counter") }
             return Int(number)
         }
         let token = try counter(stamp["token"]), generation = try counter(stamp["generation"])
         let context = try stamp["context"].map { try counter($0) }
+        let ownerWindow = try stamp["window"].map { try counter($0) }
         var rejected: [String: Any] = ["focusAccepted": false, "focused": false, "moved": false]
         guard token == focusWatchToken else { return rejected }
         guard generation > focusRequestGeneration else {
@@ -1313,7 +1323,7 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
         let window = try prepareFocusWindow()
         if focusWatchWindow !== window { watchFocusWindow(window) }
-        if let context, context != focusWatchContext {
+        if context.map({ $0 != focusWatchContext }) == true || ownerWindow.map({ focusWindows[$0]?.window !== window }) == true {
             focusRequestGeneration = generation
             rejected["observation"] = try focusAcknowledgement(); return rejected
         }
@@ -1403,6 +1413,8 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
             availabilityWatches.removeValue(forKey: try integer(message["token"]))
             if availabilityWatches.isEmpty { stopAvailabilityWatches() }
             return [:]
+        case "focus.window.capture":
+            return ["window": focusWindowID(try prepareFocusWindow())]
         case "focus.currentName":
             let window = try prepareFocusWindow()
             return ["name": currentFocusName(in: window) as Any? ?? NSNull()]
@@ -1425,7 +1437,7 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
                     self.scheduleFocusWatch()
                 })
             }
-            return ["sequence": focusWatchSequence, "context": focusWatchContext, "generation": focusRequestGeneration, "responderRevision": responderRevision, "name": focusWatchName as Any? ?? NSNull()]
+            return ["sequence": focusWatchSequence, "context": focusWatchContext, "window": focusWindowID(window), "generation": focusRequestGeneration, "responderRevision": responderRevision, "name": focusWatchName as Any? ?? NSNull()]
         case "focus.unwatch":
             let token = try integer(message["token"])
             if token == focusWatchToken { stopFocusWatch() }
@@ -1559,7 +1571,7 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
         case "dispose": stopping = true; dispose(); return [:]
         case "debug.snapshot" where testing:
             return ["nodes": nodes.values.sorted { $0.id < $1.id }.map { ["id": $0.id, "kind": $0.kind, "props": $0.props, "children": $0.children.map(\.id)] as [String: Any] },
-                    "states": cells.map { ["id": $0.key].merging($0.value.snapshot()) { _, new in new } }, "liveViews": ViewBox.live, "liveCells": Cell.live, "webViewCount": webViews.count, "textInputCount": hostedControls.filter { ["textfield", "securefield", "texteditor"].contains(nodes[$0.key]?.kind ?? "") }.count, "hostedControlCount": hostedControls.count, "availabilityWatchCount": availabilityWatches.count, "availabilityNotificationCount": availabilityNotifications.count, "applicationEventRouting": NSApp is JonUIApplication, "mainThread": Thread.isMainThread, "windowVisible": window?.isVisible ?? false, "sheetPresented": window?.attachedSheet != nil]
+                    "states": cells.map { ["id": $0.key].merging($0.value.snapshot()) { _, new in new } }, "liveViews": ViewBox.live, "liveCells": Cell.live, "webViewCount": webViews.count, "textInputCount": hostedControls.filter { ["textfield", "securefield", "texteditor"].contains(nodes[$0.key]?.kind ?? "") }.count, "hostedControlCount": hostedControls.count, "focusWindowCount": focusWindows.count, "availabilityWatchCount": availabilityWatches.count, "availabilityNotificationCount": availabilityNotifications.count, "applicationEventRouting": NSApp is JonUIApplication, "mainThread": Thread.isMainThread, "windowVisible": window?.isVisible ?? false, "sheetPresented": window?.attachedSheet != nil]
         case "debug.controls" where testing:
             return ["controls": numericControls().enumerated().map { index, control in
                 ["index": index, "kind": control is NSSlider ? "slider" : "stepper", "value": control.doubleValue] as [String: Any]
@@ -1659,6 +1671,9 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 "alpha": current?.alphaValue ?? 0]
         case "debug.focusHandles" where testing:
             return ["targets": focusTargets.count, "live": focusTargets.values.filter { $0.view != nil }.count]
+        case "debug.focusWindows" where testing:
+            focusWindows = focusWindows.filter { $0.value.window != nil }
+            return ["windows": focusWindows.count, "live": focusWindows.values.filter { $0.window != nil }.count]
         case "debug.focusNames" where testing:
             return ["count": namedFocusNodes.count]
         case "debug.availabilityWatch" where testing:

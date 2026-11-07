@@ -3,8 +3,13 @@ declare const bindingBrand: unique symbol;
 declare const viewBrand: unique symbol;
 declare const focusTargetBrand: unique symbol;
 declare const focusBindingBrand: unique symbol;
+declare const focusWindowBrand: unique symbol;
 /** Opaque weak native responder handle; capture from an already focused control. */
 export interface FocusTarget { readonly [focusTargetBrand]: true }
+/** Opaque weak physical-window identity; does not retain, open or activate that window. */
+export interface FocusWindow { readonly [focusWindowBrand]: true }
+/** Optional immutable physical-window guard, including across explicit resume. */
+export interface FocusOptions { window?: FocusWindow }
 /** Snapshot of a named target's logical/native availability; ready does not guarantee responder acceptance. */
 export type FocusAvailability = 'missing' | 'unrealized' | 'inactiveWindow' | 'unavailable' | 'ready';
 /** Boolean projection: native observation on read, deferred request on write. */
@@ -70,7 +75,7 @@ export interface FocusController {
   availability(name: string): FocusAvailability | null;
   /** Session-owned initial/coalesced status. Stops on retirement/resume/disposal; subscribe again after resume. */
   subscribeAvailability<Result>(name: string, listener: (availability: FocusAvailability) => Result, ...validation: SynchronousCallbackValidation<Result>): () => void;
-  /** Rebind after commit to the current context without replaying retained intent. New requests may follow in the same turn. */
+  /** Rebind after commit without replaying intent; an optional physical-window guard stays fixed. New requests may follow in the same turn. */
   resume(): void;
   /** Project a named target; apply with view.focused() inside this controller's component subtree. */
   binding(name: string): FocusBinding;
@@ -117,11 +122,11 @@ export interface ComponentScope<Props = unknown> {
   /** Setup-only lazy derivation, automatically disposed on unmount. */
   computed<T>(derive: () => T, ...validation: StateValidation<T>): Computed<T>;
   /** Setup-only focus controller. Initial null is passive; resume or remount after context retirement. */
-  focus(initialName?: string | null): FocusController;
+  focus(initialName?: string | null, options?: FocusOptions): FocusController;
   /** Setup-only opaque single-target focus controller. Initial false is passive. */
-  focusBoolean(initialFocused?: boolean): BooleanFocusController;
+  focusBoolean(initialFocused?: boolean, options?: FocusOptions): BooleanFocusController;
   /** Setup-only. Copies the unique finite ID domain; initial null is passive. */
-  focusSelection<const T extends string | number>(values: readonly T[], initialValue?: NoInfer<T> | null): SelectionFocusController<T>;
+  focusSelection<const T extends string | number>(values: readonly T[], initialValue?: NoInfer<T> | null, options?: FocusOptions): SelectionFocusController<T>;
   /** Runs once on unmount, in reverse registration order, including setup failure. */
   onDispose(cleanup: () => void): void;
 }
@@ -255,6 +260,8 @@ export const Focus: {
   readonly move: (direction: "left" | "right" | "up" | "down") => boolean;
   /** Null when no eligible native control is focused. Structural edits retire captures. */
   readonly capture: () => FocusTarget | null;
+  /** Capture the active main/sheet physical window for an owned controller guard. No focus/window activation. */
+  readonly captureWindow: () => FocusWindow | null;
   /** False when the target is stale, unavailable, or refuses first responder. */
   readonly request: (target: FocusTarget) => boolean;
   /** Focus a realized supported named control in the active window. False when unavailable. */

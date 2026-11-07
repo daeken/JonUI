@@ -1171,6 +1171,43 @@ item unchecked. Custom-drawn positive targeting is blocked as above; next
 independent work is explicit physical-window ownership/context policy. General
 keyboard/IME/AX/nested-sheet and the recorded AppKit sheet-close gaps remain open.
 
+Physical-window focus constraints implemented (2026-11-07):
+`Focus.captureWindow()` captures the current main/deepest-sheet physical window
+as a frozen opaque weak identity. All three focus constructors accept a last
+`{ window }` options argument, copied before allocating state. A pinned owner
+activates/resumes only on that physical window; otherwise it stays retired with
+retained desired data, canceling pending requests/retries/session subscriptions.
+Returning to its window permits passive explicit resume and new intent. Existing
+unrestricted/global behavior remains active-context based. Retired availability
+snapshots still describe current active targets without enabling requests.
+
+Native observations/acknowledgements include a physical identity independently of
+watch sessions. Request stamps check that weak window reference immediately before
+moving focus, covering a transition after the JS activation barrier. Wrong or
+destroyed/unknown owners reject with an actual observation and consume a generation;
+malformed counters do not. Internal metadata uses window changes; public listeners
+remain name-only. Identity lookup deduplicates/prunes weak entries, and shutdown
+clears the registry; no extra observer/timer/native cell/effect or retained window
+is added. Identity is physical, not presentation-based: a SwiftUI-cached sheet may
+reuse it, with explicit resume still required. No window opening/activation,
+independent roots, name domains, event/close ownership or full SwiftUI scenes are
+claimed. The new focus-window example captures from an action before mounting
+the guarded component, and documents immutable construction-time ownership.
+
+Validation: native build, 169 runtime/compiler cases and both type checkers pass.
+Focused offscreen native main/sheet guards, named/boolean/typed requests, immutable
+options, invalid-owner resume/retry/subscription suppression, native stamp checks,
+canceled captures, passive return, stable identity across watch sessions and 20
+pending owner lifetimes pass without activation. Four new unit cases cover foreign
+brands, allocation/purity guards and availability-before-focus/queued-request races.
+All 97 offscreen native scenarios and API classification pass. The recorded
+AppKit sheet-close crash did not recur; no framework fix is claimed.
+Keep focus and multi-window items unchecked;
+next independent increment is explicit ownership of independent native roots,
+including root/session name scoping, event routing and close/cancellation policy.
+Custom-drawn positive control focus, hardware keyboard/IME/AX/nested-sheet and the
+recorded AppKit sheet-close gaps remain open.
+
 ## 3. Application and operating-system integration
 
 - [ ] Support multiple windows with independent roots and explicit window ownership.

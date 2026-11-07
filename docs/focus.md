@@ -250,6 +250,65 @@ sheet appears retire when that sheet becomes active; this is not a sheet
 appearance hook. Try `bin/jonui examples/focus-controller/app.ts` for requests,
 actual/desired display, passive resumption and a full component reset preserving form values.
 
+## Physical-window guards
+
+By default, explicit `resume()` binds the controller to the current active
+main/sheet context. To constrain that behavior, capture an opaque weak physical
+window handle and pass an immutable guard at controller setup:
+
+```ts
+// In an action, after runApp has mounted a window:
+const window = Focus.captureWindow();
+// Pass the non-null handle into a component you mount after this action.
+// Inside its setup:
+const named = scope.focus(null, { window: initial.window });
+const boolean = scope.focusBoolean(false, { window: initial.window });
+const selection = scope.focusSelection([1, 'notes'], null, { window: initial.window });
+```
+
+`Focus.captureWindow(): FocusWindow | null` captures the deepest attached sheet,
+otherwise the launcher window. It changes no focus, active/key window, intent,
+generation, capture target or traversal. Before a window is mounted it throws;
+canceled calls and calls after shutdown return null. Render/Computed use is
+rejected. Handles are frozen, opaque and branded to this runtime. An empty object,
+captured responder or another runtime's handle cannot be used as a window guard.
+Repeated capture deduplicates the native physical identity; it adds no observers,
+timers or native cells, and retains no NSWindow or view.
+Pass handles through component props or ordinary variables; JSON State/transport
+does not preserve their runtime brand.
+
+The options are copied during setup. A guarded controller activates only while
+that same physical window is current. If it is inactive, initial activation or
+explicit resume leaves the controller retired, with null/false actual state and
+retained desired data. It cancels retries and session subscriptions and does not
+replay requests against a different active window. This also applies to clear and
+projected writes. A native window-identity stamp checks requests again just before
+moving focus, covering a context change after Node's activation snapshot. Existing
+task leases and cancellation checks still apply; a task cannot bypass the window
+guard by explicitly resuming its own session.
+
+After dismissing a sheet, a main-window-pinned controller can resume on the main
+window, passively, and accept new intent. A sheet-pinned controller cannot resume
+on the parent. A handle identifies the physical object, not a sheet presentation:
+if SwiftUI reuses that same NSWindow in a later presentation, explicit resume
+there may succeed. A destroyed physical window cannot match a replacement. Dead
+weak entries are pruned on captures/observations and shutdown clears the registry.
+The handle grants no ability to open, retain, show or activate a window. Use a new
+controller/component to choose a different physical guard.
+
+Global Focus commands still address the current active context. Owned availability
+**snapshot queries** also keep their existing current-target semantics, even when
+the guarded owner is retired; they do not change its guard or enable requests.
+Owned availability **subscriptions** and retries require a live guarded session.
+Public name observation remains name-only, with physical IDs used internally.
+
+Try `bin/jonui examples/focus-window/app.ts`. The offscreen gate verifies real
+main/sheet isolation, all three controller variants, inactive-owner resume and
+retry/subscription suppression, native stamp validation, stable identity across
+watch sessions, canceled captures and 20 pending owner lifetimes. This is a focus
+guard, not a multiple-window root/scene API. Independent roots, per-window name
+namespaces, event routing and window-close ownership remain separate work.
+
 ## Projected focus bindings
 
 `focus.binding(name)` creates a branded `FocusBinding` for a named target.

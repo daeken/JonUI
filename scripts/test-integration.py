@@ -160,3 +160,4 @@ for mode, message in [('owned-throw', 'intentional availability listener failure
     run('tests/integration/availability-subscribe-error.mjs', case=mode, failure=message)
 run('tests/integration/focus-retry.mjs', timeout=90, layout=True)
 run('tests/integration/focus-actions.mjs', timeout=90, layout=True)
+run('tests/integration/focus-window.mjs', timeout=90)

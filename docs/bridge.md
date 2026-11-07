@@ -822,7 +822,7 @@ isolation and 20 focused owner retirements with baseline resources.
 
 `Focus.subscribe` shares a `focus.watch` session among Node listeners. A new
 monotonically increasing token starts native observation and acknowledges a
-baseline `{ name, sequence, context, generation, responderRevision }` without initial callback replay. A stale
+baseline `{ name, sequence, context, window, generation, responderRevision }` without initial callback replay. A stale
 watch token is rejected before replacing a session; a stale `focus.unwatch`
 cannot stop a newer one. Last-listener cleanup stops the matching session.
 
@@ -840,8 +840,8 @@ revision. Sampling guards prevent reentrant layout notifications from queuing a
 feedback loop. Stop/disposal invalidate KVO and all notification registrations;
 queued samples also require their original session token.
 
-Node validates name/sequence/context/generation and optional nondecreasing safe
-integer responder revisions, ignoring retired/out-of-order events. Internal
+Node validates name/sequence/context/generation, optional positive safe-integer
+physical window IDs and nondecreasing safe-integer responder revisions, ignoring retired/out-of-order events. Internal
 controller listeners receive revision changes; context/responder-only changes
 update the baseline without duplicate public name callbacks.
 Listeners run untracked outside the delivering task context; task-owned listeners
@@ -859,7 +859,8 @@ the owned named projection subset is described below.
 
 Focus-mutating operations (`focus.move`, `focus.direction`, `focus.named`,
 `focus.target`, `focus.blurNamed`) accept an internal `focusRequest` stamp: session `token`, strictly
-increasing positive safe-integer `generation`, and optional positive `context`.
+increasing positive safe-integer `generation`, optional positive `context` and
+optional physical `window` ID.
 Unknown stamp fields and invalid counters throw without consuming the generation.
 An operation that reaches its validator also throws without consuming a generation
 when its arguments are invalid. A stale token is rejected without disturbing the newer
@@ -868,7 +869,7 @@ the current observation acknowledgement; a context rejection consumes its new
 generation so an old request cannot be replayed after another window switch.
 
 An accepted operation returns its ordinary result plus `focusAccepted: true` and
-`observation: { token, generation, sequence, context, name }`. `focusAccepted`
+`observation: { token, generation, sequence, context, window, responderRevision, name }`. `focusAccepted`
 describes protocol acceptance; an unavailable/refusing target can still return
 `focused: false` or `moved: false`. The acknowledgement resolves actual focus,
 updates the watch baseline and advances sequence even if the name is unchanged.
@@ -952,6 +953,35 @@ delivery, task/RPC leases, explicit authorizers, cancellation before commit and
 document replacement. Native coverage keeps one controller/model through sheet
 and parent resumption, rejects an earlier task's writes, repeats 20 observer
 resumes and disposes 20 owners with queued resume/request work at baseline resources.
+
+Physical-window guards add `Focus.captureWindow()` and a last `{ window }` options
+argument to all three scope focus constructors. Node wraps a validated positive
+native ID in a frozen object branded by a private WeakMap; constructors copy the
+ID before allocating any state. A separate native registry deduplicates weak
+NSWindow references, independent of observation tokens and capture/traversal IDs.
+Destroyed entries are pruned on identity lookup; shutdown clears the registry.
+No observer/timer, retained window, or new controller cell/effect is added.
+
+Watch baselines, events, snapshots and movement acknowledgements carry the actual
+physical window ID. Internal metadata delivery considers that ID, while public
+listeners still filter by name only. Guarded activation and availability snapshots
+retire on a physical mismatch before user callbacks or requests. Inactive-owner
+activation is a normal retired state, not startup failure. Resume never changes
+the copied guard. Movement stamps optionally carry `window` alongside token,
+generation and context; the host validates the counter and checks the registry's
+weak window against the current physical window immediately before the operation.
+A wrong/destroyed/unknown window rejects movement with a fresh actual observation
+and consumes that request generation; malformed counters throw without consuming
+one. Ordinary unguarded/global calls keep their existing active-context behavior.
+
+An ID describes a physical object, not one sheet presentation. A framework-cached
+NSWindow can retain its ID across presentations, but its controller still requires
+explicit session resume. Capabilities do not retain/activate/open windows, and
+availability queries retain their existing active-target snapshot meaning. Native
+tests cover main and sheet guards, all controller variants, native stamp rejection,
+passive return, immutable options, canceled captures, stable identity across watch
+sessions and 20 pending owners. Independent window roots/name domains/close and
+event routing are still unimplemented.
 
 `retryWhenReady()` uses one private waiter and the existing owned availability
 subscription, adding no cells/effects/native registry. It snapshots the current

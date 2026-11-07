@@ -468,10 +468,12 @@ function initializeComponent(mounted) {
       if (!owned.initializing || owned.disposed) throw new Error('Allocate scoped Computed during component setup');
       return createComputed(callback, owned);
     },
-    focus(initialName = null) {
+    focus(initialName = null, options = {}) {
       assertNotComputing('allocate focus controllers');
       if (!owned.initializing || owned.disposed) throw new Error('Allocate focus controllers during component setup');
       if (initialName !== null) focusName(initialName);
+      const settings = layoutOptions(options, ['window'], 'focus');
+      const ownerWindow = settings.window === undefined ? undefined : focusWindowID(settings.window);
       const desired = scope.state(initialName), actual = scope.state(null), retired = scope.state(false), revision = scope.state(0), activation = scope.state(0);
       let context, token, ready = false, first = true, resuming = false, baseline = null, lease = focusLeaseClock, requestTask = null, resumeTask = null, unsubscribe = () => {};
       let conditionalClear = null, pendingIntent = initialName !== null;
@@ -514,7 +516,7 @@ function initializeComponent(mounted) {
         if (caller && !taskIsCurrent(caller)) { resuming = false; baseline = null; requestTask = null; conditionalClear = null; pendingIntent = false; retired.value = true; cancelRetry(); pendingRetry = null; stopAvailabilitySubscriptions(); return; }
         unsubscribe = subscribeFocus(sample => {
           if (!ready) return;
-          if (sample.token !== token || sample.context !== context) { retire(); return; }
+          if (sample.token !== token || sample.context !== context || ownerWindow !== undefined && sample.window !== ownerWindow) { retire(); return; }
           if (retry?.baseline && (sample.name !== retry.baseline.name || sample.responderRevision !== retry.baseline.responderRevision)) cancelRetry();
           actual.value = sample.name;
         }, true);
@@ -522,6 +524,7 @@ function initializeComponent(mounted) {
           const sample = request('focus.snapshot', { token: focusWatch.token }).observation;
           if (!sample) throw new Error('Focus observation session expired');
           receiveFocusChange(sample);
+          if (ownerWindow !== undefined && sample.window !== ownerWindow) { resuming = false; retire(); return; }
           token = sample.token; context = sample.context; ready = true; resuming = false; retired.value = false; actual.value = sample.name;
           if (retry && !retry.baseline) { retry.baseline = sample; if (sample.name === retry.name) cancelRetry(); }
         } catch (error) { unsubscribe(); throw error; }
@@ -546,9 +549,9 @@ function initializeComponent(mounted) {
         const op = onlyClear !== null ? 'focus.blurNamed' : name === null ? 'focus.move' : 'focus.named';
         const args = onlyClear !== null ? { name: onlyClear } : name === null ? { direction: 'clear' } : { name };
         let result;
-        try { result = requestFocus(op, args, context); } finally { if (source) cancelRetry(source); }
+        try { result = requestFocus(op, args, context, ownerWindow); } finally { if (source) cancelRetry(source); }
         const sample = result.observation;
-        if (!sample || result.focusAccepted === false || sample.context !== context || sample.token !== token) { retire(); return; }
+        if (!sample || result.focusAccepted === false || sample.context !== context || sample.token !== token || ownerWindow !== undefined && sample.window !== ownerWindow) { retire(); return; }
         actual.value = sample.name;
         if (retry && sample.name === retry.name) cancelRetry();
       });
@@ -569,7 +572,7 @@ function initializeComponent(mounted) {
       function contextSnapshot() {
         const sample = request('focus.snapshot', { token }).observation;
         if (sample) receiveFocusChange(sample);
-        if (!sample || sample.token !== token || sample.context !== context) { retire(); return null; }
+        if (!sample || sample.token !== token || sample.context !== context || ownerWindow !== undefined && sample.window !== ownerWindow) { retire(); return null; }
         return sample;
       }
       function subscribeOwnedAvailability(name, callback, onStop) {
@@ -666,7 +669,7 @@ function initializeComponent(mounted) {
       focusControllers.set(controller, { canWrite, canRequest: () => resuming || !untracked(() => retired.value) });
       return controller;
     },
-    focusSelection(values, initialValue = null) {
+    focusSelection(values, initialValue = null, options = {}) {
       assertNotComputing('allocate selection focus controllers');
       if (!owned.initializing || owned.disposed) throw new Error('Allocate selection focus controllers during component setup');
       if (!Array.isArray(values)) throw new TypeError('Focus selections require an array of string or finite number IDs');
@@ -682,7 +685,7 @@ function initializeComponent(mounted) {
         if (!names.has(value)) throw new TypeError('Unknown focus selection ID');
         return names.get(value);
       }
-      const controller = scope.focus(nameFor(initialValue)), guards = focusControllers.get(controller);
+      const controller = scope.focus(nameFor(initialValue), options), guards = focusControllers.get(controller);
       const selected = name => selections.has(name) ? selections.get(name) : null;
       const desired = Object.freeze({
         get value() { return selected(controller.desired.value); },
@@ -719,11 +722,11 @@ function initializeComponent(mounted) {
         },
       });
     },
-    focusBoolean(initialFocused = false) {
+    focusBoolean(initialFocused = false, options = {}) {
       assertNotComputing('allocate boolean focus controllers');
       if (!owned.initializing || owned.disposed) throw new Error('Allocate boolean focus controllers during component setup');
       if (typeof initialFocused !== 'boolean') throw new TypeError('Initial focus must be boolean');
-      const name = `jonui:boolean:${randomUUID()}`, controller = scope.focus(initialFocused ? name : null), projected = controller.binding(name);
+      const name = `jonui:boolean:${randomUUID()}`, controller = scope.focus(initialFocused ? name : null, options), projected = controller.binding(name);
       const setDesired = focusBindings.get(projected).setDesired;
       const desired = Object.freeze({
         get value() { return controller.desired.value === name; },
@@ -938,6 +941,12 @@ export const Button = (title, action, options = {}) => {
   return new ViewValue('button', { title, action, ...props });
 };
 const focusTargets = new WeakMap();
+const focusWindows = new WeakMap();
+function focusWindowID(value) {
+  const id = focusWindows.get(value);
+  if (id === undefined) throw new TypeError('Expected a captured FocusWindow');
+  return id;
+}
 const focusListeners = new Set();
 const availabilityWatches = new Map(), availabilityTokens = new Map();
 const availabilityValues = new Set(['missing', 'unrealized', 'inactiveWindow', 'unavailable', 'ready']);
@@ -1019,11 +1028,13 @@ function receiveFocusChange(event) {
   if (!watch || event.token !== watch.token || !Number.isSafeInteger(event.sequence) || event.sequence <= watch.sequence ||
       !Number.isSafeInteger(event.context) || event.context < watch.context ||
       !Number.isSafeInteger(event.generation) || event.generation < watch.generation ||
+      event.window !== undefined && (!Number.isSafeInteger(event.window) || event.window < 1) ||
       event.responderRevision !== undefined && (!Number.isSafeInteger(event.responderRevision) || event.responderRevision < (watch.responderRevision ?? 0)) ||
       event.name !== null && (typeof event.name !== 'string' || !event.name.length || !event.name.isWellFormed())) return;
   watch.sequence = event.sequence; watch.context = event.context; watch.name = event.name;
   watch.generation = event.generation; watch.requestGeneration = Math.max(watch.requestGeneration, event.generation);
   watch.responderRevision = event.responderRevision ?? watch.responderRevision;
+  watch.window = event.window ?? watch.window;
   if (watch.deliveryScheduled) return;
   watch.deliveryScheduled = true;
   queueMicrotask(() => {
@@ -1033,9 +1044,9 @@ function receiveFocusChange(event) {
     try {
       taskStorage.run(undefined, () => untracked(() => {
         for (const entry of [...focusListeners]) {
-          if (focusWatch !== watch || watch.sequence !== sequence || !focusListeners.has(entry) || entry.name === name && (!entry.metadata || entry.context === watch.context && entry.responderRevision === watch.responderRevision)) continue;
-          entry.name = name; entry.context = watch.context; entry.responderRevision = watch.responderRevision;
-          const value = entry.metadata ? { token: watch.token, context: watch.context, responderRevision: watch.responderRevision, name } : name;
+          if (focusWatch !== watch || watch.sequence !== sequence || !focusListeners.has(entry) || entry.name === name && (!entry.metadata || entry.context === watch.context && entry.window === watch.window && entry.responderRevision === watch.responderRevision)) continue;
+          entry.name = name; entry.context = watch.context; entry.window = watch.window; entry.responderRevision = watch.responderRevision;
+          const value = entry.metadata ? { token: watch.token, context: watch.context, window: watch.window, responderRevision: watch.responderRevision, name } : name;
           if (!entry.task) entry.callback(value);
           else if (taskIsCurrent(entry.task)) taskStorage.run(entry.task, () => entry.callback(value));
         }
@@ -1043,10 +1054,10 @@ function receiveFocusChange(event) {
     } catch (error) { fail(error); }
   });
 }
-function requestFocus(op, args = {}, context) {
+function requestFocus(op, args = {}, context, ownerWindow) {
   const watch = focusWatch;
   if (!watch) return request(op, args);
-  const result = request(op, { ...args, focusRequest: { token: watch.token, generation: ++watch.requestGeneration, ...(context === undefined ? {} : { context }) } });
+  const result = request(op, { ...args, focusRequest: { token: watch.token, generation: ++watch.requestGeneration, ...(context === undefined ? {} : { context }), ...(ownerWindow === undefined ? {} : { window: ownerWindow }) } });
   if (focusWatch === watch && result.observation) receiveFocusChange(result.observation);
   return result;
 }
@@ -1061,7 +1072,7 @@ function subscribeFocus(callback, metadata = false) {
     try { Object.assign(watch, request('focus.watch', { token: watch.token })); }
     catch (error) { focusListeners.delete(entry); focusWatch = null; throw error; }
   }
-  entry.name = focusWatch.name; entry.context = focusWatch.context; entry.responderRevision = focusWatch.responderRevision;
+  entry.name = focusWatch.name; entry.context = focusWatch.context; entry.window = focusWatch.window; entry.responderRevision = focusWatch.responderRevision;
   if (entry.task) entry.unregister = registerTaskCleanup(entry.task, unsubscribe);
   return unsubscribe;
 }
@@ -1092,6 +1103,12 @@ export const Focus = Object.freeze({
     const { target } = request('focus.capture');
     if (target === null) return null;
     const value = Object.freeze({}); focusTargets.set(value, target); return value;
+  },
+  captureWindow() {
+    if (!canMoveFocus('capture focus windows')) return null;
+    const { window } = request('focus.window.capture');
+    if (!Number.isSafeInteger(window) || window < 1) throw new Error('Invalid focus window handle');
+    const value = Object.freeze({}); focusWindows.set(value, window); return value;
   },
   request(target) {
     if (!canMoveFocus()) return false;

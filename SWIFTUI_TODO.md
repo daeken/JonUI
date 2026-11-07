@@ -29,6 +29,20 @@ Status meanings:
 
 ## Current review
 
+- Physical focus window review (2026-11-07): captureWindow returns a frozen opaque
+  weak physical identity; all three focus constructors copy optional window guards
+  before state allocation. Activation, metadata, availability delivery and native
+  movement stamps reject another window; resume does not change the guard. A
+  deduplicated weak native registry survives watch sessions, prunes destroyed
+  windows and clears on shutdown without extra observers/timers/cells or retention.
+  Default/global behavior stays active-context based. Four unit cases bring the
+  total to 169; build/types and focused offscreen main/sheet/native stamp/canceled
+  capture/passive return/20-owner checks pass. All 97 offscreen native scenarios,
+  169 unit/compiler cases, both type checkers and API classification pass. The
+  recorded sheet-close crash did not recur; no framework fix is claimed.
+  This implements physical focus constraints, not independent roots or general
+  window ownership; Window/WindowGroup remain Missing. Cached sheet objects may
+  reuse physical identity, always requiring explicit controller resume.
 - Button/Toggle/Slider registration review (2026-11-07): explicit names and all
   owned projection variants join global validation. Only named instances opt into
   bounded SwiftUI hosting; unnamed rendering is unchanged. Public enabled/eligible
@@ -435,9 +449,10 @@ Status meanings:
 | AppStorage | Missing | Preferences-backed typed state and external changes. | UserDefaults namespace, migrations and subscription teardown. |
 | SceneStorage | Missing | Per-scene restorable state. | Requires scene ownership and persistence/version policy. |
 | FocusState | Partial (JonUI) | Owned named, standalone boolean and fixed string/number selection controllers, with observed-boolean/request projections. | Text/date/WebKit subset verified; dynamic domains, object/symbol IDs and general SwiftUI overloads remain. Observations do not write desired state. |
-| Scoped focus controller | Partial (JonUI) | Desired/actual/retired state, context requests/resume, named availability snapshots/session subscriptions and cancellable one-shot retry of retained intent. | Native text/date/WebKit, no feedback/replay, ready-once/refusal/cancel behavior, unnamed responder guard, modal/resume/task/RPC lifetime and owner cleanup verified; viewport/physical-window policies remain. <!-- api: FocusController, ComponentScope.focus --> |
-| Boolean focus controller | Partial (JonUI) | Opaque binding, separate intent/observation, passive resume, availability snapshot/session subscription and one-shot retry of retained true intent. | Text/secure/editor/date/WebKit, conditional clear, private mapping, retry supersession/cancellation, task/RPC leases and owner cleanup verified. General overloads/additional controls remain. <!-- api: BooleanFocusController, ComponentScope.focusBoolean --> |
-| Typed focus selection controller | Partial (JonUI) | Fixed string/number domain, separate nullable intent/observation, bindings/resume, guarded availability snapshots/session subscriptions and one-shot retained-ID retry. | Literal/typed identity, validation, text/date/WebKit, clear, retry supersession/cancellation, task/RPC leases, context/session and owner cleanup verified; dynamic/object domains/general overloads remain. <!-- api: SelectionFocusController, ComponentScope.focusSelection --> |
+| Scoped focus controller | Partial (JonUI) | Desired/actual/retired state, requests/resume, availability/subscriptions, one-shot retry and optional immutable physical-window guard. | Native text/date/WebKit, no feedback/replay, retry/cancel, main/sheet guard across resume, task/RPC leases and owner cleanup verified; viewport/independent-root policies remain. <!-- api: FocusController, ComponentScope.focus --> |
+| Boolean focus controller | Partial (JonUI) | Opaque binding, separate intent/observation, passive resume, availability/subscriptions/retry and optional physical-window guard. | Text/secure/editor/date/WebKit, conditional clear/private mapping, main/sheet guard, retry/cancellation, task/RPC leases and owner cleanup verified. General overloads/additional controls remain. <!-- api: BooleanFocusController, ComponentScope.focusBoolean --> |
+| Typed focus selection controller | Partial (JonUI) | Fixed string/number domain, intent/observation, bindings/resume, availability/subscriptions/retry and optional physical-window guard. | Typed identity/validation, text/date/WebKit/clear, main/sheet guard, retry/cancellation, task/RPC leases and owner cleanup verified; dynamic/object domains/general overloads remain. <!-- api: SelectionFocusController, ComponentScope.focusSelection --> |
+| Physical focus window guard | Partial (JonUI) | Opaque weak deduplicated physical handle; constructor guard remains fixed across resume, with native request validation. | Main/sheet guard, inactive-owner activation, canceled captures, malformed/native stamps and cleanup verified. No opening/activation/independent root or close ownership. Cached physical sheet identity can recur. <!-- api: FocusWindow, FocusOptions, Focus.captureWindow --> |
 | focused projection | Partial (JonUI) | Boolean actual getter and deferred true/conditional-false request, attached to one named supported control. | Text/secure/editor/date/WebKit focus verified; Stepper/Picker/Button/Toggle/Slider wiring and unavailable gates verified, successful focus still gated. Modifier/owner/Unicode blur/cleanup covered; containers remain unsupported. <!-- api: FocusBinding, View.focused --> |
 | Native focus observation | Partial (JonUI) | Nullable named responder snapshots/coalesced subscriptions; generation-stamped acknowledgements and internal weak responder-owner revisions; observations do not write intent. | Text/date/WebKit/single-sheet, unnamed shared-editor retry guard, public name-only dedup, generation/sequence/context guards and cleanup verified; broader controls/IME/AX remain. <!-- api: Focus.subscribe --> |
 | Named focus availability | Partial (JonUI) | Snapshots/shared native/global-context subscriptions, session-bound owned helpers and opt-in one-shot controller retry. | Exact/opaque states, native/lazy/sheet changes, caller/session/owner cancellation and observer cleanup verified; triggerless OS changes, viewport/physical-window policies remain. <!-- api: FocusAvailability, Focus.availabilityNamed, Focus.subscribeAvailability --> |
@@ -574,7 +589,7 @@ can still bypass local enforcement; this is not server-side branch protection.
 Repository instructions require the same review for contributors and automation.
 
 <!-- coverage-review:generated -->
-Review baseline (checkout HEAD before commit): `2e9cf0061ddbce9c9108f23e103d3d1f75177079`.
+Review baseline (checkout HEAD before commit): `e935714e679a078c64955490b57c21fdfb1d1aa8`.
 
-Staged source-tree SHA-256 (excluding this catalog): `c3c0217e21abb31a64cd63b34676e26aec8c20374a1af0812793cb99838e70b4`.
+Staged source-tree SHA-256 (excluding this catalog): `a4f89233439df434aea8a448ecd083159f977b1dba6fe258498ca7b12c4e3556`.
 <!-- /coverage-review:generated -->

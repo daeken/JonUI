@@ -181,6 +181,12 @@ with `.focused(focus.binding(id))`. Numeric and string IDs stay distinct;
 native movement updates actual selection without rewriting desired intent. See
 [typed focus selection](docs/focus.md#typed-focus-selection) and
 `bin/jonui examples/focus-selection/app.ts`.
+`Focus.captureWindow()` captures the active physical main/sheet window without
+activating or retaining it. Pass `{ window }` as the last options argument to
+`scope.focus`, `focusBoolean` or `focusSelection` to pin that controller, including
+across resume. Capturing requires a mounted window, so capture in an action before
+mounting the guarded component. See [physical-window guards](docs/focus.md#physical-window-guards)
+and `bin/jonui examples/focus-window/app.ts`. Independent window roots remain open work.
 Owned controllers can inspect availability too: `focus.availability(name)` for a
 named controller, `focus.availability()` for a boolean target, or
 `focus.availability(id)` for a typed selection. Snapshots preserve intent and
