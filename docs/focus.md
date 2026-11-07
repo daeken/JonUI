@@ -580,8 +580,7 @@ After native scrolling realizes a lazy target, a ready snapshot alone leaves
 retained controller intent unrequested. Call `request(name)` explicitly to retry;
 after context retirement, resume the owner explicitly too. A ready snapshot does
 not guarantee that the current responder will resign or the target will accept.
-Owned availability helpers are described below; realization subscriptions remain
-future work. The focus example's
+Owned availability helpers and named subscriptions are described below. The focus example's
 **Check demo secret availability** button shows a snapshot without moving focus.
 
 ## Owned target availability
@@ -624,6 +623,65 @@ operations beyond the existing availability query. They do not subscribe to
 realization, scroll, retry focus or change generations. See the boolean and typed
 selection examples' **Check Notes** actions for displaying an owned snapshot.
 
+## Availability subscriptions
+
+`Focus.subscribeAvailability(name, listener)` returns an idempotent unsubscribe
+function. It delivers an **asynchronous initial snapshot**, then coalesced changes
+using the same five `FocusAvailability` states. Own it from an effect:
+
+```ts
+const status = scope.state<FocusAvailability | 'waiting'>('waiting');
+scope.effect(() => Focus.subscribeAvailability('search', value => {
+  status.value = value;
+}));
+```
+
+Each new listener receives the latest known value on a later Node microtask,
+including when another listener already watches that exact name. A listener
+removed before delivery gets no callback. Listeners for one name share a native
+watch; composed/decomposed Unicode spellings stay separate. Native and Node
+delivery coalesce pending updates, omit unchanged states and ignore retired tokens
+or old sequence numbers. Intermediate transitions, target identity replacements
+that keep the same state, and a final event on shutdown are not guaranteed.
+Unlike `Focus.subscribe`, this API deliberately includes initial delivery.
+
+Updates are driven by native adapter attachment/layout/update/removal, committed
+graph changes and active-window/sheet update notifications. There is no polling
+interval or timer. A lazy name can report unrealized until actual scrolling
+attaches its view, then ready. Native lazy caches may remain attached offscreen;
+this does not indicate viewport visibility or WebView document readiness. External
+eligibility changes that cause none of these native triggers may require an
+explicit `availabilityNamed` snapshot. Callback values can become stale before
+use; a ready result still does not guarantee responder acceptance.
+
+Subscriptions follow the current active context across sheets. A parent target
+can report inactiveWindow while a sheet is active and ready after dismissal.
+This does not bind a physical window or resume an owned focus controller. Listeners
+stay active while their effect/task lifetime remains active, even if a separate
+focus controller retired. They never change desired focus, retry a pending
+request, scroll, create captures or consume movement generations. Normal active-
+context capture retirement still applies during native preparation.
+
+Callbacks run untracked on Node and must be synchronous. Inferred Promise-returning
+listeners fail type checking; Promise/thenable returns are consumed and diagnosed
+at runtime. Throws follow orderly application failure cleanup. Listeners may
+remove/add subscriptions during delivery. Effect cleanup removes its listener;
+scoped-task listeners are canceled on task replacement/stop/unmount and remain
+owned after ordinary Promise settlement. RPC listeners retire on settlement,
+document replacement/unmount or cancellation. Task callbacks execute in their
+run's context so cancellation during a callback guards its later State writes.
+Canceled callers and calls after shutdown return a no-op before validation.
+Live render/computed subscriptions are rejected. Unowned subscriptions require
+explicit cleanup or app shutdown.
+
+The final listener removes its native name watch; the final name removes the
+shared window notification observers and invalidates queued native sampling.
+No target views or component scopes are retained by the native name registry.
+Named subscriptions are the first contract; boolean/typed owned subscription
+helpers and automatic focus retry remain open. Try
+`bin/jonui examples/focus-availability/app.ts` to show/disable a target, open a
+sheet and stop/restart observation without moving focus automatically.
+
 ## Appearance and focus readiness
 
 `view.onAppear`/`onDisappear` provide owned native appearance signals; see
@@ -633,7 +691,8 @@ eligible target. Disappearance also does not guarantee that a cached target was
 detached. These events do not resume a controller, replay intent, scroll or
 automatically retry focus. Use scoped tasks for cancellable work and onDispose
 for guaranteed cleanup, since disappearance after logical retirement is discarded.
-Availability-specific subscriptions and automatic retry policy remain open.
+Named availability subscriptions are separate from appearance; owned subscription
+helpers and automatic retry policy remain open.
 
 ## Command traversal cycles
 

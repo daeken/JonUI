@@ -139,7 +139,7 @@ export interface EdgeInsets { top?: number; leading?: number; bottom?: number; t
 export type Font = "title" | "headline" | "body" | "caption";
 export type ForegroundStyle = "primary" | "secondary" | "yellow";
 
-type AppearanceValidation<Result> = [Extract<Result, PromiseLike<unknown>>] extends [never] ? [] : [never];
+type SynchronousCallbackValidation<Result> = [Extract<Result, PromiseLike<unknown>>] extends [never] ? [] : [never];
 export interface View {
   readonly [viewBrand]: true;
   /** Modifiers return new values; they do not mutate the receiver. */
@@ -157,9 +157,9 @@ export interface View {
   /** Group native focusable descendants for SwiftUI sequential/directional movement. */
   focusSection(): View;
   /** Native SwiftUI appearance signal; synchronous, not an eligibility or component-setup guarantee. */
-  onAppear<Result>(callback: () => Result, ...validation: AppearanceValidation<Result>): View;
+  onAppear<Result>(callback: () => Result, ...validation: SynchronousCallbackValidation<Result>): View;
   /** Native disappearance while logically mounted. Use scope.onDispose for guaranteed teardown. */
-  onDisappear<Result>(callback: () => Result, ...validation: AppearanceValidation<Result>): View;
+  onDisappear<Result>(callback: () => Result, ...validation: SynchronousCallbackValidation<Result>): View;
   /** Attach an owned focus projection to a text input, DatePicker, Stepper, Picker or WebView, through single-child modifiers. */
   focused(binding: FocusBinding): View;
   tag(id: ItemID): View;
@@ -248,6 +248,8 @@ export const Focus: {
   readonly requestNamed: (name: string) => boolean;
   /** Layout/eligibility snapshot without requesting focus. Null for canceled callers/after shutdown. */
   readonly availabilityNamed: (name: string) => FocusAvailability | null;
+  /** Async initial snapshot and coalesced changes. Return cleanup from an effect; task/RPC subscriptions are lifetime-owned. */
+  readonly subscribeAvailability: <Result>(name: string, listener: (availability: FocusAvailability) => Result, ...validation: SynchronousCallbackValidation<Result>) => () => void;
   /** Current eligible responder's declared name in the active window; null for unnamed/cleared focus. A snapshot, not a tracked State. */
   readonly currentName: () => string | null;
   /** Coalesced actual-name changes, without initial replay. Return cleanup from an effect; task subscriptions cancel automatically. */

@@ -44,6 +44,8 @@ def run(entry, case='', failure=None, driver=None, timeout=30, layout=False):
         markers = ['APPEARANCE_DISPOSE', 'APPEARANCE_STOP']
         if case == 'startup': markers += ['APPEARANCE_CHILD_DISPOSE', 'APPEARANCE_FAILURE_CLEANUP']
         assert all(result.stdout.count(marker) == 1 for marker in markers), (result.stdout, result.stderr)
+    if entry.endswith('availability-subscribe-error.mjs'):
+        assert all(result.stdout.count(marker) == 1 for marker in ['AVAILABILITY_DISPOSE', 'AVAILABILITY_STOP']), (result.stdout, result.stderr)
     if failure:
         assert result.returncode != 0 and failure in result.stderr, (entry, result.returncode, result.stdout, result.stderr)
         print(f'PASS expected failure: {failure}', flush=True)
@@ -150,3 +152,6 @@ run('tests/integration/focus-owned-availability.mjs', timeout=60, layout=True)
 run('tests/integration/appearance.mjs', timeout=60, layout=True)
 for mode, message in [('throw', 'intentional appearance failure'), ('disappear', 'intentional appearance failure'), ('promise', 'must be synchronous'), ('startup', 'appearance startup failure')]:
     run('tests/integration/appearance-error.mjs', case=mode, failure=message)
+run('tests/integration/availability-subscribe.mjs', timeout=60, layout=True)
+for mode, message in [('throw', 'intentional availability listener failure'), ('promise', 'must be synchronous')]:
+    run('tests/integration/availability-subscribe-error.mjs', case=mode, failure=message)

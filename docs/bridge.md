@@ -667,6 +667,34 @@ conditional target removal/reinsertion, lazy explicit retry, canceled RPC cleanu
 and 20 late-query owner lifetimes. Boolean/selection names remain private to the
 wrapper; global name APIs continue exposing names under their existing contract.
 
+`Focus.subscribeAvailability` adds watch/unwatch operations and a focusAvailability
+event carrying monotonic token/sequence plus the five-state value. Node shares
+one native token per exact JS name, maintains per-listener initial/last delivery,
+coalesces queued values and drops stale tokens/sequences. Initial delivery is
+asynchronous. Listener additions/removals during delivery are checked against
+current membership; task/RPC resources own unsubscribe and callback task context.
+Registration errors roll back; malformed initial observations trigger unwatch.
+Throwing/Promise callbacks use normal failure teardown. Shutdown clears callback
+references, maps and the native watcher set.
+
+Native watches retain names/status/counters only. One set of four window
+notifications is installed while any watch exists. Bounded NSHostingView and
+ControlWebView subclasses notify on layout/window attachment; coordinator update/
+invalidation and graph commits also schedule sampling. Weak host references avoid
+view ownership cycles. One main-queue job coalesces work, a sampling guard prevents
+layout reentrancy from scheduling itself, and an epoch invalidates jobs after the
+last watch stops. The existing namedAvailability helper serves snapshots and
+watchers; no second eligibility policy is introduced. No timer, first-responder
+KVO, focus request, generation or capture is added by availability watching.
+OS changes without these triggers are outside the immediate-notification contract.
+
+Native coverage checks missing/realized/disabled/passive/lazy/context changes,
+exact Unicode sharing, effect/task ownership, RPC document cancellation, status
+State updates, no focus/retry/generation/capture mutation, 20 owner lifetimes and
+final native observer removal, including app-owned shutdown. Diagnostic snapshot
+counts remain readable after disposal for cleanup verification. Owned-controller
+subscription helpers/window leases and automatic retry remain separate work.
+
 `Focus.move(direction)` sends `focus.direction` with one of four spatial directions.
 After layout/key-loop recalculation, the host resolves a shared field editor to
 its control and normalizes internal WebKit responders to the browser container.

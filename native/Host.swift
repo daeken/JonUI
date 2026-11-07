@@ -264,13 +264,19 @@ private struct ViewReference: Identifiable {
 // A bounded hosting surface gives each logical control an owned native
 // subtree. Resolve controls by public AppKit types within that subtree, without
 // matching labels, geometry, accessibility identifiers, or private SwiftUI views.
+private final class AvailabilityHostingView: NSHostingView<AnyView> {
+    weak var availabilityHost: Host?
+    override func layout() { super.layout(); availabilityHost?.scheduleAvailabilityWatch() }
+    override func viewDidMoveToWindow() { super.viewDidMoveToWindow(); availabilityHost?.scheduleAvailabilityWatch() }
+}
 private struct HostedNativeControl: NSViewRepresentable {
     let reference: ViewReference
     let content: AnyView
     unowned let host: Host
     func makeCoordinator() -> Coordinator { Coordinator(reference: reference, host: host) }
     func makeNSView(context: Context) -> NSHostingView<AnyView> {
-        let view = NSHostingView(rootView: AnyView(content.environment(\.self, context.environment)))
+        let view = AvailabilityHostingView(rootView: AnyView(content.environment(\.self, context.environment)))
+        view.availabilityHost = host
         view.sizingOptions = [.intrinsicContentSize]
         context.coordinator.view = view
         if let box = reference.box, !host.stopping, host.nodes[reference.id] === box {
@@ -284,6 +290,7 @@ private struct HostedNativeControl: NSViewRepresentable {
             context.coordinator.invalidate(); return
         }
         view.rootView = AnyView(content.environment(\.self, context.environment))
+        host.scheduleAvailabilityWatch()
     }
     static func dismantleNSView(_ view: NSHostingView<AnyView>, coordinator: Coordinator) {
         coordinator.invalidate()
@@ -300,6 +307,7 @@ private struct HostedNativeControl: NSViewRepresentable {
         func invalidate() {
             guard active else { return }
             active = false; view?.rootView = AnyView(EmptyView())
+            host?.scheduleAvailabilityWatch()
         }
         func target(in window: NSWindow) -> NSView? {
             guard active, let box = reference.box, let host, !host.stopping, host.nodes[reference.id] === box,
@@ -616,6 +624,9 @@ private struct NativeView: View {
 // WebKit interaction state. Keep the gate native so document scripts/data and
 // DOM focus state can survive while pointer/key-view entry is unavailable.
 private final class ControlWebView: WKWebView {
+    weak var availabilityHost: Host?
+    override func layout() { super.layout(); availabilityHost?.scheduleAvailabilityWatch() }
+    override func viewDidMoveToWindow() { super.viewDidMoveToWindow(); availabilityHost?.scheduleAvailabilityWatch() }
     private(set) var interactionEnabled = true
     var tabFocusable = true
     func setInteractionEnabled(_ enabled: Bool) {
@@ -643,6 +654,7 @@ private struct EmbeddedWebView: NSViewRepresentable {
         configuration.userContentController.add(context.coordinator, name: "jonui")
         configuration.userContentController.addScriptMessageHandler(context.coordinator as WKScriptMessageHandlerWithReply, contentWorld: .page, name: "jonuiRPC")
         let view = ControlWebView(frame: .zero, configuration: configuration)
+        view.availabilityHost = host
         view.navigationDelegate = context.coordinator
         view.setAccessibilityIdentifier("webview-\(reference.id)")
         if let box = reference.box, host.nodes[reference.id] === box { host.webViews[reference.id] = context.coordinator }
@@ -672,6 +684,7 @@ private struct EmbeddedWebView: NSViewRepresentable {
         func invalidate() {
             guard active else { return }
             active = false; cancelRequests("WebView unmounted"); ready = false; source = nil; sentData = nil; navigation = nil; token = ""
+            host.scheduleAvailabilityWatch()
             if let view {
                 (view as? ControlWebView)?.setInteractionEnabled(false)
                 view.stopLoading(); view.navigationDelegate = nil
@@ -683,6 +696,7 @@ private struct EmbeddedWebView: NSViewRepresentable {
             }
         }
         func update(_ view: WKWebView, props: [String: Any], enabled: Bool) {
+            defer { host.scheduleAvailabilityWatch() }
             self.view = view
             guard active, let box = reference.box, !host.stopping, host.nodes[reference.id] === box else {
                 (view as? ControlWebView)?.setInteractionEnabled(false)
@@ -851,6 +865,11 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var focusResponderObservation: NSKeyValueObservation?
     private var focusWindowNotifications: [NSObjectProtocol] = []
     private var focusWatchScheduled = false, focusWatchSampling = false
+    private struct AvailabilityWatch { let name: String; var availability: String; var sequence = 0 }
+    private var availabilityWatches: [Int: AvailabilityWatch] = [:]
+    private var lastAvailabilityToken = 0, availabilityEpoch = 0
+    private var availabilityScheduled = false, availabilitySampling = false
+    private var availabilityNotifications: [NSObjectProtocol] = []
     var cells: [Int: Cell] = [:]
     var nodes: [Int: ViewBox] = [:]
     var webViews: [Int: EmbeddedWebView.Coordinator] = [:]
@@ -927,6 +946,7 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
     func dispose() {
         disposed = true
+        stopAvailabilityWatches()
         stopFocusWatch()
         retireFocusTargets(); focusContextWindow = nil; namedFocusNodes.removeAll()
         for coordinator in webViews.values { coordinator.invalidate() }
@@ -1066,6 +1086,38 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
         else { target = hostedControls[id]?.target(in: window) }
         guard let view = target, eligibleFocusView(view, in: window) else { return nil }
         return view
+    }
+    private func namedAvailability(_ name: String, in window: NSWindow) -> String {
+        guard let id = namedFocusNodes[Data(name.utf8)] else { return "missing" }
+        let surface: NSView?
+        if nodes[id]?.kind == "webview", let coordinator = webViews[id], coordinator.active { surface = coordinator.view }
+        else if let coordinator = hostedControls[id], coordinator.active { surface = coordinator.view }
+        else { surface = nil }
+        guard let surface, let ownerWindow = surface.window else { return "unrealized" }
+        guard ownerWindow === window else { return "inactiveWindow" }
+        return namedFocusView(id, in: window) == nil ? "unavailable" : "ready"
+    }
+    private func stopAvailabilityWatches() {
+        availabilityWatches.removeAll(); availabilityScheduled = false; availabilityEpoch += 1
+        for observer in availabilityNotifications { NotificationCenter.default.removeObserver(observer) }
+        availabilityNotifications.removeAll()
+    }
+    fileprivate func scheduleAvailabilityWatch() {
+        guard !availabilityWatches.isEmpty, !stopping, !disposed, !availabilityScheduled, !availabilitySampling else { return }
+        availabilityScheduled = true; let epoch = availabilityEpoch
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.availabilityEpoch == epoch else { return }
+            self.availabilityScheduled = false; self.availabilitySampling = true
+            defer { self.availabilitySampling = false }
+            guard !self.stopping, !self.disposed, let window = try? self.prepareFocusWindow(), self.availabilityEpoch == epoch else { return }
+            for token in Array(self.availabilityWatches.keys) {
+                guard var watch = self.availabilityWatches[token] else { continue }
+                let value = self.namedAvailability(watch.name, in: window)
+                guard value != watch.availability else { continue }
+                watch.availability = value; watch.sequence += 1; self.availabilityWatches[token] = watch
+                self.emit(["type": "focusAvailability", "token": token, "sequence": watch.sequence, "availability": value])
+            }
+        }
     }
     private func currentFocusName(in window: NSWindow) -> String? {
         for id in namedFocusNodes.values {
@@ -1305,14 +1357,26 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
         case "focus.availability":
             let window = try prepareFocusWindow()
             guard let name = message["name"] as? String, !name.isEmpty else { throw BridgeError("Focus name must be a nonempty string") }
-            guard let id = namedFocusNodes[Data(name.utf8)] else { return ["availability": "missing"] }
-            let surface: NSView?
-            if nodes[id]?.kind == "webview", let coordinator = webViews[id], coordinator.active { surface = coordinator.view }
-            else if let coordinator = hostedControls[id], coordinator.active { surface = coordinator.view }
-            else { surface = nil }
-            guard let surface, let ownerWindow = surface.window else { return ["availability": "unrealized"] }
-            guard ownerWindow === window else { return ["availability": "inactiveWindow"] }
-            return ["availability": namedFocusView(id, in: window) == nil ? "unavailable" : "ready"]
+            return ["availability": namedAvailability(name, in: window)]
+        case "focus.availability.watch":
+            let token = try integer(message["token"]), window = try prepareFocusWindow()
+            guard token > lastAvailabilityToken else { throw BridgeError("Availability observation token must increase") }
+            guard let name = message["name"] as? String, !name.isEmpty else { throw BridgeError("Focus name must be a nonempty string") }
+            let value = namedAvailability(name, in: window)
+            lastAvailabilityToken = token; availabilityWatches[token] = AvailabilityWatch(name: name, availability: value)
+            if availabilityNotifications.isEmpty {
+                for event in [NSWindow.willBeginSheetNotification, NSWindow.didEndSheetNotification, NSWindow.didUpdateNotification, NSWindow.willCloseNotification] {
+                    availabilityNotifications.append(NotificationCenter.default.addObserver(forName: event, object: nil, queue: nil) { [weak self] notification in
+                        guard let self, let window = notification.object as? NSWindow, window === self.window || window === self.currentFocusWindow() else { return }
+                        self.scheduleAvailabilityWatch()
+                    })
+                }
+            }
+            return ["availability": value, "sequence": 0]
+        case "focus.availability.unwatch":
+            availabilityWatches.removeValue(forKey: try integer(message["token"]))
+            if availabilityWatches.isEmpty { stopAvailabilityWatches() }
+            return [:]
         case "focus.currentName":
             let window = try prepareFocusWindow()
             return ["name": currentFocusName(in: window) as Any? ?? NSNull()]
@@ -1464,11 +1528,12 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
             namedFocusNodes = focusNames
             if let options = message["window"] as? [String: Any] { open(options) }
             scheduleFocusWatch()
+            scheduleAvailabilityWatch()
             return [:]
         case "dispose": stopping = true; dispose(); return [:]
         case "debug.snapshot" where testing:
             return ["nodes": nodes.values.sorted { $0.id < $1.id }.map { ["id": $0.id, "kind": $0.kind, "props": $0.props, "children": $0.children.map(\.id)] as [String: Any] },
-                    "states": cells.map { ["id": $0.key].merging($0.value.snapshot()) { _, new in new } }, "liveViews": ViewBox.live, "liveCells": Cell.live, "webViewCount": webViews.count, "textInputCount": hostedControls.filter { ["textfield", "securefield", "texteditor"].contains(nodes[$0.key]?.kind ?? "") }.count, "hostedControlCount": hostedControls.count, "applicationEventRouting": NSApp is JonUIApplication, "mainThread": Thread.isMainThread, "windowVisible": window?.isVisible ?? false, "sheetPresented": window?.attachedSheet != nil]
+                    "states": cells.map { ["id": $0.key].merging($0.value.snapshot()) { _, new in new } }, "liveViews": ViewBox.live, "liveCells": Cell.live, "webViewCount": webViews.count, "textInputCount": hostedControls.filter { ["textfield", "securefield", "texteditor"].contains(nodes[$0.key]?.kind ?? "") }.count, "hostedControlCount": hostedControls.count, "availabilityWatchCount": availabilityWatches.count, "availabilityNotificationCount": availabilityNotifications.count, "applicationEventRouting": NSApp is JonUIApplication, "mainThread": Thread.isMainThread, "windowVisible": window?.isVisible ?? false, "sheetPresented": window?.attachedSheet != nil]
         case "debug.controls" where testing:
             return ["controls": numericControls().enumerated().map { index, control in
                 ["index": index, "kind": control is NSSlider ? "slider" : "stepper", "value": control.doubleValue] as [String: Any]
@@ -1569,6 +1634,8 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
             return ["targets": focusTargets.count, "live": focusTargets.values.filter { $0.view != nil }.count]
         case "debug.focusNames" where testing:
             return ["count": namedFocusNodes.count]
+        case "debug.availabilityWatch" where testing:
+            return ["watches": availabilityWatches.count, "notifications": availabilityNotifications.count, "scheduled": availabilityScheduled]
         case "debug.focusWatch" where testing:
             return ["watching": focusWatchToken != nil, "observations": focusResponderObservation == nil ? 0 : 1,
                 "notifications": focusWindowNotifications.count, "sequence": focusWatchSequence, "context": focusWatchContext,

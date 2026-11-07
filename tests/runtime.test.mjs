@@ -18,6 +18,7 @@ async function setup() {
       if (message.op === 'focus.named') result = { focused: focus.focused };
       if (message.op === 'focus.currentName') result = { name: focus.name };
       if (message.op === 'focus.availability') result = focus.availabilityError ? { error: focus.availabilityError } : { availability: focus.availability ?? 'ready' };
+      if (message.op === 'focus.availability.watch') result = focus.availabilityWatchError ? { error: focus.availabilityWatchError } : { availability: focus.availability ?? 'ready', sequence: 0 };
       if (message.op === 'focus.watch') result = focus.watchError ? { error: focus.watchError } : { name: focus.name, sequence: 0, context: focus.context ?? 1, generation: 0 };
       if (message.op === 'focus.snapshot') result = focus.snapshotError ? { error: focus.snapshotError } : { accepted: true, observation: { token: message.token, sequence: ++focus.sequence, context: focus.context ?? 1, generation: focus.generation ?? 0, name: focus.name } };
       if (message.op === 'focus.direction') result = { moved: focus.focused };
@@ -435,6 +436,77 @@ test('appearance failures and Promise returns dispose owners and release all cal
     await assert.rejects(done, mode === 'promise' ? /must be synchronous/ : mode === 'setup' ? /failed startup/ : /appearance failure/);
     assert.equal(disposed, 1); assert.equal(stopped, 1); assert.deepEqual(ui.__testing.stats(), { actions: 0, cells: 0, dependencies: 0 });
     assert.deepEqual(cleanup, mode === 'setup' ? ['child', 'parent'] : ['parent']);
+  }
+});
+
+test('availability subscriptions share exact names, replay asynchronously, coalesce and reject stale/invalid tokens', async () => {
+  const h = await setup(), { ui } = h, done = launch(ui, ui.Text('availability')); const a = [], b = [], unicode = [];
+  const stopA = ui.Focus.subscribeAvailability('café', value => a.push(value)), stopB = ui.Focus.subscribeAvailability('café', value => b.push(value));
+  const stopUnicode = ui.Focus.subscribeAvailability('cafe\u0301', value => unicode.push(value));
+  assert.deepEqual(a, []); assert.equal(h.calls.filter(c => c.op === 'focus.availability.watch').length, 2); await tick();
+  assert.deepEqual(a, ['ready']); assert.deepEqual(b, ['ready']); assert.deepEqual(unicode, ['ready']);
+  const token = h.calls.find(c => c.op === 'focus.availability.watch').token;
+  const emit = (sequence, availability, tokenValue = token) => h.emit({ type: 'focusAvailability', token: tokenValue, sequence, availability });
+  emit(1, 'unavailable'); emit(2, 'unrealized'); emit(1, 'ready'); emit(3, 'invalid'); emit(-1, 'ready'); emit(2.5, 'ready'); emit(100, 'missing', -1); await tick();
+  assert.deepEqual(a, ['ready', 'unrealized']); assert.deepEqual(b, a); assert.deepEqual(unicode, ['ready']);
+  emit(3, 'unrealized'); await tick(); assert.equal(a.length, 2);
+  stopA(); stopA(); assert.equal(h.calls.filter(c => c.op === 'focus.availability.unwatch').length, 0);
+  stopB(); emit(4, 'missing'); await tick(); assert.equal(b.length, 2);
+  const next = []; const stopNext = ui.Focus.subscribeAvailability('café', value => next.push(value));
+  emit(100, 'missing'); await tick(); assert.deepEqual(next, ['ready']); stopNext(); stopUnicode();
+  assert.deepEqual(ui.__testing.availabilityStats(), { names: 0, listeners: 0 });
+  const removed = []; ui.Focus.subscribeAvailability('gone', value => removed.push(value))(); await tick(); assert.deepEqual(removed, []);
+  h.emit({ type: 'stop' }); await done; const count = h.calls.length; ui.Focus.subscribeAvailability({}, null)(); assert.equal(h.calls.length, count);
+});
+
+test('availability listeners can mutate subscriptions during initial/change delivery without inheriting callback dependencies', async () => {
+  const h = await setup(), { ui } = h, done = launch(ui, ui.Text('listeners')); const seen = []; let stopB, stopC;
+  const stopA = ui.Focus.subscribeAvailability('a', value => { seen.push(`a:${value}`); stopB(); stopC ??= ui.Focus.subscribeAvailability('a', v => seen.push(`c:${v}`)); });
+  stopB = ui.Focus.subscribeAvailability('a', value => seen.push(`b:${value}`)); await tick();
+  assert.deepEqual(seen, ['a:ready', 'c:ready']);
+  const token = h.calls.find(c => c.op === 'focus.availability.watch').token;
+  h.emit({ type: 'focusAvailability', token, sequence: 1, availability: 'unavailable' }); await tick();
+  assert.deepEqual(seen, ['a:ready', 'c:ready', 'a:unavailable', 'c:unavailable']); stopA(); stopC(); h.emit({ type: 'stop' }); await done;
+});
+
+test('availability subscriptions enforce purity, roll back failures and reject malformed initial snapshots', async () => {
+  const h = await setup(), { ui } = h;
+  for (const name of ['', true, null, {}, '\ud800']) assert.throws(() => ui.Focus.subscribeAvailability(name, () => {}), /Focus names/);
+  for (const callback of [null, 1, true, {}]) assert.throws(() => ui.Focus.subscribeAvailability('a', callback), /availability listener/);
+  assert.equal(h.calls.length, 0);
+  h.focus.availabilityWatchError = 'mounted window required'; assert.throws(() => ui.Focus.subscribeAvailability('a', () => {}), /mounted window/);
+  assert.deepEqual(ui.__testing.availabilityStats(), { names: 0, listeners: 0 }); h.focus.availabilityWatchError = null;
+  h.focus.availability = 'invalid'; assert.throws(() => ui.Focus.subscribeAvailability('a', () => {}), /Invalid availability observation/);
+  assert.equal(h.calls.filter(c => c.op === 'focus.availability.unwatch').length, 1); h.focus.availability = 'ready';
+  const done = launch(ui, ui.View(() => { assert.throws(() => ui.Focus.subscribeAvailability('a', () => {}), /outside view bodies/); return ui.Text('purity'); }));
+  const computed = ui.Computed(() => ui.Focus.subscribeAvailability('a', () => {})); assert.throws(() => computed.value, /Computed callbacks cannot subscribe/);
+  h.emit({ type: 'stop' }); await done;
+});
+
+test('availability subscriptions belong to effects/tasks and canceled listener writes retain their task guard', async () => {
+  const h = await setup(), { ui } = h, shown = ui.State(true), shared = ui.State('safe'), observed = ui.State(0); let stopTask, effectRuns = 0; const calls = [];
+  const Owner = ui.Component(scope => {
+    scope.effect(() => { effectRuns++; return ui.Focus.subscribeAvailability('a', value => { void observed.value; calls.push(`effect:${value}`); }); });
+    stopTask = scope.task(() => { ui.Focus.subscribeAvailability('a', value => { calls.push(`task:${value}`); if (value === 'unavailable') { stopTask(); shared.value = 'obsolete'; ui.Focus.subscribeAvailability({}, null)(); } }); });
+    return () => ui.Text('owner');
+  });
+  const done = launch(ui, ui.View(() => shown.value ? Owner() : ui.Text('removed'))); await tick();
+  assert.deepEqual(calls, ['effect:ready', 'task:ready']); assert.deepEqual(ui.__testing.availabilityStats(), { names: 1, listeners: 2 });
+  observed.value++; await tick(); assert.equal(effectRuns, 1, 'callback reads do not become effect dependencies');
+  const token = h.calls.find(c => c.op === 'focus.availability.watch').token;
+  h.emit({ type: 'focusAvailability', token, sequence: 1, availability: 'unavailable' }); await tick(); assert.equal(shared.value, 'safe');
+  assert.deepEqual(ui.__testing.availabilityStats(), { names: 1, listeners: 1 });
+  shown.value = false; await tick(); assert.deepEqual(ui.__testing.availabilityStats(), { names: 0, listeners: 0 });
+  h.emit({ type: 'stop' }); await done; assert.deepEqual(ui.__testing.stats(), { actions: 0, cells: 0, dependencies: 0 });
+});
+
+test('availability listener failures and Promise returns clean up all shared registrations', async () => {
+  for (const mode of ['throw', 'promise']) {
+    const h = await setup(), { ui } = h, done = launch(ui, ui.Text('failure'));
+    ui.Focus.subscribeAvailability('a', () => { if (mode === 'promise') return Promise.reject(new Error('consumed rejection')); throw new Error('availability callback failure'); });
+    ui.Focus.subscribeAvailability('a', () => {});
+    await assert.rejects(done, mode === 'throw' ? /availability callback failure/ : /must be synchronous/);
+    assert.deepEqual(ui.__testing.availabilityStats(), { names: 0, listeners: 0 }); assert.deepEqual(ui.__testing.stats(), { actions: 0, cells: 0, dependencies: 0 });
   }
 });
 

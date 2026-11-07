@@ -1031,6 +1031,40 @@ with cancellation/context policy; appearance hooks alone must not automatically
 retry focus. Public Button/Toggle/Slider targeting, physical windows, keyboard
 access/IME/AX/nested-sheet and the recorded AppKit sheet-close gaps remain open.
 
+Named availability subscriptions completed (2026-11-07):
+`Focus.subscribeAvailability(name, listener)` returns idempotent cleanup and
+delivers an asynchronous initial snapshot plus coalesced five-state changes.
+Exact names share a native watch; per-listener replay/dedup and token/sequence
+guards prevent stale delivery. Native bounded-host/WebView attachment/layout,
+coordinator changes, commits and four shared window notifications drive sampling
+without timers. A sampling guard prevents layout feedback and an epoch discards
+queued work after the final watch stops. Native watches retain only names/status/
+counters. They follow the active native context without binding a physical window
+or resuming controllers, retrying intent, scrolling, capturing or consuming focus
+generations. Triggerless OS eligibility changes may need an explicit snapshot;
+cached ready views do not imply viewport/document readiness.
+
+Effect cleanup and task/RPC lifetimes remove listeners; scoped-task resources
+remain owned after Promise settlement, RPC resources retire on settlement/source
+replacement/cancellation. Callbacks run untracked with task context retained when
+appropriate, are synchronous, and can mutate subscription membership. Invalid
+registration rolls back; throws/Promise returns use normal failure cleanup. The
+final name releases native window observers; shutdown also clears app-owned
+watches and callback references. Added a show/disable/sheet/watch-toggle demo.
+
+Validation: native build, 155 unit/compiler cases and Deno/TypeScript pass.
+Focused offscreen native checks pass async/shared Unicode snapshots, enabled/
+passive/lazy/sheet changes, State updates, unchanged focus/intent/generation/
+captures, task/effect/RPC ownership and source cancellation, 20 owner lifetimes,
+immediate unsubscribe and final/app-owned shutdown with zero native watches/
+observers/cells. All 88 offscreen native scenarios pass, including listener
+error/Promise cleanup; API classification passes. The recorded AppKit sheet-close
+crash did not recur; no framework fix is claimed. Keep the broad focus item
+unchecked. Next: boolean/typed owned
+subscription helpers with explicit controller lifetime/context rules before
+automatic focus retry. Public Button/Toggle/Slider targeting, physical-window,
+full keyboard access, IME/AX/nested-sheet and recorded AppKit crash gaps remain.
+
 ## 3. Application and operating-system integration
 
 - [ ] Support multiple windows with independent roots and explicit window ownership.

@@ -142,6 +142,11 @@ snapshot; it does not subscribe or establish a two-way focus binding.
 unavailable or ready status without requesting focus. It lets callers check a
 named target before an explicit retry; it does not scroll or subscribe. See
 [named target availability](docs/focus.md#named-target-availability).
+`Focus.subscribeAvailability(name, listener)` adds an asynchronous initial snapshot
+and coalesced native updates. Return its cleanup from an effect; tasks/RPC calls
+own their subscriptions. It does not poll or move focus. See
+[availability subscriptions](docs/focus.md#availability-subscriptions) and
+`bin/jonui examples/focus-availability/app.ts`.
 `Focus.subscribe(name => ...)` observes coalesced name changes. Return its cleanup
 from `scope.effect` for component ownership; task subscriptions cancel with their
 task. See [focus subscriptions](docs/focus.md#focus-change-subscriptions) for delivery

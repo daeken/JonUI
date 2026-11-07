@@ -29,6 +29,19 @@ Status meanings:
 
 ## Current review
 
+- Availability subscription review (2026-11-07): Focus.subscribeAvailability adds
+  asynchronous initial delivery and coalesced changes, shared by exact name.
+  Native adapter/layout/commit/window hooks drive sampling without timers;
+  token/sequence/epoch guards drop obsolete work. Effect/task/RPC cleanup releases
+  listeners, native watches and four shared window observers; no focus/retry or
+  generation changes. Native registry holds no views. Five unit cases bring the
+  total to 155; native build/types and focused disabled/passive/lazy/sheet, Unicode,
+  task/RPC, document cancellation, 20-owner and final/app-owned shutdown checks
+  pass. All 88 offscreen native scenarios, 155 unit tests, native build,
+  Deno/TypeScript and API classification pass, including listener error/Promise
+  cleanup. The recorded AppKit sheet-close crash did not recur; no fix is claimed.
+  External native changes without supported triggers, owned subscription helpers and automatic
+  focus retry remain open; existing hardware/platform gaps are unchanged.
 - Appearance review (2026-11-07): onAppear/onDisappear now queue native SwiftUI
   signals through owned modifier ID/phase/tokens, using latest handlers and
   discarding retired events. Synchronous callbacks may update State; inferred
@@ -386,7 +399,7 @@ Status meanings:
 | Typed focus selection controller | Partial (JonUI) | Fixed unique string/number domain; separate nullable intent/observation; opaque bindings, passive resume and guarded availability by non-null ID. | Literal inference, validation, typed/independent identity, text/date/WebKit, clear, task/RPC leases, retired snapshots and cleanup verified; dynamic/object domains and general SwiftUI overloads remain. <!-- api: SelectionFocusController, ComponentScope.focusSelection --> |
 | focused projection | Partial (JonUI) | Boolean actual getter and deferred true/conditional-false request, attached to one named input. | Text/secure/editor/date/WebKit focus verified; Stepper/Picker wiring and unavailable gates verified, successful focus still gated. Modifier/owner/Unicode blur/cleanup covered; containers and remaining native controls unsupported. <!-- api: FocusBinding, View.focused --> |
 | Native focus observation | Partial (JonUI) | Nullable named responder snapshots and coalesced subscriptions; generation-stamped movement acknowledgements; observations do not write intent. | Text/date/WebKit/single-sheet observation, generation/sequence/context guards and cleanup verified; broader controls/IME/AX remain. <!-- api: Focus.subscribe --> |
-| Named focus availability | Partial (JonUI) | Synchronous logical/native attachment and eligibility snapshot, including guarded owned name/boolean/ID helpers. | Exact/opaque targets, missing/unrealized/inactive/unavailable/ready states, lazy explicit retry, unchanged focus/intent/generation/viewport and cleanup verified; subscriptions/automatic policies remain. <!-- api: FocusAvailability, Focus.availabilityNamed --> |
+| Named focus availability | Partial (JonUI) | Snapshots and shared native named subscriptions with async initial/coalesced delivery; guarded owned snapshot helpers. | Exact/opaque states, native attachment/disabled/lazy/sheet changes, task/effect/RPC cancellation and observer cleanup verified; owned subscription/window policy, triggerless OS changes and automatic retry remain. <!-- api: FocusAvailability, Focus.availabilityNamed, Focus.subscribeAvailability --> |
 | Focus commands | Partial | Native next/previous/clear plus four-axis geometric move. | Real text/date/WebKit/sheet/directional paths verified; full keyboard-access and optional non-editing arrow routing remain. <!-- api: Focus, Focus.next, Focus.previous, Focus.clear, Focus.move --> |
 | Captured / named focus | Partial | Weak opaque physical target or exact UTF-8 name; currentName snapshot; optional active-window Tab cycle. | Text/date/WebKit focus/captures/Tab verified; Stepper/Picker names and unavailable gates verified, successful eligibility remains gated. Button/Toggle/Slider registration remains. <!-- api: FocusTarget, Focus.capture, Focus.request, Focus.requestNamed, Focus.currentName, Focus.setTraversal --> |
 | focusSection | Partial | Native grouping without a new state cell. | Native grouping/geometry/captures verified; wider control/hardware coverage remains. <!-- api: View.focusSection --> |
@@ -520,7 +533,7 @@ can still bypass local enforcement; this is not server-side branch protection.
 Repository instructions require the same review for contributors and automation.
 
 <!-- coverage-review:generated -->
-Review baseline (checkout HEAD before commit): `77bbb0cd605c86950e8ceaa203b1ab495114fedb`.
+Review baseline (checkout HEAD before commit): `2805127fb69b84174a24aba9ea0594d5d9d7ef7f`.
 
-Staged source-tree SHA-256 (excluding this catalog): `3a94b47d4054ef64f0f93ff1418b95bb2e501260d33f72cc63a3d198de89e3f3`.
+Staged source-tree SHA-256 (excluding this catalog): `fbe421614cafa903ff5cc05f47145edd4cd3fbd310a71cea835e15ec58bf62ce`.
 <!-- /coverage-review:generated -->

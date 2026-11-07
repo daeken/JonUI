@@ -851,6 +851,71 @@ export function Picker(title, options) {
 export const Button = (title, action) => new ViewValue('button', { title, action });
 const focusTargets = new WeakMap();
 const focusListeners = new Set();
+const availabilityWatches = new Map(), availabilityTokens = new Map();
+const availabilityValues = new Set(['missing', 'unrealized', 'inactiveWindow', 'unavailable', 'ready']);
+let nextAvailabilityWatch = 1;
+function scheduleAvailabilityDelivery(watch) {
+  if (watch.scheduled) return;
+  watch.scheduled = true;
+  queueMicrotask(() => {
+    watch.scheduled = false;
+    if (stopped || availabilityWatches.get(watch.name) !== watch) return;
+    const sequence = watch.sequence, value = watch.availability;
+    try {
+      taskStorage.run(undefined, () => untracked(() => {
+        for (const entry of [...watch.entries]) {
+          if (availabilityWatches.get(watch.name) !== watch || watch.sequence !== sequence || !watch.entries.has(entry) || entry.last === value) continue;
+          if (entry.task && !taskIsCurrent(entry.task)) continue;
+          entry.last = value;
+          const result = entry.task ? taskStorage.run(entry.task, () => entry.callback(value)) : entry.callback(value);
+          if (result && typeof result.then === 'function') {
+            Promise.resolve(result).catch(() => {});
+            throw new TypeError('Availability listeners must be synchronous; use scope.task for asynchronous work');
+          }
+        }
+      }));
+    } catch (error) { fail(error); }
+  });
+}
+function receiveAvailabilityChange(event) {
+  const watch = availabilityTokens.get(event.token);
+  if (!watch || !Number.isSafeInteger(event.sequence) || event.sequence <= watch.sequence || !availabilityValues.has(event.availability)) return;
+  watch.sequence = event.sequence; watch.availability = event.availability; scheduleAvailabilityDelivery(watch);
+}
+function subscribeAvailability(name, callback) {
+  if (!canMoveFocus('subscribe to native availability')) return () => {};
+  focusName(name);
+  if (typeof callback !== 'function') throw new TypeError('Expected an availability listener');
+  let watch = availabilityWatches.get(name);
+  if (!watch) {
+    watch = { name, token: nextAvailabilityWatch++, entries: new Set() };
+    let snapshot;
+    try {
+      snapshot = request('focus.availability.watch', { token: watch.token, name });
+      if (!availabilityValues.has(snapshot.availability) || !Number.isSafeInteger(snapshot.sequence) || snapshot.sequence < 0) throw new Error('Invalid availability observation');
+      watch.sequence = snapshot.sequence; watch.availability = snapshot.availability;
+    } catch (error) {
+      if (snapshot) request('focus.availability.unwatch', { token: watch.token });
+      throw error;
+    }
+    availabilityWatches.set(name, watch); availabilityTokens.set(watch.token, watch);
+  }
+  const entry = { callback, task: taskStorage.getStore(), unregister: () => {} };
+  const unsubscribe = () => {
+    if (!watch.entries.delete(entry)) return;
+    entry.unregister(); entry.unregister = () => {}; entry.callback = null; entry.task = null;
+    if (!watch.entries.size && availabilityWatches.get(name) === watch) {
+      availabilityWatches.delete(name); availabilityTokens.delete(watch.token);
+      request('focus.availability.unwatch', { token: watch.token });
+    }
+  };
+  watch.entries.add(entry);
+  try {
+    if (entry.task) entry.unregister = registerTaskCleanup(entry.task, unsubscribe);
+    scheduleAvailabilityDelivery(watch);
+  } catch (error) { unsubscribe(); throw error; }
+  return unsubscribe;
+}
 let focusWatch = null, nextFocusWatch = 1;
 function stopFocusListener(entry) {
   if (!focusListeners.delete(entry)) return;
@@ -951,6 +1016,7 @@ export const Focus = Object.freeze({
     if (!canMoveFocus('read native focus availability')) return null;
     return request('focus.availability', { name: focusName(name) }).availability;
   },
+  subscribeAvailability(name, callback) { return subscribeAvailability(name, callback); },
   currentName() {
     if (!canMoveFocus('read native focus')) return null;
     return request('focus.currentName').name;
@@ -1299,6 +1365,11 @@ function shutdown(error, partialMounts = []) {
   try { stop?.onStop?.(); } catch (caught) { failure ??= caught; }
   try { unmountAll([...(root ? [root] : []), ...partialMounts]); } catch (caught) { failure ??= caught; } finally { root = null; }
   focusListeners.clear(); focusWatch = null;
+  for (const watch of availabilityWatches.values()) {
+    for (const entry of watch.entries) { entry.callback = null; entry.task = null; entry.unregister = () => {}; }
+    watch.entries.clear();
+  }
+  availabilityWatches.clear(); availabilityTokens.clear();
   for (const observer of [...computations]) disposeComputed(observer);
   for (const id of [...webAPIs.keys()]) disposeWebAPI(id);
   dirty.clear(); updates.clear(); actions.clear(); webErrors.clear(); textSubmits.clear(); textEditings.clear(); appearances.clear();
@@ -1317,6 +1388,7 @@ bridge.listen(json => {
     if (event.type === 'state') cells.get(event.id)?.accept(event);
     else if (event.type === 'action') actions.get(event.id)?.();
     else if (event.type === 'focusChanged') receiveFocusChange(event);
+    else if (event.type === 'focusAvailability') receiveAvailabilityChange(event);
     else if (event.type === 'appearance') {
       const entry = appearances.get(event.token);
       if (!entry || entry.id !== event.id || entry.phase !== event.phase) return;
@@ -1378,5 +1450,6 @@ export const __testing = process.env.JONUI_TEST === '1' ? Object.freeze({
   effectStats: () => ({ active: effects.size, pending: pendingEffects.size }),
   computedStats: () => ({ active: computations.size, dependencies: [...computations].reduce((n, observer) => n + observer.dependencies.size, 0) }),
   focusStats: () => ({ listeners: focusListeners.size, watching: focusWatch !== null }),
-  stats: () => ({ actions: actions.size + focusListeners.size + textSubmits.size + textEditings.size + appearances.size + [...webErrors.values()].filter(Boolean).length + [...webAPIs.values()].reduce((n, entry) => n + Object.keys(entry.api).length, 0), cells: cells.size, dependencies: [...cells.values()].reduce((n, v) => n + v.cell.dependents.size, 0) }),
+  availabilityStats: () => ({ names: availabilityWatches.size, listeners: [...availabilityWatches.values()].reduce((n, watch) => n + watch.entries.size, 0) }),
+  stats: () => ({ actions: actions.size + focusListeners.size + [...availabilityWatches.values()].reduce((n, watch) => n + watch.entries.size, 0) + textSubmits.size + textEditings.size + appearances.size + [...webErrors.values()].filter(Boolean).length + [...webAPIs.values()].reduce((n, entry) => n + Object.keys(entry.api).length, 0), cells: cells.size, dependencies: [...cells.values()].reduce((n, v) => n + v.cell.dependents.size, 0) }),
 }) : undefined;

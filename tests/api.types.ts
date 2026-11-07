@@ -157,6 +157,13 @@ const ScopedCounter = Component<{ label: string }>((scope, initial) => {
   // @ts-expect-error Null is not an availability target.
   selectionFocus.availability(null);
   const availability: import('jonui').FocusAvailability | null = Focus.availabilityNamed('target'); void availability;
+  const stopAvailability: () => void = Focus.subscribeAvailability('target', value => { const status: import('jonui').FocusAvailability = value; void status; }); void stopAvailability;
+  // @ts-expect-error Subscription target names are strings.
+  Focus.subscribeAvailability(1, () => {});
+  // @ts-expect-error Availability listeners receive status, not a focus name.
+  Focus.subscribeAvailability('target', (value: number) => { void value; });
+  // @ts-expect-error Listeners must be synchronous.
+  Focus.subscribeAvailability('target', async () => {});
   // @ts-expect-error Availability names must be strings.
   Focus.availabilityNamed(1);
   selectionFocus.desired.value = 'editor'; selectionFocus.request(null); selectionFocus.resume();
