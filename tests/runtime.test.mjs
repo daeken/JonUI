@@ -4,7 +4,7 @@ let sequence = 0;
 async function setup() {
   let listener;
   const states = new Map(), nodes = new Map(), calls = [];
-  const focus = { target: null, focused: false, configured: true };
+  const focus = { target: null, focused: false, configured: true, name: null };
   let status;
   const bridge = {
     listen(callback) { listener = callback; },
@@ -16,6 +16,7 @@ async function setup() {
       if (message.op === 'focus.target') result = { focused: focus.focused };
       if (message.op === 'web.claim') result = { accepted: focus.rpcActive !== false };
       if (message.op === 'focus.named') result = { focused: focus.focused };
+      if (message.op === 'focus.currentName') result = { name: focus.name };
       if (message.op === 'focus.direction') result = { moved: focus.focused };
       if (message.op === 'focus.traversal') result = { configured: focus.configured };
       if (message.op === 'state.create') {
@@ -95,11 +96,13 @@ test('RPC handles concurrent JSON/void results, isolated errors, current handler
 
 test('document replacement/unmount cancel RPC continuations, subscriptions, late writes and replies', async () => {
   const h = await setup(), { ui } = h; const html = ui.State('first'), shown = ui.State(true), shared = ui.State('safe');
-  const gates = [], signals = []; let cleanups = 0, lateAllocations = 0, commits = 0;
+  h.focus.name = 'current';
+  const gates = [], signals = [], lateNames = []; let cleanups = 0, lateAllocations = 0, commits = 0;
   const done = launch(ui, ui.View(() => shown.value ? ui.WebView({ html: html.value, api: { async slow() {
     const context = ui.WebRequest.current; signals.push(context.signal); context.onCancel(() => { cleanups++; shared.value = 'cleanup'; });
     shared.subscribe(() => assert.fail('cancelled subscription must be released'));
     await new Promise(resolve => gates.push(resolve));
+    lateNames.push(ui.Focus.currentName());
     shared.value = 'late'; if (context.commit(() => { commits++; })) assert.fail();
     try { ui.State('late'); } catch { lateAllocations++; }
     return 'obsolete';
@@ -114,6 +117,7 @@ test('document replacement/unmount cancel RPC continuations, subscriptions, late
   shown.value = false; await tick(); assert.equal(signals[1].aborted, true); assert.equal(cleanups, 2);
   shared.value = 'current'; gates.forEach(resolve => resolve()); await tick();
   assert.equal(shared.value, 'current'); assert.equal(lateAllocations, 2); assert.equal(commits, 0); assert.ok(!h.calls.some(c => c.op === 'web.reply'));
+  assert.deepEqual(lateNames, [null, null]); assert.ok(!h.calls.some(c => c.op === 'focus.currentName'));
   assert.deepEqual(ui.__testing.webRequestStats(), { apis: 0, pending: 0 });
   h.emit({ type: 'stop' }); await done;
 });
@@ -220,6 +224,38 @@ test('named focus rejects reactive purity violations and ignores canceled task c
   shown.value = false; await tick(); const before = h.calls.length; late(); await tick();
   assert.equal(lateResult, false); assert.equal(h.calls.length, before);
   h.emit({ type: 'stop' }); await done; assert.deepEqual(ui.__testing.stats(), { actions: 0, cells: 0, dependencies: 0 });
+});
+
+test('native focus name snapshots preserve null and exact Unicode without allocating state or callbacks', async () => {
+  const h = await setup(), { ui } = h, done = launch(ui, ui.Text('focus'));
+  assert.ok(Object.isFrozen(ui.Focus));
+  for (const name of [null, 'café', 'cafe\u0301', '日本 🦊']) {
+    h.focus.name = name; assert.equal(ui.Focus.currentName(), name);
+    assert.deepEqual(h.calls.at(-1), { op: 'focus.currentName' });
+  }
+  assert.deepEqual(ui.__testing.stats(), { actions: 0, cells: 0, dependencies: 0 });
+  h.emit({ type: 'stop' }); await done; const count = h.calls.length;
+  assert.equal(ui.Focus.currentName(), null); assert.equal(h.calls.length, count);
+});
+
+test('focus name reads reject render/computed purity and skip canceled task contexts', async () => {
+  const h = await setup(), { ui } = h; h.focus.name = 'editor';
+  const shown = ui.State(true); let release, lateResult;
+  const Owner = ui.Component(scope => {
+    scope.effect(() => { assert.equal(ui.Focus.currentName(), 'editor'); });
+    scope.task(async () => { await new Promise(resolve => { release = resolve; }); lateResult = ui.Focus.currentName(); });
+    return () => ui.Text('owner');
+  });
+  const done = launch(ui, ui.View(() => {
+    assert.throws(() => ui.Focus.currentName(), /Read native focus outside view bodies/);
+    return shown.value ? Owner() : ui.Text('hidden');
+  }));
+  await tick(); const derived = ui.Computed(() => ui.Focus.currentName());
+  assert.throws(() => derived.value, /Computed callbacks cannot read native focus/);
+  shown.value = false; await tick(); const before = h.calls.length;
+  release(); await tick(); assert.equal(lateResult, null); assert.equal(h.calls.length, before);
+  h.emit({ type: 'stop' }); await done;
+  assert.deepEqual(ui.__testing.stats(), { actions: 0, cells: 0, dependencies: 0 });
 });
 
 test('disabled validates flags before transport and property changes preserve scoped bindings/actions', async () => {

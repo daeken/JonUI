@@ -82,6 +82,37 @@ contexts remains future work. Commands allocate no capture IDs, cells, callbacks
 or subscriptions and do not activate/key the app window. See the
 [directional focus example](../examples/focus-direction/app.ts).
 
+## Current focus name
+
+`Focus.currentName(): string | null` reads the declared `focusName` of the actual
+eligible first responder in the active window or sheet. Plain/secure field editors
+resolve to their owning control; a WebKit DOM responder resolves to its browser's
+name. Unnamed or cleared focus returns null, as does a hidden/disabled control or
+a browser excluded with `tabFocusable: false`. It never reports a parent-window
+name behind an active sheet. Names retain exact Unicode spelling.
+
+```ts
+Button('Next', () => {
+  Focus.next();
+  status.value = Focus.currentName() ?? 'No named control';
+});
+```
+
+This is a synchronous snapshot. It does not subscribe, track a dependency, update
+State, allocate a capture, or issue a focus request. Reading it repeatedly preserves
+native editing sessions and DOM caret/selection. Updating/removing a name changes
+the next snapshot without requiring a blur/refocus. A missing name returns null
+even when an unnamed control is actively editing; null does not prove that no
+native responder has focus.
+
+Call it in mounted-window actions, effects or current tasks. Before a mounted
+window it throws; render/computed use is rejected because native focus is not a
+tracked dependency. Canceled tasks, retired RPC continuations and calls after
+shutdown return null without native work. It uses the same layout/context check
+as other focus operations: detecting a new active window retires old captures and
+cycles. It does not establish a declarative two-way FocusState binding. Generation-
+safe desired/observed focus synchronization remains future work.
+
 ## Captured responder targets
 
 `Focus.capture()` returns an opaque `FocusTarget` for the current eligible native

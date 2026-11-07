@@ -129,6 +129,9 @@ without wrapping or intercepting text/browser arrow keys. Run
 `Focus.next()`, `Focus.previous()`, and `Focus.clear()` use the native key-view
 loop and responder chain. Run `bin/jonui examples/focus/app.ts` for Return-driven
 form navigation; see [native focus](docs/focus.md) for ordering and cleanup rules.
+`Focus.currentName()` reads the actual eligible responder's declared name, or
+null for cleared/unnamed focus, in the active window or sheet. It is a synchronous
+snapshot; it does not subscribe or establish a two-way focus binding.
 `Focus.capture()` remembers the current native responder as a weak opaque target;
 `Focus.request(target)` restores it while its identity remains available. Adding
 or removing view handles retires saved captures; value updates/keyed reorder keep

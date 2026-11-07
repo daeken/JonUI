@@ -679,6 +679,23 @@ State or replies. Handler/data updates retain the epoch. There are no extra nati
 state cells; test callback counts include exported API methods. See
 [API contracts and validation](web-rpc.md).
 
+`Focus.currentName()` sends `focus.currentName` for a synchronous `{ name }`
+snapshot. The host prepares the active focus window, resolves its actual responder
+(including a shared field editor's owning control), and matches only eligible
+live targets in the existing name registry. Request-by-name and query share the
+same native target resolver. Browser descendants match their WKWebView container;
+text/date controls match within their owned hosting subtree. The response uses
+the committed descriptor's exact Unicode name or null for an unnamed/unavailable
+responder. No target registration, native cell, callback, subscription or focus
+request is created. Node rejects render/computed queries and suppresses queries
+from canceled work or after shutdown. This is a point-in-time read; the bridge
+emits no observed-focus event and establishes no two-way binding.
+
+An offscreen gate verifies all supported native control kinds, actual DOM focus
+and preserved caret, exact Unicode, empty/unnamed/unavailable names, repeated
+reads without editing-session churn, keyed rename/removal/reassignment, sheet
+isolation and 20 focused owner retirements with baseline resources.
+
 An experimental two-way boolean FocusState adapter was discarded:
 late framework observations could revive an obsolete blur request, so it is not
 part of the public API or native graph validation. SwiftUI accessibility identifiers

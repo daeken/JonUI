@@ -174,7 +174,7 @@ export function Picker<ID extends ItemID | null>(title: string, options: {
   placeholder?: string;
 }): View;
 export function Button(title: string, action: () => void): View;
-/** Traverse the active attached sheet (otherwise main window), or clear its responder. */
+/** Native focus commands, captures and name snapshots in the active sheet (otherwise main window). */
 export const Focus: {
   readonly next: () => void; readonly previous: () => void; readonly clear: () => void;
   /** Move to a visible geometric neighbor without wrapping; false when unavailable/refused. Does not intercept arrow keys. */
@@ -185,6 +185,8 @@ export const Focus: {
   readonly request: (target: FocusTarget) => boolean;
   /** Focus a realized named text input, date picker, or WebView in the active window. False when unavailable. */
   readonly requestNamed: (name: string) => boolean;
+  /** Current eligible responder's declared name in the active window; null for unnamed/cleared focus. A snapshot, not a tracked State. */
+  readonly currentName: () => string | null;
   /** Cycle for next/previous and optional Tab in the active window/sheet. [] restores native behavior. False keeps a valid prior cycle. */
   readonly setTraversal: (targets: readonly FocusTarget[], options?: { tabNavigation?: boolean }) => boolean;
 };

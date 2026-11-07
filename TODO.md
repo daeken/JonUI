@@ -676,6 +676,36 @@ Keep the broad focus/navigation item unchecked: nested sheets,
 generation-safe declarative bindings, remaining named
 controls, real keyboard/IME/AX and non-text keyboard-access paths remain open.
 
+Actual focus-name snapshots completed (2026-11-07): `Focus.currentName()` reads
+the current eligible responder's declared name in the active window or sheet.
+This provides actual-focus inspection before designing generation-safe declarative
+requests. It does not infer focus from queued SwiftUI notifications, publish a
+binding, subscribe or allocate cells/callbacks/capture IDs. Native name queries
+and requests share a target resolver; plain/secure field editors map to their
+owning control and WebKit DOM descendants map to the named browser. Unnamed,
+cleared, hidden/disabled and passive-browser responders return null. Exact Unicode,
+committed rename/removal/reassignment and keyed physical identity are preserved.
+Node rejects render/computed use and suppresses canceled-task/post-shutdown reads.
+The sheet example displays the actual name after navigation commands.
+
+Focused native validation passes for text/date/WebKit/DOM, repeated queries with
+no editing/caret churn or query allocations, unavailable/unnamed controls,
+active-sheet isolation, name changes and 20 focused owner retirements. Two runtime
+cases and positive/negative type checks pass (112 unit tests total), including
+canceled RPC reads returning null without querying native focus. Final validation:
+native build, all 68 offscreen native integration scenarios, 112 unit tests,
+Deno/TypeScript checks and API classification pass. The native gate also follows
+actual Tab/Next/Clear changes independently of the last named request.
+The broader focus item stays unchecked.
+Concrete blockers remain: keyboard access is false, excluding real stepper/choice
+eligible-focus paths; do not change preferences to claim them verified. Nested
+sheets need a guaranteed early offscreen policy for every framework window before
+testing presentation. Next: separate generation-stamped desired requests from
+actual focus observations; stale framework notifications must never write a newer
+desired request. Define native observation/acknowledgement and owner/window
+retirement semantics before exposing a two-way binding. Eligible named controls
+and IME/AX/hardware coverage remain open.
+
 ## 3. Application and operating-system integration
 
 - [ ] Support multiple windows with independent roots and explicit window ownership.

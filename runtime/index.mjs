@@ -638,11 +638,11 @@ function focusName(value) {
   if (typeof value !== 'string' || !value.length || !value.isWellFormed()) throw new TypeError('Focus names must be nonempty well-formed strings');
   return value;
 }
-function canMoveFocus() {
-  assertNotComputing('move focus');
+function canMoveFocus(action = 'move focus') {
+  assertNotComputing(action);
   const task = taskStorage.getStore();
   if (stopped || task && !taskIsCurrent(task)) return false;
-  if (active && !active.effect) throw new Error('Move focus outside view bodies');
+  if (active && !active.effect) throw new Error(`${action[0].toUpperCase()}${action.slice(1)} outside view bodies`);
   return true;
 }
 function moveFocus(direction) {
@@ -671,6 +671,10 @@ export const Focus = Object.freeze({
   requestNamed(name) {
     if (!canMoveFocus()) return false;
     return request('focus.named', { name: focusName(name) }).focused;
+  },
+  currentName() {
+    if (!canMoveFocus('read native focus')) return null;
+    return request('focus.currentName').name;
   },
   setTraversal(targets, options = {}) {
     if (!canMoveFocus()) return false;

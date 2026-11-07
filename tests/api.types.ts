@@ -131,6 +131,11 @@ WebView({ html: '', api: { date: () => new Date() } });
 // @ts-expect-error Promise/serialization hooks are reserved method names.
 WebView({ html: '', api: { then: () => 1 } });
 const namedFocused: boolean = Focus.requestNamed('editor'); void namedFocused;
+const currentFocusName: string | null = Focus.currentName(); void currentFocusName;
+// @ts-expect-error Current native focus is nullable.
+const alwaysFocusedName: string = Focus.currentName(); void alwaysFocusedName;
+// @ts-expect-error Focus name snapshots take no arguments.
+Focus.currentName('editor');
 // @ts-expect-error Focus names are strings.
 Focus.requestNamed(1);
 // @ts-expect-error WebView focus names are strings.

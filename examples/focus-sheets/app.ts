@@ -10,8 +10,12 @@ const Sheet = Component(scope => {
     Text('Focus stays in the open sheet').font('headline'),
     TextField('Name — Return advances', { text: name.binding, focusName: 'sheet-demo-name', onSubmit: rememberAndNext }),
     SecureField('Demo secret — Return advances', { text: secret.binding, focusName: 'sheet-demo-secret', onSubmit: rememberAndNext }),
-    TextEditor({ text: notes.binding }).frame({ height: 110 }),
-    HStack([Button('Previous', Focus.previous), Button('Next', Focus.next), Button('Clear', Focus.clear)]),
+    TextEditor({ text: notes.binding, focusName: 'sheet-demo-notes' }).frame({ height: 110 }),
+    HStack([
+      Button('Previous', () => { Focus.previous(); status.value = Focus.currentName() ?? 'No named control'; }),
+      Button('Next', () => { Focus.next(); status.value = Focus.currentName() ?? 'No named control'; }),
+      Button('Clear', () => { Focus.clear(); status.value = Focus.currentName() ?? 'No named control'; }),
+    ]),
     HStack([
       Button('Restore remembered', () => { status.value = saved && Focus.request(saved) ? 'Responder restored' : 'Press Return to remember a field again'; }),
       Button('Tab between fields', () => {

@@ -29,6 +29,15 @@ Status meanings:
 
 ## Current review
 
+- Focus snapshot review (2026-11-07): `Focus.currentName()` reads the actual
+  eligible named responder in the active window/sheet without writing focus or
+  creating registrations. Text/date/WebKit/DOM, exact Unicode, unavailable and
+  unnamed controls, keyed name changes, caret/session preservation and 20 focused
+  owner retirements pass the focused offscreen gate. Two new runtime tests cover
+  transport, resources, purity, cancellation and shutdown. Declarative FocusState
+  remains Missing; this snapshot has no tracked dependency or observation stream.
+  Native build, all 68 offscreen native scenarios, 112 unit tests and
+  Deno/TypeScript checks pass; retired RPC reads also skip native focus queries.
 - Focus review (2026-11-07): opt-in captured Tab/Shift-Tab cycles now work in
   the active single sheet, including mixed text/date/WebKit controls. An owned
   NSApplication dispatcher filters to the active window without replacing
@@ -48,7 +57,7 @@ Status meanings:
 - Initial comprehensive inventory of the current TypeScript API, native bridge,
   examples and tests, including known limitations. All public exported symbols
   and View/Focus/ComponentScope members have explicit classification markers.
-- Current validation: native build; 110 runtime/compiler unit tests; 67 offscreen
+- Current validation: native build; 112 runtime/compiler unit tests; 68 offscreen
   native scenarios; Deno/TypeScript checks. Mixed-sheet automatic window animation
   suppression also passed three additional 20-owner stress runs. The original
   animated offscreen sheet path has reproduced an AppKit/UpdateCycle crash and
@@ -240,7 +249,7 @@ Status meanings:
 | SceneStorage | Missing | Per-scene restorable state. | Requires scene ownership and persistence/version policy. |
 | FocusState | Missing | Desired/actual boolean or optional named target Binding. | Earlier two-way boolean experiment was removed due stale-observation races; design generation-safe declarative requests. |
 | Focus commands | Partial | Native next/previous/clear plus four-axis geometric move. | Real text/date/WebKit/sheet/directional paths verified; full keyboard-access and optional non-editing arrow routing remain. <!-- api: Focus, Focus.next, Focus.previous, Focus.clear, Focus.move --> |
-| Captured / named focus | Partial | Weak opaque physical target or exact UTF-8 name; optional active-window Tab cycle. | Text/date/WebKit names, captures and single-sheet application-dispatched Tab cycles verified; buttons/toggles/slider/stepper/picker registration and eligibility remain. <!-- api: FocusTarget, Focus.capture, Focus.request, Focus.requestNamed, Focus.setTraversal --> |
+| Captured / named focus | Partial | Weak opaque physical target or exact UTF-8 name; currentName snapshot; optional active-window Tab cycle. | Text/date/WebKit names, actual-name queries, captures and single-sheet application-dispatched Tab cycles verified; buttons/toggles/slider/stepper/picker registration and eligibility remain. <!-- api: FocusTarget, Focus.capture, Focus.request, Focus.requestNamed, Focus.currentName, Focus.setTraversal --> |
 | focusSection | Partial | Native grouping without a new state cell. | Native grouping/geometry/captures verified; wider control/hardware coverage remains. <!-- api: View.focusSection --> |
 | FocusedValue / FocusedBinding / FocusedObject | Missing | Active responder/scene scoped values and actions. | Requires responder-scoped propagation and ownership. |
 | GestureState | Missing | Transient gesture phase state with reset on end/cancel. | Gesture recognition, event coalescing and owner cleanup. |
@@ -372,7 +381,7 @@ can still bypass local enforcement; this is not server-side branch protection.
 Repository instructions require the same review for contributors and automation.
 
 <!-- coverage-review:generated -->
-Review baseline (checkout HEAD before commit): `9c58190568e60f26ed8ff4007dab5a1e8920e68a`.
+Review baseline (checkout HEAD before commit): `1d4a8e88006b89a4063957e8ee05e3c46c817e13`.
 
-Staged source-tree SHA-256 (excluding this catalog): `365aa6b557d3c5ad727574ed22e223e08c1b6b15621cc5da4af6916a6f6d4bdf`.
+Staged source-tree SHA-256 (excluding this catalog): `695453a1aa67cee3de1a8fec0664cdc18bf47965ee9d220234422c0d29b9aeaf`.
 <!-- /coverage-review:generated -->

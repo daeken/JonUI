@@ -1032,6 +1032,13 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
         return view !== content && view.window === window && view.isDescendant(of: content) &&
             !view.isHiddenOrHasHiddenAncestor && view.canBecomeKeyView && view.acceptsFirstResponder
     }
+    private func namedFocusView(_ id: Int, in window: NSWindow) -> NSView? {
+        let target: NSView?
+        if nodes[id]?.kind == "webview", let coordinator = webViews[id], coordinator.active { target = coordinator.view }
+        else { target = hostedControls[id]?.target(in: window) }
+        guard let view = target, eligibleFocusView(view, in: window) else { return nil }
+        return view
+    }
     private func pruneFocusTargets() {
         focusTargets = focusTargets.filter { $0.value.view != nil }
         if focusTraversal.contains(where: { focusTargets[$0] == nil }) { clearFocusTraversal() }
@@ -1174,10 +1181,7 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
             let window = try prepareFocusWindow()
             guard let name = message["name"] as? String, !name.isEmpty else { throw BridgeError("Focus name must be a nonempty string") }
             guard let id = namedFocusNodes[Data(name.utf8)] else { return ["focused": false] }
-            let target: NSView?
-            if nodes[id]?.kind == "webview", let coordinator = webViews[id], coordinator.active { target = coordinator.view }
-            else { target = hostedControls[id]?.target(in: window) }
-            guard let view = target, eligibleFocusView(view, in: window) else { return ["focused": false] }
+            guard let view = namedFocusView(id, in: window) else { return ["focused": false] }
             func focused() -> Bool {
                 guard let current = focusView(window.firstResponder) ?? window.firstResponder as? NSView else { return false }
                 return current === view || current.isDescendant(of: view)
@@ -1185,6 +1189,16 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
             if focused() { return ["focused": true] }
             let accepted = window.makeFirstResponder(view)
             return ["focused": accepted && focused()]
+        case "focus.currentName":
+            let window = try prepareFocusWindow()
+            guard let current = focusView(window.firstResponder) ?? window.firstResponder as? NSView else { return ["name": NSNull()] }
+            for id in namedFocusNodes.values {
+                guard let view = namedFocusView(id, in: window),
+                      current === view || current.isDescendant(of: view),
+                      let name = nodes[id]?.props["focusName"] as? String else { continue }
+                return ["name": name]
+            }
+            return ["name": NSNull()]
         case "focus.move":
             guard let direction = message["direction"] as? String, ["next", "previous", "clear"].contains(direction) else { throw BridgeError("Invalid focus direction") }
             let window = try prepareFocusWindow()
