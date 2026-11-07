@@ -1127,19 +1127,46 @@ test('Stepper and Picker support named and owned projected focus without sending
   h.emit({ type: 'stop' }); await done; assert.deepEqual(ui.__testing.stats(), { actions: 0, cells: 0, dependencies: 0 });
 });
 
-test('choice focus rejects invalid names and keeps unsupported custom native surfaces explicit', async () => {
+test('choice focus rejects invalid names and noncontrol projections', async () => {
   const h = await setup(), { ui } = h; const number = ui.State(1), choice = ui.State('a'); const before = h.calls.length;
   for (const name of ['', true, 1, {}, null, '\ud800']) {
     assert.throws(() => ui.Stepper('Count', { value: number.binding, focusName: name }), /Focus names/);
     assert.throws(() => ui.Picker('Choice', { selection: choice.binding, options: [], focusName: name }), /Focus names/);
   }
-  assert.throws(() => ui.Slider('Level', { value: number.binding, focusName: 'slider' }), /Unknown slider option/);
   assert.equal(h.calls.length, before);
   let binding;
   const Owner = ui.Component(scope => { binding = scope.focus().binding('unsupported'); return () => ui.Text('owner'); });
   const done = launch(ui, Owner()); await tick();
-  for (const view of [ui.Slider('Level', { value: number.binding }), ui.Button('Button', () => {}), ui.Toggle('Toggle', { isOn: ui.State(true).binding })]) assert.throws(() => view.focused(binding), /focused requires/);
+  for (const view of [ui.Text('Label'), ui.VStack([]), ui.Spacer()]) assert.throws(() => view.focused(binding), /focused requires/);
   h.emit({ type: 'stop' }); await done;
+});
+
+test('Button Toggle and Slider support explicit names and all owned focus projections without serializing functions', async () => {
+  const h = await setup(), { ui } = h; let focus, flag, value, presses = 0;
+  const Owner = ui.Component(scope => {
+    focus = scope.focus(); flag = scope.state(false); value = scope.state(0.5);
+    const boolean = scope.focusBoolean(), selected = scope.focusSelection([1]);
+    return () => ui.VStack([
+      ui.Button('Same', () => { presses++; }, { focusName: 'café' }),
+      ui.Toggle('Same', { isOn: flag.binding, focusName: 'cafe\u0301' }),
+      ui.Slider('Same', { value: value.binding, focusName: 'level' }),
+      ui.Button('Owned', () => { presses += 2; }).padding(2).focused(focus.binding('apply')),
+      ui.Toggle('Owned', { isOn: flag.binding }).focused(boolean.binding),
+      ui.Slider('Owned', { value: value.binding }).focused(selected.binding(1)),
+    ]);
+  });
+  const done = launch(ui, Owner()); await tick(); const controls = [...h.nodes.values()].filter(n => ['button', 'toggle', 'slider'].includes(n.kind));
+  assert.deepEqual(controls.slice(0, 4).map(n => n.props.focusName), ['café', 'cafe\u0301', 'level', 'apply']);
+  assert.ok(controls.slice(4).every(n => typeof n.props.focusName === 'string'));
+  assert.ok(controls.every(n => !('focusBinding' in n.props) && !('action' in n.props))); assert.equal(h.states.size, 17);
+  h.emit({ type: 'action', id: controls[3].id }); await tick(); assert.equal(presses, 2);
+  for (const make of [name => ui.Button('Conflict', () => {}, { focusName: name }), name => ui.Toggle('Conflict', { isOn: flag.binding, focusName: name }), name => ui.Slider('Conflict', { value: value.binding, focusName: name })]) {
+    assert.throws(() => make('other').focused(focus.binding('apply')), /conflicts/);
+    for (const name of ['', true, 1, {}, null, '\ud800']) assert.throws(() => make(name), /Focus names/);
+  }
+  assert.throws(() => ui.Button('Unknown', () => {}, { focused: true }), /Unknown Button option/);
+  assert.throws(() => ui.Toggle('Unknown', { isOn: flag.binding, focused: true }), /Unknown Toggle option/);
+  h.emit({ type: 'stop' }); await done; assert.deepEqual(ui.__testing.stats(), { actions: 0, cells: 0, dependencies: 0 });
 });
 
 test('disabled validates flags before transport and property changes preserve scoped bindings/actions', async () => {

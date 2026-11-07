@@ -1134,6 +1134,43 @@ Slider without forcing native keyboard eligibility. Physical windows,
 keyboard/IME/AX/nested-sheet policy and the recorded AppKit sheet-close crash
 remain open; no framework fix is claimed.
 
+Button/Toggle/Slider naming and projection registration implemented (2026-11-07):
+Button takes optional third-argument `{ focusName }`; Toggle and Slider accept it
+with their binding options. All three accept named/boolean/typed `.focused`
+projections and join global atomic UTF-8 validation. Named instances opt into the
+bounded SwiftUI host, resolving only enabled/eligible public NSButton,
+NSButton/NSSwitch or NSSlider respectively. Unnamed rendering remains unchanged.
+No AppKit replacement, private SwiftUI lookup or forced responder eligibility is
+introduced. Name/property updates and keyed reorder retain logical state/current
+handlers; removing/reintroducing naming switches hosting paths and may replace
+physical identity. Normal coordinator invalidation and weak bindings/actions
+prevent retired content from registering or mutating an old owner. The forms demo
+adds names and reports unavailable targets.
+
+Concrete positive-focus blocker: this SDK's offscreen SwiftUI versions expose no
+matching public Button/Toggle/Slider control. The native fixture reports zero
+eligible, zero excluded and twelve absent surfaces with keyboard access false.
+Registered realized hosts report unavailable and requests retain intent without
+moving unrelated focus. Successful native focus/capture/Tab, physical pointer/key
+interaction and any claim that enabling keyboard access resolves this are
+unverified. Conditional tests exercise positive branches only when genuine native
+targets exist. A future SwiftUI-native asynchronous FocusState adapter needs an
+explicit contract separate from synchronous first-responder acknowledgements.
+
+Validation: native build, 165 unit/compiler cases and Deno/TypeScript pass.
+Focused offscreen naming/private owner mapping, action/scalar bridge, current
+handlers, atomic names/options, Unicode/keyed identity, opt-in removal/reinsertion,
+disabled/sheet/resume gates and 20 pending owner lifetimes pass. Added three
+cross-kind duplicate startup cases with zero-resource teardown. Native Button/
+Toggle descriptors now validate titles/options; the existing missing-binding
+fixture supplies a valid title so it tests that failure independently. All 96
+offscreen native scenarios, 165 unit/compiler cases, both type checkers and API
+classification pass after that correction. The recorded AppKit sheet-close crash
+did not recur; no fix is claimed. Keep the broad focus
+item unchecked. Custom-drawn positive targeting is blocked as above; next
+independent work is explicit physical-window ownership/context policy. General
+keyboard/IME/AX/nested-sheet and the recorded AppKit sheet-close gaps remain open.
+
 ## 3. Application and operating-system integration
 
 - [ ] Support multiple windows with independent roots and explicit window ownership.

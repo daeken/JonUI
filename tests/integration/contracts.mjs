@@ -31,7 +31,7 @@ if (mode === 'action-error') {
   const root = initial.nodes.find(n => n.kind === 'vstack');
   assert.throws(() => test.request('commit', { nodes: [{ ...root, children: [root.id] }] }), /Cyclic/);
   assert.throws(() => test.request('commit', { nodes: [{ ...root, children: [-1] }] }), /Unknown child/);
-  assert.throws(() => test.request('commit', { nodes: [{ id: 900000, kind: 'toggle', props: {}, children: [] }], root: 900000 }), /binding handle/);
+  assert.throws(() => test.request('commit', { nodes: [{ id: 900000, kind: 'toggle', props: { title: 'Missing binding' }, children: [] }], root: 900000 }), /binding handle/);
   assert.deepEqual(test.request('debug.snapshot').nodes, initial.nodes);
   test.request('debug.write', { id, value: 'older native' });
   value.value = 'newer JS';

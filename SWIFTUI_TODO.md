@@ -29,6 +29,20 @@ Status meanings:
 
 ## Current review
 
+- Button/Toggle/Slider registration review (2026-11-07): explicit names and all
+  owned projection variants join global validation. Only named instances opt into
+  bounded SwiftUI hosting; unnamed rendering is unchanged. Public enabled/eligible
+  NSButton, NSButton/NSSwitch and NSSlider lookup avoids private views/replacements
+  or forced responder flags. Name removal/reinsertion can change physical identity;
+  existing weak bindings/current actions and coordinator invalidation preserve
+  logical ownership/cleanup. Build, 165 unit/compiler cases, both type checkers and
+  focused native atomic/Unicode/keyed/disabled/sheet/session/20-owner checks pass.
+  All 96 offscreen native scenarios, 165 unit/compiler cases, both type checkers
+  and API classification pass. The recorded AppKit sheet-close crash did not
+  recur; no fix is claimed. Concrete blocker: twelve native checks
+  found absent public surfaces, zero eligible/excluded (keyboard access false).
+  Positive focus/capture/Tab and physical pointer/key behavior remain unverified;
+  a SwiftUI-native async focus contract is still needed for custom-drawn controls.
 - One-shot retry review (2026-11-07): all three owned focus controllers expose
   retryWhenReady for current retained non-null intent. Shared availability watches
   wait without polling/scrolling/realization; one fresh ready attempt ends even on
@@ -262,9 +276,9 @@ Status meanings:
 | Image | Partial | System-symbol name; no image-loading state. | SF Symbols verified; asset/file/data images, rendering modes and resizable images remain. <!-- api: Image --> |
 | Label | Missing | Title/icon content; usually stateless. | Add title/icon composition and label styles. |
 | AsyncImage | Missing | URL plus loading/success/failure phase. | Cancellation, cache policy, errors, placeholder and owner cleanup. |
-| Button | Partial | Node action; current handler keyed by native view ID. | Basic actions/lifecycle verified; roles, styles, keyboard shortcuts and named focus remain. <!-- api: Button --> |
-| Toggle | Partial | Scalar boolean Binding. | Native binding verified; styles, labels and named/keyboard-access focus remain. <!-- api: Toggle --> |
-| Slider | Partial | Scalar number Binding, bounds, optional step. | Rendered/native binding verified; custom-drawn native action/accessibility and named focus gaps. <!-- api: Slider, NumericInputOptions --> |
+| Button | Partial | Node action/current handler; optional third-argument focusName or owned projection opts into bounded hosting. | Action/lifecycle, naming/availability/session cleanup verified; no public target on current SDK, so positive focus/capture/Tab remain gated. Roles/styles/shortcuts/physical interaction remain. <!-- api: Button --> |
+| Toggle | Partial | Scalar boolean Binding; optional focusName/owned projection and public NSButton/NSSwitch lookup. | Binding/naming/session cleanup verified; current custom-drawn surface absent, positive focus/capture/Tab unverified. Styles/labels/physical keyboard/pointer coverage remain. <!-- api: Toggle --> |
+| Slider | Partial | Scalar number Binding, bounds/step; optional focusName/owned projection and public NSSlider lookup. | Rendering/native binding, naming/session cleanup verified; current custom-drawn surface absent. Positive focus/capture/Tab, physical action/accessibility remain open. <!-- api: Slider, NumericInputOptions --> |
 | Stepper | Partial | Scalar number Binding, bounds/step; named/projected focus registration. | Real NSStepper actions, name/disabled gates and cleanup verified; successful full-keyboard-access focus, formatter and styles remain. <!-- api: Stepper --> |
 | Picker | Partial | String/number/null selection Binding; detached keyed options and named/projected focus registration. | Segmented actions, menu binding/rendering, names/style/disabled gates and cleanup verified; successful eligible focus and menu opening/absent public surfaces remain. <!-- api: Picker, PickerOption --> |
 | DatePicker | Partial | Unix-millisecond number Binding, bounds, components and zone. | Native actions/styles/DST/rebinding/named focus and sheet isolation verified; richer formatting/popover interaction remain. <!-- api: DatePicker --> |
@@ -424,11 +438,11 @@ Status meanings:
 | Scoped focus controller | Partial (JonUI) | Desired/actual/retired state, context requests/resume, named availability snapshots/session subscriptions and cancellable one-shot retry of retained intent. | Native text/date/WebKit, no feedback/replay, ready-once/refusal/cancel behavior, unnamed responder guard, modal/resume/task/RPC lifetime and owner cleanup verified; viewport/physical-window policies remain. <!-- api: FocusController, ComponentScope.focus --> |
 | Boolean focus controller | Partial (JonUI) | Opaque binding, separate intent/observation, passive resume, availability snapshot/session subscription and one-shot retry of retained true intent. | Text/secure/editor/date/WebKit, conditional clear, private mapping, retry supersession/cancellation, task/RPC leases and owner cleanup verified. General overloads/additional controls remain. <!-- api: BooleanFocusController, ComponentScope.focusBoolean --> |
 | Typed focus selection controller | Partial (JonUI) | Fixed string/number domain, separate nullable intent/observation, bindings/resume, guarded availability snapshots/session subscriptions and one-shot retained-ID retry. | Literal/typed identity, validation, text/date/WebKit, clear, retry supersession/cancellation, task/RPC leases, context/session and owner cleanup verified; dynamic/object domains/general overloads remain. <!-- api: SelectionFocusController, ComponentScope.focusSelection --> |
-| focused projection | Partial (JonUI) | Boolean actual getter and deferred true/conditional-false request, attached to one named input. | Text/secure/editor/date/WebKit focus verified; Stepper/Picker wiring and unavailable gates verified, successful focus still gated. Modifier/owner/Unicode blur/cleanup covered; containers and remaining native controls unsupported. <!-- api: FocusBinding, View.focused --> |
+| focused projection | Partial (JonUI) | Boolean actual getter and deferred true/conditional-false request, attached to one named supported control. | Text/secure/editor/date/WebKit focus verified; Stepper/Picker/Button/Toggle/Slider wiring and unavailable gates verified, successful focus still gated. Modifier/owner/Unicode blur/cleanup covered; containers remain unsupported. <!-- api: FocusBinding, View.focused --> |
 | Native focus observation | Partial (JonUI) | Nullable named responder snapshots/coalesced subscriptions; generation-stamped acknowledgements and internal weak responder-owner revisions; observations do not write intent. | Text/date/WebKit/single-sheet, unnamed shared-editor retry guard, public name-only dedup, generation/sequence/context guards and cleanup verified; broader controls/IME/AX remain. <!-- api: Focus.subscribe --> |
 | Named focus availability | Partial (JonUI) | Snapshots/shared native/global-context subscriptions, session-bound owned helpers and opt-in one-shot controller retry. | Exact/opaque states, native/lazy/sheet changes, caller/session/owner cancellation and observer cleanup verified; triggerless OS changes, viewport/physical-window policies remain. <!-- api: FocusAvailability, Focus.availabilityNamed, Focus.subscribeAvailability --> |
 | Focus commands | Partial | Native next/previous/clear plus four-axis geometric move. | Real text/date/WebKit/sheet/directional paths verified; full keyboard-access and optional non-editing arrow routing remain. <!-- api: Focus, Focus.next, Focus.previous, Focus.clear, Focus.move --> |
-| Captured / named focus | Partial | Weak opaque physical target or exact UTF-8 name; currentName snapshot; optional active-window Tab cycle. | Text/date/WebKit focus/captures/Tab verified; Stepper/Picker names and unavailable gates verified, successful eligibility remains gated. Button/Toggle/Slider registration remains. <!-- api: FocusTarget, Focus.capture, Focus.request, Focus.requestNamed, Focus.currentName, Focus.setTraversal --> |
+| Captured / named focus | Partial | Weak opaque physical target or exact UTF-8 name; currentName snapshot; optional active-window Tab cycle. | Text/date/WebKit focus/captures/Tab verified; Stepper/Picker/Button/Toggle/Slider registration and unavailable gates verified. Additional-control positive focus/capture/Tab remains gated by native availability/eligibility. <!-- api: FocusTarget, Focus.capture, Focus.request, Focus.requestNamed, Focus.currentName, Focus.setTraversal --> |
 | focusSection | Partial | Native grouping without a new state cell. | Native grouping/geometry/captures verified; wider control/hardware coverage remains. <!-- api: View.focusSection --> |
 | FocusedValue / FocusedBinding / FocusedObject | Missing | Active responder/scene scoped values and actions. | Requires responder-scoped propagation and ownership. |
 | GestureState | Missing | Transient gesture phase state with reset on end/cancel. | Gesture recognition, event coalescing and owner cleanup. |
@@ -560,7 +574,7 @@ can still bypass local enforcement; this is not server-side branch protection.
 Repository instructions require the same review for contributors and automation.
 
 <!-- coverage-review:generated -->
-Review baseline (checkout HEAD before commit): `76d688d942bf4eba4688fc1e14bab6c12db1e415`.
+Review baseline (checkout HEAD before commit): `2e9cf0061ddbce9c9108f23e103d3d1f75177079`.
 
-Staged source-tree SHA-256 (excluding this catalog): `745b8a7475f70c48509c234c59e0c0da89a9477a1ca542946db8d3636c121b7a`.
+Staged source-tree SHA-256 (excluding this catalog): `c3c0217e21abb31a64cd63b34676e26aec8c20374a1af0812793cb99838e70b4`.
 <!-- /coverage-review:generated -->

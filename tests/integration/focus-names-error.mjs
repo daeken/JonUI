@@ -1,13 +1,16 @@
 import assert from 'node:assert/strict';
-import { Component, DatePicker, Picker, Stepper, TextField, VStack, WebView, runApp, __testing as test } from 'jonui';
+import { Button, Component, DatePicker, Picker, Slider, Stepper, TextField, Toggle, VStack, WebView, runApp, __testing as test } from 'jonui';
 let disposed = 0, stopped = 0;
 const Owner = Component(scope => {
-  const text = scope.state('owned'), date = scope.state(0); scope.onDispose(() => { disposed++; });
+  const text = scope.state('owned'), date = scope.state(0), flag = scope.state(false); scope.onDispose(() => { disposed++; });
   return () => VStack([
     TextField('Duplicate', { text: text.binding, focusName: 'duplicate' }),
     process.env.JONUI_CASE === 'date' ? DatePicker('Duplicate', { selection: date.binding, focusName: 'duplicate' }) :
       process.env.JONUI_CASE === 'stepper' ? Stepper('Duplicate', { value: date.binding, focusName: 'duplicate' }) :
       process.env.JONUI_CASE === 'picker' ? Picker('Duplicate', { selection: text.binding, options: [{ value: 'owned', label: 'Owned' }], focusName: 'duplicate' }) :
+      process.env.JONUI_CASE === 'button' ? Button('Duplicate', () => {}, { focusName: 'duplicate' }) :
+      process.env.JONUI_CASE === 'toggle' ? Toggle('Duplicate', { isOn: flag.binding, focusName: 'duplicate' }) :
+      process.env.JONUI_CASE === 'slider' ? Slider('Duplicate', { value: date.binding, focusName: 'duplicate' }) :
       WebView({ html: '<input>', focusName: 'duplicate', onMessage: () => {}, onError: () => {} }),
   ]);
 });

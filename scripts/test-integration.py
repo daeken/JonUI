@@ -127,7 +127,7 @@ run('tests/integration/focus-sheets.mjs', timeout=60)
 run('tests/integration/focus-names.mjs', timeout=60, layout=True)
 run('tests/integration/focus-names-error.mjs', failure='Duplicate focus name')
 run('tests/integration/focus-names-error.mjs', case='date', failure='Duplicate focus name')
-for mode in ['stepper', 'picker']:
+for mode in ['stepper', 'picker', 'button', 'toggle', 'slider']:
     run('tests/integration/focus-names-error.mjs', case=mode, failure='Duplicate focus name')
 run('tests/integration/web-rpc.mjs', timeout=60)
 for mode in ['reload', 'unmount']:
@@ -159,3 +159,4 @@ run('tests/integration/owned-availability-subscribe.mjs', timeout=60, layout=Tru
 for mode, message in [('owned-throw', 'intentional availability listener failure'), ('owned-promise', 'must be synchronous')]:
     run('tests/integration/availability-subscribe-error.mjs', case=mode, failure=message)
 run('tests/integration/focus-retry.mjs', timeout=90, layout=True)
+run('tests/integration/focus-actions.mjs', timeout=90, layout=True)

@@ -13,7 +13,13 @@ await runApp({ title: 'JonUI native form', width: 600, height: 400, content: For
   Section('Profile', [TextField('Name', { text: name.binding, onSubmit: submitted, onEditingChanged: editingChanged('name') }),
     SecureField('Demo secret', { text: secret.binding, onSubmit: submitted, onEditingChanged: editingChanged('demo secret') }),
     View(() => Text(editing.value ? `Editing ${editing.value}` : 'No text input focused')),
-    View(() => Text(status.value)), Toggle('Show as percentage', { isOn: percentage.binding })]),
+    View(() => Text(status.value)), Toggle('Show as percentage', { isOn: percentage.binding, focusName: 'percentage' }),
+    Button('Submit profile', submitted, { focusName: 'submit' })]),
+  Section('Control focus', [
+    ...['percentage', 'submit', 'level'].map(target => Button(`Focus ${target}`, () => {
+      status.value = Focus.requestNamed(target) ? `${target} focused` : `${target} has no eligible native target`;
+    })),
+  ], { footer: 'Button, Toggle and Slider targets depend on public native surfaces and keyboard eligibility.' }),
   Section('Appearance', [Picker('Theme', { selection: theme.binding, options: [
     { value: 'system', label: 'System' }, { value: 'light', label: 'Light' }, { value: 'dark', label: 'Dark' },
   ], style: 'segmented', focusName: 'theme' }), View(() => Text(`Selected theme: ${theme.value}`)),
@@ -22,7 +28,7 @@ await runApp({ title: 'JonUI native form', width: 600, height: 400, content: For
     Button('Focus appointment', () => { status.value = Focus.requestNamed('appointment') ? 'Appointment focused' : 'Appointment unavailable'; }),
     View(() => Text(new Date(appointment.value).toISOString()))]),
   Section('Shared numeric value', [
-    Slider('Amount', { value: amount.binding, min: 0, max: 1, step: 0.05 }),
+    Slider('Amount', { value: amount.binding, min: 0, max: 1, step: 0.05, focusName: 'level' }),
     Stepper('Amount', { value: amount.binding, min: 0, max: 1, step: 0.05, focusName: 'amount' }),
     Button('Focus amount', () => { status.value = Focus.requestNamed('amount') ? 'Amount focused' : 'Amount unavailable for keyboard focus'; }),
     View(() => Text(`${name.value}: ${percentage.value ? `${(amount.value * 100).toFixed(0)}%` : amount.value.toFixed(2)}`)),

@@ -630,7 +630,32 @@ keyboard access is false: five checks encounter ineligible Stepper/segmented
 surfaces and three encounter absent menu/automatic AppKit surfaces. No successful
 new-control focus/capture/Tab path is claimed verified. Those branches are tested
 conditionally when real eligibility is available; tests neither change preferences
-nor override platform key-view flags. Slider/Button/Toggle targeting remains open.
+nor override platform key-view flags.
+
+Button/Toggle/Slider also accept focusName and owned projections. Their bounded
+host is opt-in: unnamed controls retain their original SwiftUI rendering path.
+Within an opted-in subtree lookup uses public NSButton, NSButton/NSSwitch or
+NSSlider respectively, plus enabled/key-view/responder gates. No private SwiftUI
+classes, label matching, forced host responder or AppKit replacement is used.
+Names join global atomic UTF-8 validation; Button/Toggle descriptors now validate
+title/allowed keys as well. Button functions remain solely in Node's current
+action table, and existing weak scalar bindings and environment forwarding remain
+unchanged. A name/property update within the host does not intentionally rebuild
+it; removing/readding the name switches hosting paths and may replace physical
+identity. Dismantle and logical retirement invalidate cached content/registrations.
+
+The focused offscreen gate reports zero eligible and twelve absent public
+Button/Toggle/Slider surfaces on this SDK with full keyboard access false. Names
+therefore report unavailable and reject movement without stealing the parent
+responder. Positive focus/capture/Tab branches run only when a real eligible
+public target exists; no successful path is claimed here. Tests cover same-label
+and private projection owners, action/scalar bridge updates, current handlers,
+atomic malformed/cross-kind duplicates, keyed rename, opt-in removal/reinsertion,
+disabled/sheet/session policy and 20 pending owner lifetimes. Duplicate startup
+fixtures verify stop/disposal and zero resources. The contract test supplies a
+valid Toggle title so its missing-binding case still isolates binding validation.
+Actual custom-drawn pointer/key interaction and an asynchronous SwiftUI FocusState
+adapter require a separate contract from synchronous responder acknowledgements.
 
 `Focus.availabilityNamed` sends `focus.availability` through the ordinary request
 path, without a focusRequest stamp. After normal active-window preparation, lookup

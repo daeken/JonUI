@@ -172,7 +172,7 @@ export interface View {
   onAppear<Result>(callback: () => Result, ...validation: SynchronousCallbackValidation<Result>): View;
   /** Native disappearance while logically mounted. Use scope.onDispose for guaranteed teardown. */
   onDisappear<Result>(callback: () => Result, ...validation: SynchronousCallbackValidation<Result>): View;
-  /** Attach an owned focus projection to a text input, DatePicker, Stepper, Picker or WebView, through single-child modifiers. */
+  /** Attach an owned focus projection to a supported control through single-child modifiers; native availability/eligibility still apply. */
   focused(binding: FocusBinding): View;
   tag(id: ItemID): View;
   sheet(options: { isPresented: Binding<boolean>; content: View }): View;
@@ -220,8 +220,8 @@ export interface NumericInputOptions {
   max?: number;
   step?: number;
 }
-/** Defaults to 0...1, continuous unless step is supplied. */
-export function Slider(title: string, options: NumericInputOptions): View;
+/** Defaults to 0...1, continuous unless step is supplied. Naming opts into public native target lookup. */
+export function Slider(title: string, options: NumericInputOptions & { focusName?: string }): View;
 /** Defaults to 0...100 with a step of 1. */
 export function Stepper(title: string, options: NumericInputOptions & { focusName?: string }): View;
 /** Unix milliseconds; display components and time zones never change the stored unit. */
@@ -246,7 +246,8 @@ export function Picker<ID extends ItemID | null>(title: string, options: {
   style?: "automatic" | "menu" | "segmented";
   placeholder?: string;
 }): View;
-export function Button(title: string, action: () => void): View;
+/** Naming opts into bounded native target lookup; custom-drawn/ineligible surfaces report unavailable. */
+export function Button(title: string, action: () => void, options?: { focusName?: string }): View;
 /** Native focus commands, captures and name snapshots in the active sheet (otherwise main window). */
 export const Focus: {
   readonly next: () => void; readonly previous: () => void; readonly clear: () => void;
@@ -269,7 +270,8 @@ export const Focus: {
   /** Cycle for next/previous and optional Tab in the active window/sheet. [] restores native behavior. False keeps a valid prior cycle. */
   readonly setTraversal: (targets: readonly FocusTarget[], options?: { tabNavigation?: boolean }) => boolean;
 };
-export function Toggle(title: string, options: { isOn: Binding<boolean> }): View;
+/** Naming opts into public NSButton/NSSwitch lookup; custom-drawn/ineligible surfaces report unavailable. */
+export function Toggle(title: string, options: { isOn: Binding<boolean>; focusName?: string }): View;
 export interface TextInputOptions {
   text: Binding<string>;
   /** App-wide unique native focus name; resolves before first focus. */

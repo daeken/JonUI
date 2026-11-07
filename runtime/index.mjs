@@ -405,7 +405,7 @@ class ViewValue {
   focused(binding) {
     const projection = focusProjection(binding);
     if (this.kind === 'modifier' && this.children.length === 1) return new ViewValue(this.kind, this.props, [this.children[0].focused(binding)]);
-    if (!['textfield', 'securefield', 'texteditor', 'datepicker', 'stepper', 'picker', 'webview'].includes(this.kind)) throw new TypeError('focused requires one text input, DatePicker, Stepper, Picker or WebView');
+    if (!['textfield', 'securefield', 'texteditor', 'datepicker', 'stepper', 'picker', 'button', 'toggle', 'slider', 'webview'].includes(this.kind)) throw new TypeError('focused requires one text input, DatePicker, Stepper, Picker, Button, Toggle, Slider or WebView');
     if (this.props.focusName !== undefined && !this.props.focusBinding && this.props.focusName !== projection.name) throw new TypeError('focused conflicts with explicit focusName');
     return new ViewValue(this.kind, { ...this.props, focusName: projection.name, focusBinding: binding }, this.children);
   }
@@ -882,7 +882,7 @@ export const Section = (title, children, options = {}) => {
 };
 function numericInput(kind, title, options) {
   if (typeof title !== 'string') throw new TypeError('Numeric input title must be a string');
-  const props = { min: 0, max: kind === 'slider' ? 1 : 100, ...(kind === 'stepper' ? { step: 1 } : {}), ...layoutOptions(options, ['value', 'min', 'max', 'step', ...(kind === 'stepper' ? ['focusName'] : [])], kind) };
+  const props = { min: 0, max: kind === 'slider' ? 1 : 100, ...(kind === 'stepper' ? { step: 1 } : {}), ...layoutOptions(options, ['value', 'min', 'max', 'step', 'focusName'], kind) };
   if (props.focusName !== undefined) focusName(props.focusName);
   for (const key of ['min', 'max']) layoutNumber(props[key], `${kind} ${key}`);
   const span = props.max - props.min;
@@ -932,7 +932,11 @@ export function Picker(title, options) {
   const state = binding(props.selection);
   return new ViewValue('picker', { title, state, style: props.style, placeholder: props.placeholder, options: Object.freeze(items), ...(props.focusName === undefined ? {} : { focusName: props.focusName }) });
 }
-export const Button = (title, action) => new ViewValue('button', { title, action });
+export const Button = (title, action, options = {}) => {
+  const props = layoutOptions(options, ['focusName'], 'Button');
+  if (props.focusName !== undefined) focusName(props.focusName);
+  return new ViewValue('button', { title, action, ...props });
+};
 const focusTargets = new WeakMap();
 const focusListeners = new Set();
 const availabilityWatches = new Map(), availabilityTokens = new Map();
@@ -1125,7 +1129,11 @@ export const Focus = Object.freeze({
     return request('focus.traversal', { targets: ids, ...props }).configured;
   },
 });
-export const Toggle = (title, { isOn }) => new ViewValue('toggle', { title, state: binding(isOn) });
+export const Toggle = (title, options) => {
+  const props = layoutOptions(options, ['isOn', 'focusName'], 'Toggle');
+  if (props.focusName !== undefined) focusName(props.focusName);
+  return new ViewValue('toggle', { title, state: binding(props.isOn), ...(props.focusName === undefined ? {} : { focusName: props.focusName }) });
+};
 function textInput(kind, title, options) {
   if (typeof title !== 'string') throw new TypeError('Text input title must be a string');
   const props = layoutOptions(options, ['text', 'onSubmit', 'onEditingChanged', 'focusName'], kind);

@@ -172,6 +172,12 @@ private func validateInput(_ kind: String, _ props: [String: Any]) throws {
         guard Set(props.keys).isSubset(of: Set(allowed)) else { throw BridgeError("Unknown input option") }
     }
     switch kind {
+    case "button":
+        try keys(["title", "focusName"])
+        guard props["title"] is String else { throw BridgeError("Button title must be a string") }
+    case "toggle":
+        try keys(["title", "state", "focusName"])
+        guard props["title"] is String else { throw BridgeError("Toggle title must be a string") }
     case "datepicker":
         try keys(["title", "state", "min", "max", "components", "style", "timeZone", "focusName"])
         guard props["title"] is String else { throw BridgeError("DatePicker title must be a string") }
@@ -214,7 +220,7 @@ private func validateInput(_ kind: String, _ props: [String: Any]) throws {
             guard let key = pickerKey(value), seen.insert(key).inserted else { throw BridgeError("Duplicate picker option") }
         }
     case "slider", "stepper":
-        try keys(["title", "state", "min", "max", "step"] + (kind == "stepper" ? ["focusName"] : []))
+        try keys(["title", "state", "min", "max", "step", "focusName"])
         guard props["title"] is String else { throw BridgeError("Numeric input title must be a string") }
         for key in ["min", "max", "step"] where props[key] != nil {
             guard layoutNumber(props[key]!) != nil else { throw BridgeError("Invalid numeric input \(key)") }
@@ -320,6 +326,10 @@ private struct HostedNativeControl: NSViewRepresentable {
                     if let stepper = node as? NSStepper, stepper.isEnabled, host.eligibleFocusView(stepper, in: window) { return stepper }
                 } else if box.kind == "picker" {
                     if let control = node as? NSControl, control is NSPopUpButton || control is NSSegmentedControl,
+                       control.isEnabled, host.eligibleFocusView(control, in: window) { return control }
+                } else if ["button", "toggle", "slider"].contains(box.kind) {
+                    if let control = node as? NSControl,
+                       (box.kind == "slider" ? control is NSSlider : box.kind == "button" ? control is NSButton : control is NSButton || control is NSSwitch),
                        control.isEnabled, host.eligibleFocusView(control, in: window) { return control }
                 } else if box.kind == "texteditor" {
                     if let editor = node as? NSTextView, editor.isEditable, !editor.isFieldEditor { return editor }
@@ -478,6 +488,10 @@ private struct NativeView: View {
         if node.kind == "foreach" || node.kind == "dynamic" { return node.children.flatMap(lazyItems) }
         return [node]
     }
+    private func focusHosted(_ content: AnyView) -> AnyView {
+        guard box.props["focusName"] != nil else { return content }
+        return AnyView(HostedNativeControl(reference: reference, content: content, host: host))
+    }
     private func content() -> AnyView {
         if host.stopping || reference.box == nil || host.nodes[box.id] !== box { return AnyView(EmptyView()) }
         switch box.kind {
@@ -540,7 +554,8 @@ private struct NativeView: View {
             })
         case "slider":
             let title = box.string("title")
-            return AnyView(Slider(value: numberBinding(), in: Double(box.number("min") ?? 0)...Double(box.number("max") ?? 1)) { Text(title) })
+            let slider = AnyView(Slider(value: numberBinding(), in: Double(box.number("min") ?? 0)...Double(box.number("max") ?? 1)) { Text(title) })
+            return focusHosted(slider)
         case "stepper":
             let stepper = Stepper(box.string("title"), value: numberBinding(), in: Double(box.number("min") ?? 0)...Double(box.number("max") ?? 100), step: Double(box.number("step") ?? 1))
             return AnyView(HostedNativeControl(reference: reference, content: AnyView(stepper), host: host))
@@ -570,8 +585,8 @@ private struct NativeView: View {
             }
         case "button":
             let id = box.id, host = self.host
-            return AnyView(Button(box.string("title")) { [weak host] in host?.action(id) })
-        case "toggle": return AnyView(Toggle(box.string("title"), isOn: boolBinding()))
+            return focusHosted(AnyView(Button(box.string("title")) { [weak host] in host?.action(id) }))
+        case "toggle": return focusHosted(AnyView(Toggle(box.string("title"), isOn: boolBinding())))
         case "textfield", "securefield", "texteditor": return textInputView()
         case "webview": return AnyView(EmbeddedWebView(box: box, props: box.props, host: host))
         case "split": return AnyView(NavigationSplitView { child(0) } detail: { child(1) })
@@ -1481,7 +1496,7 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 if kind == "modifier" && !modifiers.contains(modifier) { throw BridgeError("Unknown view modifier") }
                 try validateLayout(kind, props)
                 try validateInput(kind, props)
-                if ["textfield", "securefield", "texteditor", "datepicker", "stepper", "picker", "webview"].contains(kind), let raw = props["focusName"] {
+                if ["textfield", "securefield", "texteditor", "datepicker", "stepper", "picker", "button", "toggle", "slider", "webview"].contains(kind), let raw = props["focusName"] {
                     guard let name = raw as? String, !name.isEmpty else { throw BridgeError("Focus name must be a nonempty string") }
                     guard focusNames.updateValue(id, forKey: Data(name.utf8)) == nil else { throw BridgeError("Duplicate focus name") }
                 }
@@ -1614,7 +1629,7 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
             guard let window = currentFocusWindow() else { throw BridgeError("No test window") }
             return ["fullKeyboardAccess": NSApp.isFullKeyboardAccessEnabled, "controls": focusControls().enumerated().map { index, control in
                 let kind = control is NSDatePicker ? "date" : control is NSSegmentedControl ? "segmented" : control is NSPopUpButton ? "menu"
-                    : control is NSStepper ? "stepper" : control is NSSlider ? "slider" : control is NSButton ? "button" : "other"
+                    : control is NSStepper ? "stepper" : control is NSSlider ? "slider" : control is NSSwitch ? "switch" : control is NSButton ? "button" : "other"
                 let owner = hostedControls.first { entry in entry.value.view.map { control.isDescendant(of: $0) } ?? false }?.key
                 return ["index": index, "kind": kind, "title": (control as? NSButton)?.title ?? "", "enabled": control.isEnabled,
                     "owner": owner as Any? ?? NSNull(), "hidden": control.isHidden, "eligible": eligibleFocusView(control, in: window), "focused": focusView(window.firstResponder) === control] as [String: Any]

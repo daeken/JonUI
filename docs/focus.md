@@ -269,7 +269,8 @@ const Form = Component(scope => {
 });
 ```
 
-TextField, SecureField, TextEditor, DatePicker, Stepper, Picker and WebView support the modifier,
+TextField, SecureField, TextEditor, DatePicker, Stepper, Picker, Button, Toggle,
+Slider and WebView support the modifier (native availability/eligibility still apply),
 including through single-child modifiers such as frame, padding and disabled.
 Apply it to the input before a two-child sheet modifier. Containers and other
 controls are currently rejected. An explicit different `focusName` conflicts;
@@ -495,8 +496,8 @@ SwiftUI class names. The same hosting surface is used with and without a name;
 registration changes preserve the native input's identity. Logical removal
 immediately retires its coordinator and clears cached content, preventing a late
 representable update from registering an obsolete input. Shutdown releases all
-registrations. Buttons, toggles and sliders still need a supported public targeting
-surface and named registration. Individual DOM elements use browser code.
+registrations. Button/Toggle/Slider naming uses opt-in hosting as described below.
+Individual DOM elements use browser code.
 A named request selects the physical responder; a captured
 target can then be used in `Focus.setTraversal` as usual. The native focus example
 includes **Focus name**, **Focus secret**, and **Focus notes** buttons, and the web-control example includes
@@ -534,6 +535,46 @@ matching. Binding actions, exact Unicode names, atomic duplicate rejection,
 style/disabled/sheet gates, passive resume and repeated cleanup are verified.
 The forms example includes **Focus theme** and **Focus amount** and reports when
 the target is unavailable for keyboard focus.
+
+### Button, Toggle and Slider registration
+
+```ts
+Button('Apply', apply, { focusName: 'apply' });
+Toggle('Enabled', { isOn: enabled.binding, focusName: 'enabled' });
+Slider('Level', { value: level.binding, focusName: 'level' });
+// Named, boolean and typed owned projections also work:
+Button('Apply', apply).padding(4).focused(focus.binding('apply'));
+```
+
+Their names share the exact UTF-8 namespace and validation used by other targets.
+Explicit names and projections must agree. Normal Node actions and scalar value
+bindings remain independent of focus. A name opts the control into the bounded
+SwiftUI host; unnamed instances retain their original rendering path. Renaming
+within that host and keyed reorder retain logical state/handler identity. Removing
+the name removes the extra host, so physical native identity/captures may change
+when naming is removed or reintroduced. The coordinator invalidates cached hosted
+content during removal and owner disposal; future lookups use the current surface.
+
+Lookup uses public NSButton for Button, NSButton/NSSwitch for Toggle and NSSlider
+for Slider, within the owner's subtree and with real enabled/key-view/responder
+eligibility. It does not create an AppKit replacement, infer a private SwiftUI
+view's role, or force the hosting view to accept focus. A realized named host
+with no eligible public target reports **unavailable**, and a focus request returns
+false while retaining controller intent. Lazy/other-window/removed hosts retain
+the normal unrealized/inactiveWindow/missing statuses. No automatic fallback,
+scrolling or eligibility override is introduced.
+
+**Current verification limit:** this SDK's offscreen SwiftUI Button, Toggle and
+Slider expose no matching public native control. Twelve focused checks found
+absent surfaces and zero eligible requests with full keyboard access false.
+Successful focus/capture/Tab is conditional in the test and remains unverified
+here; enabling keyboard access is not known to expose a missing public surface.
+The native gate verifies registration/availability, same-label/private owner
+mapping, current action/scalar bridge behavior, names/duplicate rejection,
+disabled/sheet/resume policy, opt-in removal/reinsertion and 20 pending owner
+lifetimes. Physical pointer/key interaction and a SwiftUI-native asynchronous
+focus adapter for these custom-drawn surfaces remain separate work. The form
+demo reports a missing eligible target instead of assuming focus succeeded.
 
 ## Named target availability
 

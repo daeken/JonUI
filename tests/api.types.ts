@@ -414,8 +414,15 @@ Stepper('Default range', { value: amount.binding });
 Stepper('Named stepper', { value: amount.binding, focusName: 'count' });
 // @ts-expect-error Native focus names are strings.
 Stepper('Invalid name', { value: amount.binding, focusName: true });
-// @ts-expect-error Slider naming is unavailable until it exposes a supported native surface.
-Slider('Unsupported name', { value: amount.binding, focusName: 'amount' });
+Slider('Named slider', { value: amount.binding, focusName: 'amount' });
+Button('Named button', () => {}, { focusName: 'apply' });
+Toggle('Named toggle', { isOn: enabled.binding, focusName: 'enabled' });
+// @ts-expect-error Slider focus names must be strings.
+Slider('Invalid name', { value: amount.binding, focusName: 1 });
+// @ts-expect-error Button naming is an options object after its callback.
+Button('Invalid name', () => {}, 'apply');
+// @ts-expect-error Toggle names must be strings.
+Toggle('Invalid name', { isOn: enabled.binding, focusName: false });
 // @ts-expect-error Sliders require number bindings.
 Slider('Invalid', { value: title.binding });
 // @ts-expect-error Steppers require number bindings.
