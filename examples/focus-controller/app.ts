@@ -3,13 +3,14 @@ import { Button, Component, ForEach, HStack, State, Text, TextEditor, TextField,
 const name = State('Jonathan Swift'), notes = State(''), sheetValue = State(''), presented = State(false), session = State(0);
 const Form = Component(scope => {
   const focus = scope.focus();
+  const nameFocus = focus.binding('name'), notesFocus = focus.binding('notes');
   return () => VStack([
     Text('Desired and actual focus').font('headline'),
-    TextField('Name — Return requests Notes', { text: name.binding, focusName: 'name', onSubmit: () => focus.request('notes') }),
-    TextEditor({ text: notes.binding, focusName: 'notes' }).frame({ height: 120 }),
+    TextField('Name — Return requests Notes', { text: name.binding, onSubmit: () => { notesFocus.value = true; } }).focused(nameFocus),
+    TextEditor({ text: notes.binding }).frame({ height: 120 }).focused(notesFocus),
     HStack([
-      Button('Request Name', () => focus.request('name')),
-      Button('Request Notes', () => focus.request('notes')),
+      Button('Request Name', () => { nameFocus.value = true; }),
+      Button('Request Notes', () => { notesFocus.value = true; }),
       Button('Clear', () => focus.request(null)),
       Button('Resume here', () => focus.resume()),
     ]),

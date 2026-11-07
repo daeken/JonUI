@@ -726,10 +726,10 @@ editors without polling for one traversal, DOM-name stability, exact Unicode
 renames, inherited disabled/passive eligibility, active sheet context switches,
 shared observers and 20 queued focused owner retirements. A separate native
 failure gate verifies one stop/disposal. These observations remain asynchronous;
-an owned declarative desired/observed binding is still pending.
+the owned named projection subset is described below.
 
 Focus-mutating operations (`focus.move`, `focus.direction`, `focus.named`,
-`focus.target`) accept an internal `focusRequest` stamp: session `token`, strictly
+`focus.target`, `focus.blurNamed`) accept an internal `focusRequest` stamp: session `token`, strictly
 increasing positive safe-integer `generation`, and optional positive `context`.
 Unknown stamp fields and invalid counters throw without consuming the generation.
 An operation that reaches its validator also throws without consuming a generation
@@ -792,7 +792,8 @@ capture ID, timer or input interceptor is allocated.
 
 This provides an owned context session, with explicit resume or remount after modal context
 changes. It does not automatically resume an old physical window or implement
-SwiftUI projected FocusState bindings. Native tests verify passive activation,
+standalone SwiftUI FocusState overloads. Named projections are described below.
+Native tests verify passive activation,
 initial named requests, mixed text/date/WebKit focus, desired/actual isolation,
 repeated/failed requests, availability, keyed identity, modal retirement and 20
 pending/canceled owner lifetimes with baseline resources.
@@ -822,6 +823,36 @@ delivery, task/RPC leases, explicit authorizers, cancellation before commit and
 document replacement. Native coverage keeps one controller/model through sheet
 and parent resumption, rejects an earlier task's writes, repeats 20 observer
 resumes and disposes 20 owners with queued resume/request work at baseline resources.
+
+`FocusController.binding(name)` creates a frozen boolean projection backed by
+the existing actual computation and deferred controller intent queue. A private
+WeakMap brands each object with its controller owner/name. Creation adds no cells,
+computations, subscriptions or callbacks. The getter compares exact JS strings;
+the setter validates booleans and uses the controller's task/context guards.
+It never feeds native observations into desired state.
+
+`view.focused(projection)` copies supported input descriptors with a focusName
+and JS-only focusBinding metadata. Single-child modifier chains are copied down
+to the input; no extra native box is added. Mount validation requires the
+controller component to be an ancestor of the focused input, preventing a
+projection-backed view from outliving its logical owner. The projection metadata
+is removed before commit serialization. Existing native name uniqueness,
+realization, eligibility and weak coordinator rules remain authoritative.
+
+False cancels matching retained/pending intent, unless a valid newer pending
+intent selects another name. Canceled pending callers do not mask a newer clear.
+A conditional clear travels as `focus.blurNamed` with the normal request stamp.
+The host resolves actual focus, compares UTF-8 names and rechecks the active window
+after layout; it clears only a match. A different responder returns cleared false
+with the current acknowledgement. Resignation refusal follows normal clear errors.
+This protects against observation lag, including canonically equivalent distinct
+names. Owner disposal and canceled resumption also clear conditional intent data.
+
+Native projection coverage includes text/date/WebKit, nested components/modifiers,
+Return/mirror ordering, Unicode conditional blur, newer intent, unavailable/disabled
+targets, modal resumption and 20 pending owner lifetimes. Runtime cases cover
+brands, readonly wire data, observation/deferred writes, caller cancellation,
+ownership and failure teardown.
 
 An experimental two-way boolean FocusState adapter was discarded:
 late framework observations could revive an obsolete blur request, so it is not

@@ -2,8 +2,15 @@
 declare const bindingBrand: unique symbol;
 declare const viewBrand: unique symbol;
 declare const focusTargetBrand: unique symbol;
+declare const focusBindingBrand: unique symbol;
 /** Opaque weak native responder handle; capture from an already focused control. */
 export interface FocusTarget { readonly [focusTargetBrand]: true }
+/** Boolean projection: native observation on read, deferred request on write. */
+export interface FocusBinding {
+  readonly [focusBindingBrand]: true;
+  get value(): boolean;
+  set value(focused: boolean);
+}
 
 export type ScalarStateValue = string | number | boolean | null;
 export type StateValue = ScalarStateValue | readonly StateValue[] | { readonly [key: string]: StateValue };
@@ -57,6 +64,8 @@ export interface FocusController {
   request(name: string | null): void;
   /** Rebind after commit to the current context without replaying retained intent. New requests may follow in the same turn. */
   resume(): void;
+  /** Project a named target; apply with view.focused() inside this controller's component subtree. */
+  binding(name: string): FocusBinding;
 }
 export interface ComponentScope<Props = unknown> {
   /** Track synchronous inputs and abort previous runs on change, stop or unmount. */
@@ -116,6 +125,8 @@ export interface View {
   disabled(disabled?: boolean): View;
   /** Group native focusable descendants for SwiftUI sequential/directional movement. */
   focusSection(): View;
+  /** Attach an owned focus projection to a text input, DatePicker or WebView, through single-child modifiers. */
+  focused(binding: FocusBinding): View;
   tag(id: ItemID): View;
   sheet(options: { isPresented: Binding<boolean>; content: View }): View;
 }

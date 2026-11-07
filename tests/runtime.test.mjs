@@ -25,6 +25,7 @@ async function setup() {
         const accepted = message.focusRequest.context === undefined || message.focusRequest.context === (focus.context ?? 1);
         if (accepted && message.op === 'focus.named' && focus.focused) focus.name = message.name;
         if (accepted && message.op === 'focus.move' && message.direction === 'clear') focus.name = null;
+        if (message.op === 'focus.blurNamed') { result.cleared = accepted && focus.name === message.name; if (result.cleared) focus.name = null; }
         result.focusAccepted = accepted;
         focus.generation = message.focusRequest.generation;
         if (!accepted) result.focused = result.moved = false;
@@ -536,6 +537,83 @@ test('document replacement cancels a queued RPC resumption before observer activ
   assert.ok(!h.calls.some(c => c.op === 'focus.named')); assert.equal(focus.retired.value, true); assert.deepEqual(ui.__testing.focusStats(), { listeners: 0, watching: false });
   focus.resume(); await tick(); assert.equal(focus.actual.value, null); assert.equal(focus.desired.value, 'obsolete RPC');
   h.emit({ type: 'stop' }); await done;
+});
+
+test('focus bindings wire names through modifiers, track actual booleans and keep projection objects off the native wire', async () => {
+  const h = await setup(), { ui } = h; h.focus.focused = true; let focus, a, b;
+  const Owner = ui.Component(scope => {
+    focus = scope.focus(); a = focus.binding('a'); b = focus.binding('b'); const text = scope.state('');
+    const before = h.calls.length;
+    for (let i = 0; i < 20; i++) focus.binding('ephemeral'); assert.equal(h.calls.length, before, 'projection creation adds no cells or bridge work');
+    return () => ui.VStack([
+      ui.TextField('Name', { text: text.binding }).padding(4).disabled(false).focused(a),
+      ui.TextEditor({ text: text.binding }).focused(b), ui.Text(`${a.value}:${b.value}`),
+    ]);
+  });
+  const done = launch(ui, Owner()); await tick(); assert.ok(Object.isFrozen(a)); assert.equal(a.value, false);
+  const fields = [...h.nodes.values()].filter(n => ['textfield', 'texteditor'].includes(n.kind));
+  assert.deepEqual(fields.map(n => n.props.focusName), ['a', 'b']); assert.ok(fields.every(n => !('focusBinding' in n.props)));
+  a.value = true; assert.equal(a.value, false); await tick(); assert.equal(a.value, true); assert.equal(b.value, false);
+  assert.ok([...h.nodes.values()].some(n => n.kind === 'text' && n.props.value === 'true:false'));
+  b.value = true; await tick(); assert.equal(a.value, false); assert.equal(b.value, true); assert.equal(focus.desired.value, 'b');
+  b.value = false; await tick(); assert.equal(b.value, false); assert.equal(focus.desired.value, null);
+  h.emit({ type: 'stop' }); await done; assert.deepEqual(ui.__testing.stats(), { actions: 0, cells: 0, dependencies: 0 });
+});
+
+test('clearing a focus projection preserves newer pending intent and conditionally clears only its native target', async () => {
+  const h = await setup(), { ui } = h; h.focus.focused = true; let a, b, focus;
+  const Owner = ui.Component(scope => { focus = scope.focus('a'); a = focus.binding('a'); b = focus.binding('b'); return () => ui.Text('owner'); });
+  const done = launch(ui, Owner()); await tick(); assert.equal(a.value, true);
+  h.focus.name = 'b'; a.value = false; await tick(); assert.equal(h.focus.name, 'b'); assert.equal(b.value, true); assert.equal(focus.desired.value, null);
+  assert.equal(h.calls.filter(c => c.op === 'focus.blurNamed').at(-1).name, 'a');
+  a.value = true; b.value = true; a.value = false; assert.equal(focus.desired.value, 'b'); await tick(); assert.equal(b.value, true);
+  a.value = true; a.value = false; await tick(); assert.equal(h.focus.name, 'b'); assert.equal(focus.desired.value, null, 'cancel queued a without blurring b');
+  b.value = false; await tick(); assert.equal(h.focus.name, null);
+  const before = h.calls.length; a.value = false; assert.equal(h.calls.length, before, 'already-unfocused false is inert');
+  h.focus.focused = false; a.value = true; await tick(); assert.equal(focus.desired.value, 'a'); assert.equal(a.value, false);
+  a.value = false; await tick(); assert.equal(focus.desired.value, null); assert.equal(h.focus.name, null, 'false cancels retained unavailable intent');
+  h.emit({ type: 'stop' }); await done;
+});
+
+test('a canceled pending projection request does not hide a newer clear of the current target', async () => {
+  const h = await setup(), { ui } = h; h.focus.focused = true; const trigger = ui.State(false); let a, b, stop;
+  const Owner = ui.Component(scope => {
+    const focus = scope.focus('a'); a = focus.binding('a'); b = focus.binding('b');
+    stop = scope.task(() => { if (!trigger.value) return; b.value = true; stop(); });
+    scope.effect(() => { if (trigger.value) a.value = false; });
+    return () => ui.Text('owner');
+  });
+  const done = launch(ui, Owner()); await tick(); assert.equal(a.value, true);
+  trigger.value = true; await tick(); assert.equal(a.value, false); assert.equal(b.value, false); assert.equal(h.focus.name, null);
+  h.emit({ type: 'stop' }); await done;
+});
+
+test('focus projections validate brands, targets and lifetime without accepting native scalar bindings', async () => {
+  const h = await setup(), { ui } = h; h.focus.focused = true; const shown = ui.State(true), text = ui.State(''); let focus, binding;
+  const Owner = ui.Component(scope => {
+    focus = scope.focus(); binding = focus.binding('a');
+    for (const name of ['', 1, true, {}, '\ud800']) assert.throws(() => focus.binding(name), /Focus names/);
+    for (const invalid of [null, {}, true, text.binding]) assert.throws(() => ui.TextField('Name', { text: text.binding }).focused(invalid), /FocusBinding/);
+    assert.throws(() => ui.VStack([]).focused(binding), /requires one text input/);
+    assert.throws(() => ui.TextField('Name', { text: text.binding, focusName: 'other' }).focused(binding), /conflicts/);
+    assert.throws(() => ui.TextField('Name', { text: text.binding }).sheet({ isPresented: shown.binding, content: ui.Text('sheet') }).focused(binding), /requires one text input/);
+    return () => { assert.throws(() => { binding.value = true; }, /outside view bodies/); return ui.TextField('Name', { text: text.binding }).focused(binding); };
+  });
+  const done = launch(ui, ui.View(() => shown.value ? Owner() : ui.Text('hidden'))); await tick();
+  const before = h.calls.length; for (const value of [null, 1, 'true', {}]) assert.throws(() => { binding.value = value; }, /must be boolean/); assert.equal(h.calls.length, before);
+  const derived = ui.Computed(() => { binding.value = true; return true; }); assert.throws(() => derived.value, /Computed callbacks cannot write projected focus/);
+  focus.resume(); binding.value = true; await tick(); assert.equal(focus.actual.value, 'a');
+  shown.value = false; await tick(); const count = h.calls.length; binding.value = true; assert.equal(h.calls.length, count);
+  assert.throws(() => ui.TextField('Late', { text: text.binding }).focused(binding), /disposed FocusBinding/);
+  assert.throws(() => focus.binding('late'), /disposed focus controller/);
+  h.emit({ type: 'stop' }); await done;
+});
+
+test('focused views cannot escape their controller component subtree', async () => {
+  const h = await setup(), { ui } = h; let projection;
+  const text = ui.State(''), Owner = ui.Component(scope => { projection = scope.focus().binding('owned'); return () => ui.Text('owner'); });
+  await assert.rejects(launch(ui, ui.VStack([Owner(), ui.View(() => ui.TextField('Sibling', { text: text.binding }).focused(projection))])), /descendants of their controller/);
+  assert.deepEqual(ui.__testing.stats(), { actions: 0, cells: 0, dependencies: 0 }); assert.deepEqual(ui.__testing.focusStats(), { listeners: 0, watching: false });
 });
 
 test('disabled validates flags before transport and property changes preserve scoped bindings/actions', async () => {

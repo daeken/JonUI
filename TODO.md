@@ -829,6 +829,34 @@ unchecked. Next: define projected focused bindings and boolean variants without
 observation-to-desired feedback. Automatic physical-window resumption, lazy target
 realization policy and recorded hardware/IME/AX/nested-sheet gaps remain open.
 
+Projected focus bindings completed (2026-11-07): `FocusController.binding(name)`
+returns a branded boolean projection. Reads track actual focus and writes queue
+requests without observation-to-desired feedback. `view.focused(projection)` wires
+TextField/SecureField/TextEditor/DatePicker/WebView through single-child modifiers
+and nested components. Only the name reaches native; projections allocate no
+cells, callbacks or handles. Focused views must descend from the controller's
+component so owner retirement removes all associated registrations.
+
+False cancels retained/pending intent for its target while preserving a valid
+newer request for another name. Native `focus.blurNamed` checks exact UTF-8 actual
+name and the active window before clearing, using generation/context acknowledgement
+guards. Observation lag, canonical-equivalent names and canceled pending callers
+cannot clear a newer different responder. The example now uses projected widgets.
+FocusState is Partial for this named subset; standalone boolean controllers,
+typed selections and broad SwiftUI overloads are not claimed complete.
+
+Five new runtime cases (134 total) cover tracked observed/deferred values, modifier
+wiring, wire metadata exclusion, retained/unavailable/conditional clears, canceled
+callers, brands, unsupported targets, ownership and disposal. Focused native checks
+pass text/date/WebKit/child/modifier paths, exact Unicode conditional blur, newer
+intent, Return snapshot ordering, disabled and sheet/resume behavior and 20 pending
+owner lifetimes. Final validation: native build, all 72 offscreen native integration
+scenarios, 134 unit tests, Deno/TypeScript checks and API classification pass.
+Keep the broad focus item unchecked. Remaining: standalone boolean/
+typed projections, additional named native controls subject to keyboard-access
+eligibility, physical-window resumption/realization policy, IME/AX/nested-sheet
+coverage and the recorded intermittent AppKit sheet-close crash.
+
 ## 3. Application and operating-system integration
 
 - [ ] Support multiple windows with independent roots and explicit window ownership.

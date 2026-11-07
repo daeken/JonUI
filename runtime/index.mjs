@@ -24,6 +24,13 @@ const textSubmits = new Map();
 const textEditings = new Map();
 const viewMarker = Symbol('JonUI.View');
 const bindingMarker = Symbol('JonUI.Binding');
+const focusBindings = new WeakMap();
+function focusProjection(value) {
+  const projection = focusBindings.get(value);
+  if (!projection) throw new TypeError('Expected an owned FocusBinding');
+  if (projection.owner.disposed) throw new Error('Cannot use a disposed FocusBinding');
+  return projection;
+}
 const supportedKinds = new Set(['text', 'image', 'spacer', 'divider', 'vstack', 'hstack', 'lazyvstack', 'lazyhstack', 'lazyvgrid', 'lazyhgrid', 'scroll', 'form', 'section', 'slider', 'stepper', 'picker', 'datepicker', 'button', 'toggle', 'textfield', 'securefield', 'texteditor', 'webview', 'split', 'list', 'foreach', 'dynamic', 'component', 'modifier']);
 // UTC instants spanning years 0001 through 9999, in Unix milliseconds.
 const earliestDate = -62135596800000, latestDate = 253402300799999;
@@ -384,6 +391,13 @@ class ViewValue {
     if (args.length) throw new TypeError('focusSection accepts no arguments');
     return this.modifier('focusSection', {});
   }
+  focused(binding) {
+    const projection = focusProjection(binding);
+    if (this.kind === 'modifier' && this.children.length === 1) return new ViewValue(this.kind, this.props, [this.children[0].focused(binding)]);
+    if (!['textfield', 'securefield', 'texteditor', 'datepicker', 'webview'].includes(this.kind)) throw new TypeError('focused requires one text input, DatePicker or WebView');
+    if (this.props.focusName !== undefined && !this.props.focusBinding && this.props.focusName !== projection.name) throw new TypeError('focused conflicts with explicit focusName');
+    return new ViewValue(this.kind, { ...this.props, focusName: projection.name, focusBinding: binding }, this.children);
+  }
   tag(value) { itemKey(value); return this.modifier('tag', { value }); }
   sheet({ isPresented, content }) { return new ViewValue('modifier', { name: 'sheet', state: binding(isPresented) }, [this, content]); }
 }
@@ -449,6 +463,7 @@ function initializeComponent(mounted) {
       if (initialName !== null) focusName(initialName);
       const desired = scope.state(initialName), actual = scope.state(null), retired = scope.state(false), revision = scope.state(0), activation = scope.state(0);
       let context, token, ready = false, first = true, resuming = false, baseline = null, lease = focusLeaseClock, requestTask = null, resumeTask = null, unsubscribe = () => {};
+      let conditionalClear = null, pendingIntent = initialName !== null;
       const taskLeases = new WeakMap();
       const allowed = task => !task || task.focusEpoch >= lease || taskLeases.get(task) === lease;
       function canWrite(action) {
@@ -457,13 +472,17 @@ function initializeComponent(mounted) {
         return allowed(task);
       }
       function retire() {
-        ready = false; requestTask = null; retired.value = true; actual.value = null; unsubscribe();
+        ready = false; requestTask = null; conditionalClear = null; pendingIntent = false; retired.value = true; actual.value = null; unsubscribe();
       }
-      scope.onDispose(() => { ready = false; requestTask = null; resumeTask = null; baseline = null; unsubscribe(); });
+      function queueIntent(name, onlyClear = null) {
+        requestTask = taskStorage.getStore(); conditionalClear = onlyClear; pendingIntent = true;
+        desired.value = name; revision.value = untracked(() => revision.value) + 1;
+      }
+      scope.onDispose(() => { ready = false; requestTask = null; resumeTask = null; baseline = null; conditionalClear = null; pendingIntent = false; unsubscribe(); });
       scope.effect(() => {
         activation.value;
         const caller = resumeTask; resumeTask = null;
-        if (caller && !taskIsCurrent(caller)) { resuming = false; baseline = null; requestTask = null; retired.value = true; return; }
+        if (caller && !taskIsCurrent(caller)) { resuming = false; baseline = null; requestTask = null; conditionalClear = null; pendingIntent = false; retired.value = true; return; }
         unsubscribe = subscribeFocus(sample => {
           if (!ready) return;
           if (sample.token !== token || sample.context !== context) { retire(); return; }
@@ -479,16 +498,18 @@ function initializeComponent(mounted) {
       });
       scope.effect(() => {
         const name = desired.value, attempt = revision.value, ended = retired.value;
-        if (!ready || ended) { if (!resuming) requestTask = null; return; }
+        if (!ready || ended) { if (!resuming) { requestTask = null; conditionalClear = null; pendingIntent = false; } return; }
         if (baseline) {
           const prior = baseline; baseline = null;
           if (name === prior.name && attempt === prior.attempt) return;
         }
         if (first) { first = false; if (name === null && attempt === 0) return; }
-        const caller = requestTask; requestTask = null;
+        const caller = requestTask, onlyClear = conditionalClear; requestTask = null; conditionalClear = null; pendingIntent = false;
         if (caller && (!allowed(caller) || !taskIsCurrent(caller))) return;
         if (focusWatch?.token !== token) { retire(); return; }
-        const result = requestFocus(name === null ? 'focus.move' : 'focus.named', name === null ? { direction: 'clear' } : { name }, context);
+        const op = onlyClear !== null ? 'focus.blurNamed' : name === null ? 'focus.move' : 'focus.named';
+        const args = onlyClear !== null ? { name: onlyClear } : name === null ? { direction: 'clear' } : { name };
+        const result = requestFocus(op, args, context);
         const sample = result.observation;
         if (!sample || result.focusAccepted === false || sample.context !== context || sample.token !== token) { retire(); return; }
         actual.value = sample.name;
@@ -500,17 +521,18 @@ function initializeComponent(mounted) {
           if (name !== null) focusName(name);
           if (untracked(() => desired.value) === name) return;
           requestTask = taskStorage.getStore();
+          conditionalClear = null; pendingIntent = true;
           desired.value = name;
         },
         subscribe: listener => desired.subscribe(listener),
       });
+      const observed = scope.computed(() => actual.value);
       return Object.freeze({
-        desired: selection, actual: scope.computed(() => actual.value), retired: scope.computed(() => retired.value),
+        desired: selection, actual: observed, retired: scope.computed(() => retired.value),
         request(name) {
           if (!canWrite('request scoped focus') || !resuming && untracked(() => retired.value)) return;
           if (name !== null) focusName(name);
-          requestTask = taskStorage.getStore();
-          desired.value = name; revision.value = untracked(() => revision.value) + 1;
+          queueIntent(name);
         },
         resume() {
           if (owned.disposed || !canMoveFocus('resume scoped focus')) return;
@@ -518,9 +540,28 @@ function initializeComponent(mounted) {
           const task = taskStorage.getStore(); if (task) taskLeases.set(task, lease);
           resumeTask = task;
           baseline = untracked(() => ({ name: desired.value, attempt: revision.value }));
-          ready = false; first = false; resuming = true; requestTask = null; unsubscribe();
+          ready = false; first = false; resuming = true; requestTask = null; conditionalClear = null; pendingIntent = false; unsubscribe();
           actual.value = null; retired.value = true;
           activation.value = untracked(() => activation.value) + 1;
+        },
+        binding(name) {
+          if (owned.disposed) throw new Error('Cannot project disposed focus controller');
+          focusName(name);
+          const projection = Object.freeze({
+            get value() { return observed.value === name; },
+            set value(focused) {
+              if (!canWrite('write projected focus') || !resuming && untracked(() => retired.value)) return;
+              if (typeof focused !== 'boolean') throw new TypeError('FocusBinding value must be boolean');
+              if (focused) { queueIntent(name); return; }
+              untracked(() => {
+                if (pendingIntent && requestTask && (!allowed(requestTask) || !taskIsCurrent(requestTask))) { requestTask = null; conditionalClear = null; pendingIntent = false; }
+                if (pendingIntent && desired.value !== name) return;
+                if (desired.value === name || observed.value === name) queueIntent(null, name);
+              });
+            },
+          });
+          focusBindings.set(projection, { owner: owned, name });
+          return projection;
         },
       });
     },
@@ -940,6 +981,7 @@ export function ForEach(items, { id }, row) {
 }
 function validate(value) {
   if (!value?.[viewMarker] || !supportedKinds.has(value.kind)) throw new TypeError('View body must synchronously return a JonUI View');
+  if (value.props.focusBinding) focusProjection(value.props.focusBinding);
 }
 function unmount(mounted) {
   if (!mounted.alive) return;
@@ -957,6 +999,12 @@ function unmount(mounted) {
 }
 function reconcile(previous, value, key, parent = null) {
   validate(value);
+  if (value.props.focusBinding) {
+    const owner = focusProjection(value.props.focusBinding).owner;
+    let ancestor = parent;
+    while (ancestor && ancestor.component !== owner) ancestor = ancestor.parent;
+    if (!ancestor) throw new Error('Focused views must be descendants of their controller component');
+  }
   if (previous && (previous.value.kind !== value.kind || (value.kind === 'component' && previous.value.props.definition !== value.props.definition))) { unmount(previous); previous = null; }
   const mounted = previous ?? { id: nextView++, key, children: [], dependencies: new Set(), alive: true };
   const propsChanged = mounted.component && !equalProps(mounted.value.props.componentProps, value.props.componentProps);
@@ -1037,7 +1085,7 @@ function finishEvaluation(mounted, children) {
     old.delete(child.key); return result;
   });
   unmountAll(old.values());
-  const { body, fallback, rows, row, action, onMessage, onError, api, onSubmit, onEditingChanged, definition, setup, componentProps, ...props } = value.props;
+  const { body, fallback, rows, row, action, onMessage, onError, api, onSubmit, onEditingChanged, focusBinding, definition, setup, componentProps, ...props } = value.props;
   if (value.kind === 'textfield' || value.kind === 'securefield') {
     if (!onSubmit || mounted.submitState !== props.state) {
       textSubmits.delete(mounted.submitToken); mounted.submitToken = undefined;

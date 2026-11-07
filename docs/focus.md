@@ -110,8 +110,8 @@ window it throws; render/computed use is rejected because native focus is not a
 tracked dependency. Canceled tasks, retired RPC continuations and calls after
 shutdown return null without native work. It uses the same layout/context check
 as other focus operations: detecting a new active window retires old captures and
-cycles. It does not establish a declarative two-way FocusState binding. Generation-
-safe desired/observed focus synchronization remains future work.
+cycles. Snapshot reads are independent of the owned controller and projection
+lifetimes described below.
 
 ## Focus-change subscriptions
 
@@ -242,12 +242,60 @@ after-commit effect runs are suppressed. Already accepted desired data may remai
 for display; no canceled queued command moves native focus. Disposal before a
 queued resumption prevents the new observation session from starting.
 
-The controller exposes no scalar `binding` for desired focus. General SwiftUI
-`focused` bindings, boolean variants, automatic physical-window resumption and realization-aware
-policies remain future work. Controllers created in a parent context before a
+The controller exposes no scalar `binding` for desired focus. Named boolean
+projections are described below. Standalone boolean controllers, typed non-string
+selections, automatic physical-window resumption and realization-aware policies
+remain future work. Controllers created in a parent context before a
 sheet appears retire when that sheet becomes active; this is not a sheet
 appearance hook. Try `bin/jonui examples/focus-controller/app.ts` for requests,
 actual/desired display, passive resumption and a full component reset preserving form values.
+
+## Projected focus bindings
+
+`focus.binding(name)` creates a branded `FocusBinding` for a named target.
+Its tracked boolean `value` reads actual native focus; setting true queues a
+request after view commit. `.focused(binding)` declares that target on a control:
+
+```ts
+const Form = Component(scope => {
+  const text = scope.state('');
+  const focus = scope.focus();
+  const name = focus.binding('name');
+  return () => VStack([
+    TextField('Name', { text: text.binding }).padding(4).focused(name),
+    Button('Focus Name', () => { name.value = true; }),
+    Text(name.value ? 'Name is focused' : 'Name is not focused'),
+  ]);
+});
+```
+
+TextField, SecureField, TextEditor, DatePicker and WebView support the modifier,
+including through single-child modifiers such as frame, padding and disabled.
+Apply it to the input before a two-child sheet modifier. Containers and other
+controls are currently rejected. An explicit different `focusName` conflicts;
+names still share the app-wide unique, exact-Unicode namespace. Projected views
+must live in the owning controller component's logical subtree, including nested
+components, so their registrations end with that owner. Disposed/foreign/forged
+projections are rejected when wiring views.
+
+Setting false clears retained intent for that target and conditionally blurs it.
+It leaves a newer pending request for a different target intact. Native code
+checks the exact current name immediately before clearing: a stale observed true
+cannot blur a different target that has since gained focus. An unavailable target's
+retained intent can also be canceled without clearing an unrelated responder.
+False on an already-unfocused target with no matching intent is inert.
+
+Reads reflect native observation, so a true write does not immediately make the
+getter true. Repeated true writes explicitly retry. Native movement updates the
+getter through the controller's read-only actual value; no editing callback writes
+back into desired intent. Invalid non-boolean writes throw. Retirement, resumption,
+task/RPC leases and cancellation follow the controller contract.
+
+Projections allocate no cells, effects, callbacks or native handles and can be
+created in render bodies. Only the name reaches native view descriptors. They
+are distinct from scalar `Binding<boolean>` and cannot be substituted for a
+Toggle's value binding. This is the named-target subset of focus binding;
+general SwiftUI FocusState overloads remain partial.
 
 ## Captured responder targets
 
@@ -258,7 +306,7 @@ editor uses its NSTextView. `Focus.request(target)` returns true if that same
 physical control is already focused or accepts first responder, and false if the
 target has expired, become unavailable, or refuses focus. Neither operation keys
 the window or activates the app. Requests use native makeFirstResponder directly;
-there is no asynchronous two-way FocusState request adapter.
+named controller projections provide deferred requests as described above.
 
 ```ts
 import { Focus } from "jonui";

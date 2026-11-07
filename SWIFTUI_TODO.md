@@ -29,6 +29,16 @@ Status meanings:
 
 ## Current review
 
+- Focus projection review (2026-11-07): branded named boolean projections and
+  `.focused` wire supported inputs through modifiers/child components. Reads track
+  actual focus; writes queue intent. Conditional native blur and pending-caller
+  guards preserve newer targets. Scope ancestry/disposal checks prevent orphaned
+  registrations; projection objects stay off the native wire. FocusState moves
+  to Partial for this named subset, with standalone boolean/typed selection and
+  broader-control coverage still open. Five runtime cases bring the total to 134;
+  focused native text/date/WebKit, Unicode, sheets and 20 owner lifetimes pass.
+  Native build, all 72 offscreen native scenarios, 134 unit tests,
+  Deno/TypeScript checks and API classification pass.
 - Explicit focus resume review (2026-11-07): controller resume preserves state
   and identity, rebinds after commit and suppresses retained/older intent. Task/RPC
   lifetime leases and pre-effect cancellation checks prevent obsolete callers
@@ -38,8 +48,8 @@ Status meanings:
   rerun; final caller-reference cleanup passes the focused native gate. Unit/type
   checks and API classification pass. The first full run reproduced the recorded UpdateCycle/AppKit
   sheet-close null call despite window animation suppression; focused mixed-sheet
-  rerun passes. This platform limitation is not claimed fixed. Projected
-  FocusState bindings remain Missing.
+  rerun passes. This platform limitation is not claimed fixed. FocusState
+  projections are now covered by the review above.
 - Owned focus review (2026-11-07): setup-only `scope.focus` separates tracked
   desired intent from read-only actual/retired values and applies after-commit,
   generation/context-bound requests. Context change retires the controller and
@@ -47,7 +57,7 @@ Status meanings:
   requests, native text/date/WebKit, unavailable/repeated requests, no feedback,
   keyed identity, modal isolation and 20 canceled/pending owner lifetimes pass
   focused native validation. Five new runtime cases bring the total to 123;
-  type checks pass. General FocusState bindings/automatic resumption remain Missing.
+  type checks pass. General FocusState parity/automatic resumption remain open.
   Native build, all 71 offscreen native scenarios, 123 unit tests,
   Deno/TypeScript checks and API classification pass.
 - Focus acknowledgement review (2026-11-07): observed imperative movements now
@@ -55,16 +65,16 @@ Status meanings:
   Sequence/generation floors discard queued older observations; native guards
   reject replay, stale sessions and optional retired-window contexts. Per-listener
   baselines preserve no replay and suppress outdated reentrant deliveries.
-  Public method signatures/statuses are unchanged; FocusState remains Missing
-  pending projected bindings; the owned controller is now covered above. Native build, all
+  Public signatures/statuses were unchanged in that increment; owned controllers
+  and projected bindings followed in the reviews above. Native build, all
   70 offscreen native scenarios, 118 unit tests, Deno/TypeScript and API
   classification pass. Additional focused coverage independently verifies native
   shared-field-editor observation without request acknowledgement or query polling.
 - Focus observation review (2026-11-07): `Focus.subscribe` adds asynchronous,
   coalesced actual-name changes with shared native KVO/window notifications,
   session/sequence/context guards, task cancellation and explicit/effect cleanup.
-  FocusState remains Missing: observations never write desired focus, and an
-  owned two-way binding remains separate work. Request-generation acknowledgements
+  That increment added observations without writing desired focus; owned
+  projections followed in later reviews. Request-generation acknowledgements
   are now covered by the review above.
   Native build, all 70 offscreen native success/failure scenarios, 116 unit tests,
   Deno/TypeScript and API classification pass. RPC cancellation releases task-
@@ -74,8 +84,9 @@ Status meanings:
   creating registrations. Text/date/WebKit/DOM, exact Unicode, unavailable and
   unnamed controls, keyed name changes, caret/session preservation and 20 focused
   owner retirements pass the focused offscreen gate. Two new runtime tests cover
-  transport, resources, purity, cancellation and shutdown. Declarative FocusState
-  remains Missing; this snapshot has no tracked dependency or observation stream.
+  transport, resources, purity, cancellation and shutdown. This increment added
+  only a snapshot; controllers/projections followed above. The snapshot itself
+  has no tracked dependency or observation stream.
   Native build, all 68 offscreen native scenarios, 112 unit tests and
   Deno/TypeScript checks pass; retired RPC reads also skip native focus queries.
 - Focus review (2026-11-07): opt-in captured Tab/Shift-Tab cycles now work in
@@ -97,7 +108,7 @@ Status meanings:
 - Initial comprehensive inventory of the current TypeScript API, native bridge,
   examples and tests, including known limitations. All public exported symbols
   and View/Focus/ComponentScope members have explicit classification markers.
-- Current validation: 129 runtime/compiler unit tests; 71 offscreen
+- Current validation: native build; 134 runtime/compiler unit tests; 72 offscreen
   native scenarios; Deno/TypeScript checks. Mixed-sheet automatic window animation
   suppression also passed three additional 20-owner stress runs. The original
   offscreen sheet path has reproduced an AppKit/UpdateCycle crash, including a
@@ -288,8 +299,9 @@ Status meanings:
 | Environment / EnvironmentObject | Missing | Inherited typed values, actions and services. | Native host propagates internal SwiftUI environment, but no general public TS API. |
 | AppStorage | Missing | Preferences-backed typed state and external changes. | UserDefaults namespace, migrations and subscription teardown. |
 | SceneStorage | Missing | Per-scene restorable state. | Requires scene ownership and persistence/version policy. |
-| FocusState | Missing | Desired/actual boolean or optional named target Binding. | A separate owned named controller with explicit resume exists; add projected focused bindings and boolean variants. Earlier boolean experiment was removed due stale-observation races. |
-| Scoped focus controller | Partial (JonUI) | Tracked desired intent; read-only actual/retired; context-bound requests and passive explicit resume. | Native text/date/WebKit, no feedback/replay, keyed identity, modal/resume/task lifetime and owner cleanup verified; projected bindings, automatic physical-window resumption and realization policies remain. <!-- api: FocusController, ComponentScope.focus --> |
+| FocusState | Partial (JonUI) | Owned named controller plus observed-boolean/request projection. | Named text/date/WebKit subset verified; standalone boolean state, typed non-string selection and general SwiftUI overloads remain. Earlier boolean feedback experiment was removed; observations do not write desired state. |
+| Scoped focus controller | Partial (JonUI) | Tracked desired intent; read-only actual/retired; context-bound requests and passive explicit resume. | Native text/date/WebKit, no feedback/replay, keyed identity, modal/resume/task lifetime and owner cleanup verified; automatic physical-window resumption and realization policies remain. <!-- api: FocusController, ComponentScope.focus --> |
+| focused projection | Partial (JonUI) | Boolean actual getter and deferred true/conditional-false request, attached to one named input. | Text/secure/editor/date/WebKit, modifier chains, subtree ownership, Unicode conditional blur and cleanup verified; containers and remaining native controls are not supported yet. <!-- api: FocusBinding, View.focused --> |
 | Native focus observation | Partial (JonUI) | Nullable named responder snapshots and coalesced subscriptions; generation-stamped movement acknowledgements; no desired Binding. | Text/date/WebKit/single-sheet observation, generation/sequence/context guards and cleanup verified; owned desired/observed binding, broader controls/IME/AX remain. <!-- api: Focus.subscribe --> |
 | Focus commands | Partial | Native next/previous/clear plus four-axis geometric move. | Real text/date/WebKit/sheet/directional paths verified; full keyboard-access and optional non-editing arrow routing remain. <!-- api: Focus, Focus.next, Focus.previous, Focus.clear, Focus.move --> |
 | Captured / named focus | Partial | Weak opaque physical target or exact UTF-8 name; currentName snapshot; optional active-window Tab cycle. | Text/date/WebKit names, actual-name queries, captures and single-sheet application-dispatched Tab cycles verified; buttons/toggles/slider/stepper/picker registration and eligibility remain. <!-- api: FocusTarget, Focus.capture, Focus.request, Focus.requestNamed, Focus.currentName, Focus.setTraversal --> |
@@ -424,7 +436,7 @@ can still bypass local enforcement; this is not server-side branch protection.
 Repository instructions require the same review for contributors and automation.
 
 <!-- coverage-review:generated -->
-Review baseline (checkout HEAD before commit): `39dbfe62a67815214b809f7127b8fb4a2d7f8394`.
+Review baseline (checkout HEAD before commit): `85f4ee8861829d1e35f47e0610767767d7db5a7d`.
 
-Staged source-tree SHA-256 (excluding this catalog): `ab2d3caf4d201feb4296ce3642bcc5119b204384e2dc744763fb79aabab11421`.
+Staged source-tree SHA-256 (excluding this catalog): `a8fbea5294bf3b46a8b2879a4bdd77a3e66c3ec4b28492641489d96a0317c579`.
 <!-- /coverage-review:generated -->

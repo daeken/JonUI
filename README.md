@@ -138,13 +138,17 @@ task. See [focus subscriptions](docs/focus.md#focus-change-subscriptions) for de
 and initial-snapshot rules.
 Observed movement acknowledges its result before returning, so queued older
 focus events cannot overwrite a newer clear or request. Delivery stays coalesced
-and asynchronous; declarative two-way focus bindings remain future work.
+and asynchronous. Named boolean projections are supported below.
 `scope.focus()` owns tracked desired focus, read-only actual focus and a retirement
 flag. Its requests run after view commits and remain bound to one active-window
 context. `resume()` starts a fresh context after commit while preserving intent
 and form state; it leaves the old target unrequested until new intent arrives.
 See [owned focus controllers](docs/focus.md#owned-focus-controllers) and
 `bin/jonui examples/focus-controller/app.ts` for modal retirement and reset.
+`view.focused(focus.binding('name'))` wires a text input, date picker or WebView
+to a named boolean projection. Read its `.value` for actual focus and write true
+to request it; false conditionally clears that target while preserving newer
+intent. See [projected focus bindings](docs/focus.md#projected-focus-bindings).
 `Focus.capture()` remembers the current native responder as a weak opaque target;
 `Focus.request(target)` restores it while its identity remains available. Adding
 or removing view handles retires saved captures; value updates/keyed reorder keep

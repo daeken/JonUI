@@ -1201,7 +1201,7 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
     func handle(_ message: [String: Any]) throws -> Any {
         precondition(Thread.isMainThread)
         guard let raw = message["focusRequest"], !stopping, !disposed else { return try handleOperation(message) }
-        guard let op = message["op"] as? String, ["focus.move", "focus.direction", "focus.named", "focus.target"].contains(op),
+        guard let op = message["op"] as? String, ["focus.move", "focus.direction", "focus.named", "focus.target", "focus.blurNamed"].contains(op),
               let stamp = raw as? [String: Any], Set(stamp.keys).isSubset(of: ["token", "generation", "context"]) else { throw BridgeError("Invalid focus request stamp") }
         func counter(_ raw: Any?) throws -> Int {
             guard let raw, let number = layoutNumber(raw), number >= 1, number <= 9007199254740991, number.rounded() == number else { throw BridgeError("Invalid focus request counter") }
@@ -1264,6 +1264,13 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
             guard let view = focusTargets[Int(number)]?.view, eligibleFocusView(view, in: window) else { return ["focused": false] }
             if focusView(window.firstResponder) === view { return ["focused": true] }
             return ["focused": window.makeFirstResponder(view)]
+        case "focus.blurNamed":
+            let window = try prepareFocusWindow()
+            guard let name = message["name"] as? String, !name.isEmpty else { throw BridgeError("Focus name must be a nonempty string") }
+            let current = currentFocusName(in: window)
+            guard window === currentFocusWindow(), current.map({ Data($0.utf8) }) == Data(name.utf8) else { return ["cleared": false] }
+            guard window.makeFirstResponder(nil) else { throw BridgeError("Native responder refused to clear focus") }
+            return ["cleared": true]
         case "focus.named":
             let window = try prepareFocusWindow()
             guard let name = message["name"] as? String, !name.isEmpty else { throw BridgeError("Focus name must be a nonempty string") }

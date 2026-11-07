@@ -151,6 +151,15 @@ WebView({ url: "https://example.com" });
 
 const ScopedCounter = Component<{ label: string }>((scope, initial) => {
   const focus = scope.focus(); focus.desired.value = 'name'; focus.request(null); focus.resume();
+  const projected = focus.binding('name'); projected.value = true; const selected: boolean = projected.value; void selected;
+  TextField('Projected', { text: title.binding }).padding(4).focused(projected);
+  WebView({ html: '' }).focused(projected);
+  // @ts-expect-error Projected values are boolean.
+  projected.value = 'true';
+  // @ts-expect-error A scalar State Binding is not a FocusBinding.
+  TextField('Wrong', { text: title.binding }).focused(title.binding);
+  // @ts-expect-error FocusBinding brands cannot be forged.
+  TextField('Forged', { text: title.binding }).focused({ value: true });
   // @ts-expect-error Resume uses the current context and accepts no arguments.
   focus.resume('name');
   const actual: string | null = focus.actual.value; const retired: boolean = focus.retired.value; void actual; void retired;
