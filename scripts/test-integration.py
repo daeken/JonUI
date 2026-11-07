@@ -121,6 +121,8 @@ run('tests/integration/focus-sheets.mjs', timeout=60)
 run('tests/integration/focus-names.mjs', timeout=60, layout=True)
 run('tests/integration/focus-names-error.mjs', failure='Duplicate focus name')
 run('tests/integration/focus-names-error.mjs', case='date', failure='Duplicate focus name')
+for mode in ['stepper', 'picker']:
+    run('tests/integration/focus-names-error.mjs', case=mode, failure='Duplicate focus name')
 run('tests/integration/web-rpc.mjs', timeout=60)
 for mode in ['reload', 'unmount']:
     run('tests/integration/web-rpc-error.mjs', case=mode, failure='RPC cancellation cleanup failed')
@@ -138,3 +140,4 @@ run('tests/integration/focus-binding.mjs', timeout=60)
 run('tests/integration/focus-boolean.mjs', timeout=60)
 run('tests/integration/focus-selection.mjs', timeout=60)
 run('tests/integration/focus-selection-error.mjs', failure='Duplicate focus name')
+run('tests/integration/focus-choices.mjs', timeout=60, layout=True)

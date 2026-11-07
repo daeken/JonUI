@@ -752,6 +752,40 @@ test('selection focus inherits purity, retirement, passive resume and stale task
   h.emit({ type: 'stop' }); await done; assert.deepEqual(ui.__testing.stats(), { actions: 0, cells: 0, dependencies: 0 });
 });
 
+test('Stepper and Picker support named and owned projected focus without sending projection objects', async () => {
+  const h = await setup(), { ui } = h; h.focus.focused = true; let focus, number;
+  const Owner = ui.Component(scope => {
+    focus = scope.focus(); number = scope.state(2); const choice = scope.state('a');
+    return () => ui.VStack([
+      ui.Stepper('Same label', { value: number.binding, focusName: 'café' }),
+      ui.Picker('Same label', { selection: choice.binding, options: [{ value: 'a', label: 'Alpha' }], focusName: 'cafe\u0301' }),
+      ui.Stepper('Projected', { value: number.binding }).padding(2).focused(focus.binding('count')),
+      ui.Picker('Projected', { selection: choice.binding, options: [] }).focused(focus.binding('choice')).disabled(true),
+    ]);
+  });
+  const done = launch(ui, Owner()); await tick(); const nodes = [...h.nodes.values()].filter(n => ['stepper', 'picker'].includes(n.kind));
+  assert.deepEqual(nodes.map(n => n.props.focusName), ['café', 'cafe\u0301', 'count', 'choice']);
+  assert.ok(nodes.every(n => !('focusBinding' in n.props))); assert.equal(h.states.size, 7);
+  focus.binding('choice').value = true; await tick(); assert.equal(focus.actual.value, 'choice');
+  assert.throws(() => ui.Stepper('Conflict', { value: number.binding, focusName: 'other' }).focused(focus.binding('count')), /conflicts/);
+  h.emit({ type: 'stop' }); await done; assert.deepEqual(ui.__testing.stats(), { actions: 0, cells: 0, dependencies: 0 });
+});
+
+test('choice focus rejects invalid names and keeps unsupported custom native surfaces explicit', async () => {
+  const h = await setup(), { ui } = h; const number = ui.State(1), choice = ui.State('a'); const before = h.calls.length;
+  for (const name of ['', true, 1, {}, null, '\ud800']) {
+    assert.throws(() => ui.Stepper('Count', { value: number.binding, focusName: name }), /Focus names/);
+    assert.throws(() => ui.Picker('Choice', { selection: choice.binding, options: [], focusName: name }), /Focus names/);
+  }
+  assert.throws(() => ui.Slider('Level', { value: number.binding, focusName: 'slider' }), /Unknown slider option/);
+  assert.equal(h.calls.length, before);
+  let binding;
+  const Owner = ui.Component(scope => { binding = scope.focus().binding('unsupported'); return () => ui.Text('owner'); });
+  const done = launch(ui, Owner()); await tick();
+  for (const view of [ui.Slider('Level', { value: number.binding }), ui.Button('Button', () => {}), ui.Toggle('Toggle', { isOn: ui.State(true).binding })]) assert.throws(() => view.focused(binding), /focused requires/);
+  h.emit({ type: 'stop' }); await done;
+});
+
 test('disabled validates flags before transport and property changes preserve scoped bindings/actions', async () => {
   const h = await setup(), { ui } = h;
   const child = ui.Text('passive'); assert.deepEqual(child.disabled().props, { name: 'disabled', value: true });

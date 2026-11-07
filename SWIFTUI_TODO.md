@@ -29,6 +29,21 @@ Status meanings:
 
 ## Current review
 
+- Stepper/Picker focus review (2026-11-07): both accept focusName and projected
+  `.focused` bindings using a bounded native host for named/unnamed controls.
+  Public NSStepper/NSPopUpButton/NSSegmentedControl lookup preserves native
+  eligibility, bindings, inherited environment and logical teardown. Two runtime
+  cases bring the total to 142; the native build, Deno/TypeScript and focused
+  offscreen gate pass real Stepper/segmented actions, same-label ownership, exact
+  Unicode rename, atomic names, styles/disabled/sheet gates, passive resume and
+  20 pending owner lifetimes. Concrete blocker: full keyboard access is false;
+  five new-control checks are ineligible and three menu/automatic checks lack a
+  supported public native surface. Successful new-control focus/capture/Tab remains
+  unverified; preferences/eligibility are not overridden. All 78 offscreen native
+  scenarios pass, including Stepper/Picker duplicate-name startup cleanup; all
+  142 unit tests, native build, Deno/TypeScript and API classification pass.
+  The recorded AppKit sheet-close crash did not recur; no fix is claimed.
+  Button/Toggle/Slider targeting and prior platform gaps remain.
 - Typed focus selection review (2026-11-07): setup-only `scope.focusSelection`
   copies a fixed domain of unique string/finite-number IDs. Typed nullable
   desired/actual selection maps to opaque native names through one named
@@ -172,8 +187,8 @@ Status meanings:
 | Button | Partial | Node action; current handler keyed by native view ID. | Basic actions/lifecycle verified; roles, styles, keyboard shortcuts and named focus remain. <!-- api: Button --> |
 | Toggle | Partial | Scalar boolean Binding. | Native binding verified; styles, labels and named/keyboard-access focus remain. <!-- api: Toggle --> |
 | Slider | Partial | Scalar number Binding, bounds, optional step. | Rendered/native binding verified; custom-drawn native action/accessibility and named focus gaps. <!-- api: Slider, NumericInputOptions --> |
-| Stepper | Partial | Scalar number Binding, bounds and step. | Real NSStepper actions verified; formatter/styles/named and full-keyboard-access focus remain. <!-- api: Stepper --> |
-| Picker | Partial | String/number/null selection Binding; detached keyed options. | Segmented native actions and menu binding/rendering verified; opening menus and named focus remain. <!-- api: Picker, PickerOption --> |
+| Stepper | Partial | Scalar number Binding, bounds/step; named/projected focus registration. | Real NSStepper actions, name/disabled gates and cleanup verified; successful full-keyboard-access focus, formatter and styles remain. <!-- api: Stepper --> |
+| Picker | Partial | String/number/null selection Binding; detached keyed options and named/projected focus registration. | Segmented actions, menu binding/rendering, names/style/disabled gates and cleanup verified; successful eligible focus and menu opening/absent public surfaces remain. <!-- api: Picker, PickerOption --> |
 | DatePicker | Partial | Unix-millisecond number Binding, bounds, components and zone. | Native actions/styles/DST/rebinding/named focus and sheet isolation verified; richer formatting/popover interaction remain. <!-- api: DatePicker --> |
 | MultiDatePicker | Platform gate | Set of date components; selection/range. | Availability audit and immutable set representation before implementation. |
 | ColorPicker | Missing | Color/opacity Binding. | Define JSON color schema; native picker, editing lifecycle and color spaces. |
@@ -331,10 +346,10 @@ Status meanings:
 | Scoped focus controller | Partial (JonUI) | Tracked desired intent; read-only actual/retired; context-bound requests and passive explicit resume. | Native text/date/WebKit, no feedback/replay, keyed identity, modal/resume/task lifetime and owner cleanup verified; automatic physical-window resumption and realization policies remain. <!-- api: FocusController, ComponentScope.focus --> |
 | Boolean focus controller | Partial (JonUI) | Opaque single-target binding; separate boolean intent/observation; passive resume. | Text/secure/editor/date/WebKit, independent targets, conditional clear, task leases, modal retirement and cleanup verified. General SwiftUI overloads/additional controls remain. <!-- api: BooleanFocusController, ComponentScope.focusBoolean --> |
 | Typed focus selection controller | Partial (JonUI) | Fixed unique string/number domain; separate nullable intent/observation; opaque target bindings and passive resume. | Literal inference, runtime validation, typed/independent identity, text/date/WebKit, conditional/global clear, task leases and owner cleanup verified; dynamic/object domains and general SwiftUI overloads remain. <!-- api: SelectionFocusController, ComponentScope.focusSelection --> |
-| focused projection | Partial (JonUI) | Boolean actual getter and deferred true/conditional-false request, attached to one named input. | Text/secure/editor/date/WebKit, modifier chains, subtree ownership, Unicode conditional blur and cleanup verified; containers and remaining native controls are not supported yet. <!-- api: FocusBinding, View.focused --> |
+| focused projection | Partial (JonUI) | Boolean actual getter and deferred true/conditional-false request, attached to one named input. | Text/secure/editor/date/WebKit focus verified; Stepper/Picker wiring and unavailable gates verified, successful focus still gated. Modifier/owner/Unicode blur/cleanup covered; containers and remaining native controls unsupported. <!-- api: FocusBinding, View.focused --> |
 | Native focus observation | Partial (JonUI) | Nullable named responder snapshots and coalesced subscriptions; generation-stamped movement acknowledgements; observations do not write intent. | Text/date/WebKit/single-sheet observation, generation/sequence/context guards and cleanup verified; broader controls/IME/AX remain. <!-- api: Focus.subscribe --> |
 | Focus commands | Partial | Native next/previous/clear plus four-axis geometric move. | Real text/date/WebKit/sheet/directional paths verified; full keyboard-access and optional non-editing arrow routing remain. <!-- api: Focus, Focus.next, Focus.previous, Focus.clear, Focus.move --> |
-| Captured / named focus | Partial | Weak opaque physical target or exact UTF-8 name; currentName snapshot; optional active-window Tab cycle. | Text/date/WebKit names, actual-name queries, captures and single-sheet application-dispatched Tab cycles verified; buttons/toggles/slider/stepper/picker registration and eligibility remain. <!-- api: FocusTarget, Focus.capture, Focus.request, Focus.requestNamed, Focus.currentName, Focus.setTraversal --> |
+| Captured / named focus | Partial | Weak opaque physical target or exact UTF-8 name; currentName snapshot; optional active-window Tab cycle. | Text/date/WebKit focus/captures/Tab verified; Stepper/Picker names and unavailable gates verified, successful eligibility remains gated. Button/Toggle/Slider registration remains. <!-- api: FocusTarget, Focus.capture, Focus.request, Focus.requestNamed, Focus.currentName, Focus.setTraversal --> |
 | focusSection | Partial | Native grouping without a new state cell. | Native grouping/geometry/captures verified; wider control/hardware coverage remains. <!-- api: View.focusSection --> |
 | FocusedValue / FocusedBinding / FocusedObject | Missing | Active responder/scene scoped values and actions. | Requires responder-scoped propagation and ownership. |
 | GestureState | Missing | Transient gesture phase state with reset on end/cancel. | Gesture recognition, event coalescing and owner cleanup. |
@@ -466,7 +481,7 @@ can still bypass local enforcement; this is not server-side branch protection.
 Repository instructions require the same review for contributors and automation.
 
 <!-- coverage-review:generated -->
-Review baseline (checkout HEAD before commit): `c8f36c94a8dedd277d4bdddc09cb912a7b41d65a`.
+Review baseline (checkout HEAD before commit): `e02fe94effb5c7ee6bd4945465efa4487a7c8a9d`.
 
-Staged source-tree SHA-256 (excluding this catalog): `883826e601f03e1f81a8333b788799b8c2178f83cd5d1d3626c47998a213fa0a`.
+Staged source-tree SHA-256 (excluding this catalog): `d30f86fb8bb1419d0e94414ae52fc43d816c02e5a9bb7a516bb72f338dc9d60f`.
 <!-- /coverage-review:generated -->

@@ -396,7 +396,7 @@ class ViewValue {
   focused(binding) {
     const projection = focusProjection(binding);
     if (this.kind === 'modifier' && this.children.length === 1) return new ViewValue(this.kind, this.props, [this.children[0].focused(binding)]);
-    if (!['textfield', 'securefield', 'texteditor', 'datepicker', 'webview'].includes(this.kind)) throw new TypeError('focused requires one text input, DatePicker or WebView');
+    if (!['textfield', 'securefield', 'texteditor', 'datepicker', 'stepper', 'picker', 'webview'].includes(this.kind)) throw new TypeError('focused requires one text input, DatePicker, Stepper, Picker or WebView');
     if (this.props.focusName !== undefined && !this.props.focusBinding && this.props.focusName !== projection.name) throw new TypeError('focused conflicts with explicit focusName');
     return new ViewValue(this.kind, { ...this.props, focusName: projection.name, focusBinding: binding }, this.children);
   }
@@ -780,7 +780,8 @@ export const Section = (title, children, options = {}) => {
 };
 function numericInput(kind, title, options) {
   if (typeof title !== 'string') throw new TypeError('Numeric input title must be a string');
-  const props = { min: 0, max: kind === 'slider' ? 1 : 100, ...(kind === 'stepper' ? { step: 1 } : {}), ...layoutOptions(options, ['value', 'min', 'max', 'step'], kind) };
+  const props = { min: 0, max: kind === 'slider' ? 1 : 100, ...(kind === 'stepper' ? { step: 1 } : {}), ...layoutOptions(options, ['value', 'min', 'max', 'step', ...(kind === 'stepper' ? ['focusName'] : [])], kind) };
+  if (props.focusName !== undefined) focusName(props.focusName);
   for (const key of ['min', 'max']) layoutNumber(props[key], `${kind} ${key}`);
   const span = props.max - props.min;
   if (!(span > 0) || !Number.isFinite(span)) throw new TypeError('Numeric input range must have a positive finite span');
@@ -811,7 +812,8 @@ export function DatePicker(title, options) {
 }
 export function Picker(title, options) {
   if (typeof title !== 'string') throw new TypeError('Picker title must be a string');
-  const props = { style: 'automatic', placeholder: 'Select…', ...layoutOptions(options, ['selection', 'options', 'style', 'placeholder'], 'Picker') };
+  const props = { style: 'automatic', placeholder: 'Select…', ...layoutOptions(options, ['selection', 'options', 'style', 'placeholder', 'focusName'], 'Picker') };
+  if (props.focusName !== undefined) focusName(props.focusName);
   layoutEnum(props.style, ['automatic', 'menu', 'segmented'], 'picker style');
   if (typeof props.placeholder !== 'string') throw new TypeError('Picker placeholder must be a string');
   if (!Array.isArray(props.options)) throw new TypeError('Picker options must be an array');
@@ -826,7 +828,7 @@ export function Picker(title, options) {
     return Object.freeze({ value: option.value, label: option.label });
   });
   const state = binding(props.selection);
-  return new ViewValue('picker', { title, state, style: props.style, placeholder: props.placeholder, options: Object.freeze(items) });
+  return new ViewValue('picker', { title, state, style: props.style, placeholder: props.placeholder, options: Object.freeze(items), ...(props.focusName === undefined ? {} : { focusName: props.focusName }) });
 }
 export const Button = (title, action) => new ViewValue('button', { title, action });
 const focusTargets = new WeakMap();

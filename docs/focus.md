@@ -269,7 +269,7 @@ const Form = Component(scope => {
 });
 ```
 
-TextField, SecureField, TextEditor, DatePicker and WebView support the modifier,
+TextField, SecureField, TextEditor, DatePicker, Stepper, Picker and WebView support the modifier,
 including through single-child modifiers such as frame, padding and disabled.
 Apply it to the input before a two-child sheet modifier. Containers and other
 controls are currently rejected. An explicit different `focusName` conflicts;
@@ -453,6 +453,8 @@ capturing a responder:
 TextField('Search', { text: query.binding, focusName: 'search' });
 WebView({ html: '<input aria-label="Search">', focusName: 'search-browser' });
 DatePicker('Appointment', { selection: appointment.binding, focusName: 'appointment' });
+Stepper('Count', { value: count.binding, focusName: 'count' });
+Picker('Theme', { selection: theme.binding, options: themes, focusName: 'theme' });
 // Inside a mounted-window action or current effect/task:
 const focused = Focus.requestNamed('search');
 ```
@@ -483,18 +485,19 @@ adds no capture registrations, cells, or callbacks and does not alter a traversa
 cycle. Registry entries contain only logical node IDs; removal/shutdown clears
 them without retaining native controls or component scopes.
 
-Native text inputs and date pickers own a bounded [NSHostingView](https://developer.apple.com/documentation/swiftui/nshostingview)
+Native text inputs, date pickers, steppers and choice pickers own a bounded [NSHostingView](https://developer.apple.com/documentation/swiftui/nshostingview)
 subtree, with the surrounding SwiftUI environment forwarded to their existing
 SwiftUI controls. The host resolves editable NSTextField/NSTextView descendants
-or an eligible NSDatePicker only inside that control's subtree. It uses public AppKit types and live window
+or an eligible NSDatePicker, NSStepper, NSPopUpButton or NSSegmentedControl only
+inside that control's subtree. It uses public AppKit types and live window
 eligibility, without matching labels, accessibility IDs, geometry, or private
 SwiftUI class names. The same hosting surface is used with and without a name;
 registration changes preserve the native input's identity. Logical removal
 immediately retires its coordinator and clears cached content, preventing a late
 representable update from registering an obsolete input. Shutdown releases all
-registrations. Buttons, toggles, sliders, steppers, and choice pickers still need
-named registration. Individual DOM elements use browser code. Declarative focus
-bindings remain open. A named request selects the physical responder; a captured
+registrations. Buttons, toggles and sliders still need a supported public targeting
+surface and named registration. Individual DOM elements use browser code.
+A named request selects the physical responder; a captured
 target can then be used in `Focus.setTraversal` as usual. The native focus example
 includes **Focus name**, **Focus secret**, and **Focus notes** buttons, and the web-control example includes
 **Focus web control** alongside its show/enable toggles.
@@ -509,6 +512,28 @@ controls and expire physical captures; names resolve the current native surface.
 The form example includes **Focus appointment**. Compact date, graphical date,
 automatic time, and compact date-and-time requests are verified in the inactive
 offscreen window with full keyboard access left at its existing setting.
+
+Stepper and Picker names also work through `.focused(binding)` with named,
+boolean or typed selection controllers. Stepper resolves its eligible NSStepper;
+Picker resolves its first eligible NSPopUpButton/NSSegmentedControl in native
+subtree order. Requesting a Picker does not open a menu or select an option.
+Native value/selection bindings, bounds, options and normal actions stay separate
+from focus. Renaming does not intentionally replace the hosted surface; a style
+change may recreate platform controls and expire physical captures. Names resolve
+the current surface. Unnamed and named controls use the same bounded host.
+
+**A registered name does not guarantee a focusable platform target.** With this
+machine's full keyboard access off, actual NSStepper/NSSegmentedControl surfaces
+reject key-view eligibility, and current menu/automatic Picker styles expose no
+NSPopUpButton target. Requests return false and retain desired intent without
+moving an unrelated responder. Successful named/projected focus, captures and Tab
+for these controls with full keyboard access enabled remain a manual/platform
+validation gap. Tests do not change that setting or override native eligibility.
+Custom SwiftUI-drawn controls are not targeted by private class names or label
+matching. Binding actions, exact Unicode names, atomic duplicate rejection,
+style/disabled/sheet gates, passive resume and repeated cleanup are verified.
+The forms example includes **Focus theme** and **Focus amount** and reports when
+the target is unavailable for keyboard focus.
 
 ## Command traversal cycles
 

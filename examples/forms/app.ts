@@ -16,13 +16,15 @@ await runApp({ title: 'JonUI native form', width: 600, height: 400, content: For
     View(() => Text(status.value)), Toggle('Show as percentage', { isOn: percentage.binding })]),
   Section('Appearance', [Picker('Theme', { selection: theme.binding, options: [
     { value: 'system', label: 'System' }, { value: 'light', label: 'Light' }, { value: 'dark', label: 'Dark' },
-  ], style: 'segmented' }), View(() => Text(`Selected theme: ${theme.value}`))]),
+  ], style: 'segmented', focusName: 'theme' }), View(() => Text(`Selected theme: ${theme.value}`)),
+    Button('Focus theme', () => { status.value = Focus.requestNamed('theme') ? 'Theme focused' : 'Theme unavailable for keyboard focus'; })]),
   Section('Schedule', [DatePicker('Appointment (UTC)', { selection: appointment.binding, focusName: 'appointment', components: 'dateAndTime', style: 'compact', timeZone: 'UTC' }),
     Button('Focus appointment', () => { status.value = Focus.requestNamed('appointment') ? 'Appointment focused' : 'Appointment unavailable'; }),
     View(() => Text(new Date(appointment.value).toISOString()))]),
   Section('Shared numeric value', [
     Slider('Amount', { value: amount.binding, min: 0, max: 1, step: 0.05 }),
-    Stepper('Amount', { value: amount.binding, min: 0, max: 1, step: 0.05 }),
+    Stepper('Amount', { value: amount.binding, min: 0, max: 1, step: 0.05, focusName: 'amount' }),
+    Button('Focus amount', () => { status.value = Focus.requestNamed('amount') ? 'Amount focused' : 'Amount unavailable for keyboard focus'; }),
     View(() => Text(`${name.value}: ${percentage.value ? `${(amount.value * 100).toFixed(0)}%` : amount.value.toFixed(2)}`)),
   ], { footer: 'The slider and stepper share one revision-ordered native binding.' }),
 ], { style: 'grouped' }) });

@@ -364,6 +364,11 @@ Form([Section('Settings', [
 Form([], { style: 'columns' });
 Slider('Continuous', { value: amount.binding });
 Stepper('Default range', { value: amount.binding });
+Stepper('Named stepper', { value: amount.binding, focusName: 'count' });
+// @ts-expect-error Native focus names are strings.
+Stepper('Invalid name', { value: amount.binding, focusName: true });
+// @ts-expect-error Slider naming is unavailable until it exposes a supported native surface.
+Slider('Unsupported name', { value: amount.binding, focusName: 'amount' });
 // @ts-expect-error Sliders require number bindings.
 Slider('Invalid', { value: title.binding });
 // @ts-expect-error Steppers require number bindings.
@@ -382,6 +387,9 @@ Picker('Theme', { selection: theme.binding, options: [
 const mixedChoice = State<string | number | null>(1);
 Picker('Mixed', { selection: mixedChoice.binding, options: [{ value: 1, label: 'Number' }, { value: '1', label: 'Text' }, { value: null, label: 'None' }], placeholder: 'Choose…' });
 Picker('Number', { selection: amount.binding, options: [{ value: 0.5, label: 'Half' }] });
+Picker('Named choice', { selection: amount.binding, options: [{ value: 0.5, label: 'Half' }], focusName: 'choice' });
+// @ts-expect-error Native focus names are strings.
+Picker('Invalid name', { selection: amount.binding, options: [], focusName: 1 });
 // @ts-expect-error Options cannot widen the binding's inferred ID type.
 Picker('Invalid', { selection: theme.binding, options: [{ value: 'blue', label: 'Blue' }] });
 // @ts-expect-error A string-only selection cannot include numeric options.

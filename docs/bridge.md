@@ -573,7 +573,7 @@ disabled/passive skipping, the default empty-browser container stop, live data/R
 while excluded, malformed-flag atomicity, re-enabled captures, keyed reorder/reload,
 and 20 owner removals during an asynchronous boundary handoff.
 
-TextField, SecureField, TextEditor, DatePicker, and WebView `focusName` options supply
+TextField, SecureField, TextEditor, DatePicker, Stepper, Picker and WebView `focusName` options supply
 declarative registration before first focus, sharing the same namespace.
 Commit validation builds an app-wide map from UTF-8 Data keys to logical node IDs,
 checking nonempty names and duplicates across the reachable graph before mutating
@@ -593,13 +593,13 @@ Tests cover naming/Unicode/renaming, atomic rejection, document/cycle identity,
 modal/lazy/disabled availability, 20 focused owner lifetimes, and duplicate-name
 startup cleanup.
 
-Text inputs and date pickers each own a bounded NSHostingView through
+Text inputs, date pickers, steppers and choice pickers each own a bounded NSHostingView through
 HostedNativeControl, using their existing SwiftUI control implementation and forwarding
 the representable's full environment. Intrinsic sizing participates in surrounding
 layout without imposing window min/max constraints. Coordinators weakly reference
 the host, native hosting view, and logical box. Resolution walks only that owned
 subtree for public editable NSTextField, non-field-editor NSTextView, or eligible
-NSDatePicker types. A date control chooses its first eligible native component,
+NSDatePicker/NSStepper/NSPopUpButton/NSSegmentedControl types. A date control chooses its first eligible native component,
 without opening a popover or targeting a specific date/time segment.
 It never matches display labels, global enumeration order, geometry, private
 SwiftUI classes, or accessibility identifiers. Inputs use the same hosting path
@@ -617,6 +617,20 @@ compact/automatic/graphical styles and component/zone changes, active-sheet
 isolation, actual lazy realization, 20 focused owner retirements, and duplicate-
 name startup failure cleanup. Test snapshots retain a text-only adapter count
 and report the total hosted-control count for teardown assertions.
+
+Stepper/Picker hosts are shared by named and unnamed controls. Picker styles
+replace only their SwiftUI content within the same logical owner. Name lookup
+does not open a menu or change values. `debug.focusControls` adds a test-only owner
+node ID by checking native ancestry inside each bounded host; this proves ownership
+without matching labels or using the resolver under test. The focused native gate
+verifies real NSStepper delta actions and segmented typed selection, same-label
+owners, exact Unicode rename/reorder, atomic name validation, inherited disabling,
+styles, sheet isolation/resume and 20 pending owner removals. On this machine full
+keyboard access is false: five checks encounter ineligible Stepper/segmented
+surfaces and three encounter absent menu/automatic AppKit surfaces. No successful
+new-control focus/capture/Tab path is claimed verified. Those branches are tested
+conditionally when real eligibility is available; tests neither change preferences
+nor override platform key-view flags. Slider/Button/Toggle targeting remains open.
 
 `Focus.move(direction)` sends `focus.direction` with one of four spatial directions.
 After layout/key-loop recalculation, the host resolves a shared field editor to

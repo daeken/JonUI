@@ -198,7 +198,7 @@ export interface NumericInputOptions {
 /** Defaults to 0...1, continuous unless step is supplied. */
 export function Slider(title: string, options: NumericInputOptions): View;
 /** Defaults to 0...100 with a step of 1. */
-export function Stepper(title: string, options: NumericInputOptions): View;
+export function Stepper(title: string, options: NumericInputOptions & { focusName?: string }): View;
 /** Unix milliseconds; display components and time zones never change the stored unit. */
 export function DatePicker(title: string, options: {
   selection: Binding<number>;
@@ -215,6 +215,8 @@ export interface PickerOption<ID extends ItemID | null> { readonly value: ID; re
 /** Values keep their scalar type; unmatched selections display a passive placeholder. */
 export function Picker<ID extends ItemID | null>(title: string, options: {
   selection: Binding<ID>;
+  /** Resolves an eligible native segmented/menu control when the current style exposes one. */
+  focusName?: string;
   options: readonly PickerOption<NoInfer<ID>>[];
   style?: "automatic" | "menu" | "segmented";
   placeholder?: string;

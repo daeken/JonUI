@@ -1,11 +1,13 @@
 import assert from 'node:assert/strict';
-import { Component, DatePicker, TextField, VStack, WebView, runApp, __testing as test } from 'jonui';
+import { Component, DatePicker, Picker, Stepper, TextField, VStack, WebView, runApp, __testing as test } from 'jonui';
 let disposed = 0, stopped = 0;
 const Owner = Component(scope => {
   const text = scope.state('owned'), date = scope.state(0); scope.onDispose(() => { disposed++; });
   return () => VStack([
     TextField('Duplicate', { text: text.binding, focusName: 'duplicate' }),
     process.env.JONUI_CASE === 'date' ? DatePicker('Duplicate', { selection: date.binding, focusName: 'duplicate' }) :
+      process.env.JONUI_CASE === 'stepper' ? Stepper('Duplicate', { value: date.binding, focusName: 'duplicate' }) :
+      process.env.JONUI_CASE === 'picker' ? Picker('Duplicate', { selection: text.binding, options: [{ value: 'owned', label: 'Owned' }], focusName: 'duplicate' }) :
       WebView({ html: '<input>', focusName: 'duplicate', onMessage: () => {}, onError: () => {} }),
   ]);
 });

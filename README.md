@@ -145,10 +145,13 @@ context. `resume()` starts a fresh context after commit while preserving intent
 and form state; it leaves the old target unrequested until new intent arrives.
 See [owned focus controllers](docs/focus.md#owned-focus-controllers) and
 `bin/jonui examples/focus-controller/app.ts` for modal retirement and reset.
-`view.focused(focus.binding('name'))` wires a text input, date picker or WebView
+`view.focused(focus.binding('name'))` wires a text input, date picker, Stepper, Picker or WebView
 to a named boolean projection. Read its `.value` for actual focus and write true
 to request it; false conditionally clears that target while preserving newer
 intent. See [projected focus bindings](docs/focus.md#projected-focus-bindings).
+Stepper and Picker names follow real keyboard-access eligibility; unsupported
+menu surfaces return unavailable. The forms example includes focus requests for
+the theme Picker and amount Stepper.
 `scope.focusBoolean()` provides the same lifecycle for one opaque target:
 `.focused(focus.binding)` wires the input, `focus.desired.value` tracks intent,
 and `focus.actual.value` observes it. False clears only that target. See

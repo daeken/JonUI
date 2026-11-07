@@ -909,6 +909,39 @@ claiming wider focus parity. Dynamic domains/object/symbol IDs and general
 overloads, IME/AX/nested-sheet coverage and the recorded intermittent AppKit
 sheet-close crash remain open.
 
+Stepper/Picker focus registration implemented (2026-11-07): both accept explicit
+focusName and `.focused` projections through modifiers. All named/unnamed instances
+share the bounded native host, preserving their existing SwiftUI binding and
+environment. Lookup uses public NSStepper/NSPopUpButton/NSSegmentedControl types
+inside the owner subtree and real key-view eligibility. Global exact-UTF-8 name
+validation includes both controls. Style changes retain logical ownership;
+physical captures may expire when the platform recreates a control. Host removal
+invalidates cached content/registrations normally. Slider focusName remains
+explicitly unsupported. The forms example includes focus requests/status for
+theme and amount; the widget ledger and native docs explain platform limits.
+
+Validation: native build, 142 unit/compiler cases, Deno and TypeScript
+checks pass. The focused offscreen gate verifies real NSStepper increment actions
+and segmented selection, same-label owner mapping, Unicode rename/keyed identity,
+atomic malformed/duplicate names, style/disabled/sheet gates, passive resume and
+20 owners removed with queued requests at baseline cells/views/listeners. The
+NSStepper fixture sends direction values to its native delta adapter. All 78
+offscreen native integration scenarios pass, including Stepper/Picker cross-kind
+duplicate-name startup cleanup. API classification also passes. The recorded
+AppKit sheet-close crash did not recur; no framework fix is claimed.
+
+Concrete validation blocker: this machine has full keyboard access off. The
+focused gate records zero eligible new-control requests, five keyboard-excluded
+Stepper/segmented checks and three absent public menu/automatic Picker surfaces.
+No successful new-control focus/capture/Tab behavior is claimed verified. The test
+conditionally exercises those paths when genuinely eligible and never changes
+preferences or native key-view flags. Keep the broad focus item unchecked.
+Next: define a supported public targeting surface for custom-drawn Button/Toggle/
+Slider controls or progress independent realization/context policy work. Full
+keyboard access verification, object/dynamic selection domains, general
+overloads, physical windows, IME/AX/nested sheets and the recorded intermittent
+AppKit sheet-close crash remain open.
+
 ## 3. Application and operating-system integration
 
 - [ ] Support multiple windows with independent roots and explicit window ownership.
