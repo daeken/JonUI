@@ -12,6 +12,7 @@ async function setup() {
     request(json) {
       const message = JSON.parse(json); calls.push(message);
       let result = {};
+      if (message.op === 'gesturePair.claim') result = { accepted: focus.pairAccepted !== false };
       if (message.op === 'focus.capture') result = { target: focus.target };
       if (message.op === 'focus.window.capture') result = { window: focus.window ?? 1 };
       if (message.op === 'focus.target') result = { focused: focus.focused };
@@ -394,6 +395,70 @@ test('owned availability applies per-controller task leases before validation an
   const before = h.calls.filter(c => c.op === 'focus.availability').length; release(); await tick();
   assert.deepEqual(results, [null, null, 'ready', 'ready']); assert.equal(h.calls.filter(c => c.op === 'focus.availability').length, before + 2);
   h.emit({ type: 'stop' }); await done;
+});
+
+test('owned pair dispatch copies frozen tagged results, uses current untracked callbacks and rejects malformed/replayed events', async () => {
+  const h = await setup(), { ui } = h, revision = ui.State(0), unrelated = ui.State(0), shown = ui.State(true); const calls = []; let renders = 0;
+  for (const leaf of [{}, ui.LongPressGesture(), ui.TapGesture().onEnded(() => {})]) assert.throws(() => ui.__testing.gesturePair(ui.Text('bad'), leaf, ui.TapGesture(), () => {}));
+  assert.throws(() => ui.__testing.gesturePair(ui.Text('bad'), ui.TapGesture(), ui.TapGesture(), null));
+  const done = launch(ui, ui.View(() => { renders++; const current = revision.value; return shown.value ? ui.__testing.gesturePair(ui.Text('pair'), ui.TapGesture(), ui.SpatialTapGesture(), function (value) { assert.equal(this, undefined); unrelated.value; calls.push([current, value]); }) : ui.Text('removed'); })); await tick();
+  const node = () => [...h.nodes.values()].find(n => n.props.dispatch), first = node(); assert.equal(first.props.onPair, undefined); assert.equal(ui.__testing.stats().actions, 1);
+  const emit = (event = {}) => h.emit({ type: 'gesturePair', id: first.id, token: first.props.epoch, arm: 1, completion: 1, value: { first: { kind: 'tap' }, second: { kind: 'spatial', x: 3, y: 7 } }, ...event });
+  emit(); assert.equal(calls.length, 0); h.emit({ type: 'gesturePairArm', id: first.id, token: first.props.epoch, arm: 1 });
+  for (const value of [null, [], {}, { first: null, second: null }, { first: { kind: 'tap', extra: 1 }, second: null }, { first: null, second: { kind: 'spatial', x: true, y: 0 } }, { first: { kind: 'spatial', x: 0, y: 0 }, second: null }]) emit({ value });
+  for (const completion of [0, -1, 1.5, '1', null]) emit({ completion }); assert.equal(calls.length, 0);
+  h.focus.pairAccepted = false; emit(); assert.equal(calls.length, 0); h.focus.pairAccepted = true; emit(); assert.equal(calls.length, 1);
+  const result = calls[0][1]; assert.ok(Object.isFrozen(result)); assert.ok(Object.isFrozen(result.first)); assert.ok(Object.isFrozen(result.second)); assert.throws(() => { result.second.x = 8; }, TypeError);
+  emit(); assert.equal(calls.length, 1); const before = renders; unrelated.value++; await tick(); assert.equal(renders, before);
+  revision.value++; await tick(); assert.equal(node().props.epoch, first.props.epoch); emit({ completion: 2, value: { first: { kind: 'tap' }, second: null } }); assert.equal(calls.at(-1)[0], 1);
+  h.emit({ type: 'gesturePairReset', id: first.id, token: first.props.epoch, arm: 1 }); h.emit({ type: 'gesturePairArm', id: first.id, token: first.props.epoch, arm: 1 }); emit({ completion: 3 }); assert.equal(calls.length, 2, 'retired arm cannot be replayed');
+  h.emit({ type: 'gesturePairArm', id: first.id, token: first.props.epoch, arm: 2 }); emit({ arm: 2, completion: 3 }); assert.equal(calls.length, 3);
+  shown.value = false; await tick(); emit({ arm: 2, completion: 4 }); assert.equal(calls.length, 3); assert.deepEqual(ui.__testing.pairStats(), { active: 0, armed: 0 });
+  h.emit({ type: 'stop' }); await done;
+});
+
+test('owned pair configuration epochs and sibling attachments retire independently', async () => {
+  const h = await setup(), { ui } = h, count = ui.State(1), priority = ui.State('normal'), shown = ui.State(true); const calls = [];
+  const done = launch(ui, ui.View(() => ui.VStack([ui.View(() => shown.value ? ui.__testing.gesturePair(ui.Text('first'), ui.TapGesture({ count: count.value }), ui.TapGesture(), () => calls.push('first'), { priority: priority.value }) : ui.Text('removed')), ui.__testing.gesturePair(ui.Text('second'), ui.TapGesture(), ui.TapGesture(), () => calls.push('second'))]))); await tick();
+  const find = label => [...h.nodes.values()].find(n => n.props.dispatch && n.children.some(id => h.nodes.get(id)?.props.value === label));
+  const emit = n => { h.emit({ type: 'gesturePairArm', id: n.id, token: n.props.epoch, arm: 1 }); h.emit({ type: 'gesturePair', id: n.id, token: n.props.epoch, arm: 1, completion: 1, value: { first: { kind: 'tap' }, second: null } }); };
+  const sibling = find('second'); assert.notEqual(find('first').props.epoch, sibling.props.epoch);
+  for (const update of [() => { count.value = 2; }, () => { priority.value = 'high'; }]) {
+    const old = find('first'); update(); await tick(); assert.notEqual(find('first').props.epoch, old.props.epoch); assert.equal(find('second').props.epoch, sibling.props.epoch); emit(old); assert.equal(calls.length, 0);
+  }
+  shown.value = false; await tick(); emit(sibling); assert.deepEqual(calls, ['second']); assert.equal(ui.__testing.pairStats().active, 1);
+  h.emit({ type: 'stop' }); await done; assert.deepEqual(ui.__testing.pairStats(), { active: 0, armed: 0 });
+});
+
+test('owned pair presentation and disabled boundaries track bindings and reject queued events before delivery', async () => {
+  const h = await setup(), { ui } = h, presented = ui.State(true), disabled = ui.State(false); const calls = [];
+  const group = ui.__testing.gesturePair(ui.Text('inside'), ui.TapGesture(), ui.TapGesture(), () => calls.push('end'));
+  const done = launch(ui, ui.View(() => ui.Text('base').sheet({ isPresented: presented.binding, content: group }).disabled(disabled.value))); await tick();
+  const node = () => [...h.nodes.values()].find(n => n.props.dispatch), emit = n => { h.emit({ type: 'gesturePairArm', id: n.id, token: n.props.epoch, arm: 1 }); h.emit({ type: 'gesturePair', id: n.id, token: n.props.epoch, arm: 1, completion: 1, value: { first: { kind: 'tap' }, second: null } }); };
+  const original = node(); presented.value = false; emit(original); assert.deepEqual(calls, []); await tick(); const hidden = node(); assert.notEqual(hidden.props.epoch, original.props.epoch);
+  presented.value = true; await tick(); const visible = node(); assert.notEqual(visible.props.epoch, hidden.props.epoch); emit(original); assert.deepEqual(calls, []); emit(visible); assert.deepEqual(calls, ['end']);
+  disabled.value = true; await tick(); const off = node(); emit(off); assert.equal(calls.length, 1); disabled.value = false; await tick(); assert.notEqual(node().props.epoch, off.props.epoch); emit(node()); assert.equal(calls.length, 2);
+  h.emit({ type: 'stop' }); await done; assert.deepEqual(ui.__testing.pairStats(), { active: 0, armed: 0 });
+});
+
+test('owned pair callbacks can synchronously retire their owner without resurrecting queued delivery', async () => {
+  const h = await setup(), { ui } = h, shown = ui.State(true); let calls = 0, disposed = 0;
+  const Owner = ui.Component(scope => { scope.onDispose(() => disposed++); return () => ui.__testing.gesturePair(ui.Text('self removing'), ui.TapGesture(), ui.TapGesture(), () => { calls++; shown.value = false; ui.__testing.flush(); }); });
+  const done = launch(ui, ui.View(() => shown.value ? Owner() : ui.Text('removed'))); await tick(); const n = [...h.nodes.values()].find(n => n.props.dispatch);
+  h.emit({ type: 'gesturePairArm', id: n.id, token: n.props.epoch, arm: 1 });
+  for (const completion of [1, 2]) h.emit({ type: 'gesturePair', id: n.id, token: n.props.epoch, arm: 1, completion, value: { first: { kind: 'tap' }, second: null } });
+  assert.equal(calls, 1); assert.equal(disposed, 1); assert.deepEqual(ui.__testing.pairStats(), { active: 0, armed: 0 });
+  h.emit({ type: 'stop' }); await done; assert.equal(disposed, 1);
+});
+
+test('owned pair callback errors and thenables dispose their registration and owner once', async () => {
+  for (const promise of [false, true]) {
+    const h = await setup(), { ui } = h; let disposed = 0, stopped = 0;
+    const Owner = ui.Component(scope => { scope.state(0); scope.onDispose(() => disposed++); return () => ui.__testing.gesturePair(ui.Text('fail'), ui.TapGesture(), ui.TapGesture(), () => { if (promise) return Promise.reject(new Error('consumed')); throw new Error('pair dispatch failure'); }); });
+    const done = launch(ui, Owner(), () => stopped++); await tick(); const n = [...h.nodes.values()].find(n => n.props.dispatch);
+    h.emit({ type: 'gesturePairArm', id: n.id, token: n.props.epoch, arm: 1 }); h.emit({ type: 'gesturePair', id: n.id, token: n.props.epoch, arm: 1, completion: 1, value: { first: { kind: 'tap' }, second: null } });
+    await assert.rejects(done, promise ? /must be synchronous/ : /pair dispatch failure/); assert.equal(disposed, 1); assert.equal(stopped, 1); assert.deepEqual(ui.__testing.pairStats(), { active: 0, armed: 0 }); assert.deepEqual(ui.__testing.stats(), { actions: 0, cells: 0, dependencies: 0 });
+  }
 });
 
 test('typed gesture leaves copy options, are immutable and lower to the existing native modifier contracts', async () => {

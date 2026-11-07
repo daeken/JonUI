@@ -9,7 +9,7 @@ function request(op, args = {}) {
   if (result.error) throw new Error(result.error);
   return result;
 }
-let nextState = 1, nextView = 1, nextSubmit = 1, nextEditing = 1, nextAppearance = 1, nextTap = 1, nextLongPress = 1, active = null, root = null, stop = null;
+let nextState = 1, nextView = 1, nextSubmit = 1, nextEditing = 1, nextAppearance = 1, nextTap = 1, nextLongPress = 1, nextPair = 1, active = null, root = null, stop = null;
 let stopped = false, scheduled = false, mounting = false, flushing = false;
 const cells = new Map(), actions = new Map(), dirty = new Set(), updates = new Map();
 const recoveryScopes = [];
@@ -26,6 +26,7 @@ const textEditings = new Map();
 const appearances = new Map();
 const taps = new Map();
 const longPresses = new Map();
+const pairGroups = new Map();
 const gestureStates = new Set(), gestureProjections = new WeakMap();
 const windowViews = new Map();
 const viewMarker = Symbol('JonUI.View');
@@ -406,6 +407,46 @@ function gestureValue(value) {
   const definition = gestureValues.get(value);
   if (!definition) throw new TypeError('Expected a JonUI Gesture value');
   return definition;
+}
+function testGesturePair(view, first, second, callback, options = {}) {
+  validate(view);
+  if (typeof callback !== 'function') throw new TypeError('Gesture pair callback expects a function');
+  const { priority = 'normal' } = layoutOptions(options, ['priority'], 'testGesturePair');
+  layoutEnum(priority, ['normal', 'high', 'simultaneous'], 'pair priority');
+  const leaf = value => {
+    const definition = gestureValue(value);
+    if (definition.callback !== undefined || !['onTapGesture', 'onSpatialTapGesture'].includes(definition.method)) throw new TypeError('Pair dispatch supports only tap/spatial leaves without callbacks');
+    return Object.freeze({ kind: definition.method === 'onTapGesture' ? 'tap' : 'spatial', count: definition.options.count });
+  };
+  return view.modifier('testGesturePair', { first: leaf(first), second: leaf(second), priority, dispatch: true, onPair: callback });
+}
+function pairInputActive(mounted) {
+  let enabled = true;
+  for (let child = mounted, parent = child.parent; parent; child = parent, parent = parent.parent) {
+    const value = parent.value;
+    if (value.kind !== 'modifier') continue;
+    if (value.props.name === 'disabled' && value.props.value) enabled = false;
+    if (['sheet', 'window'].includes(value.props.name) && child.key === '1') {
+      // Read every presentation binding so hidden nested groups still track re-entry.
+      if (cells.get(value.props.state)?.cell.value !== true) enabled = false;
+    }
+  }
+  return enabled;
+}
+function pairSnapshot(value, entry) {
+  if (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).length !== 2 || !Object.hasOwn(value, 'first') || !Object.hasOwn(value, 'second')) return;
+  const leaf = (raw, definition) => {
+    if (raw === null) return null;
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw) || raw.kind !== definition.kind) throw new TypeError('Invalid pair branch');
+    if (raw.kind === 'tap' && Object.keys(raw).length === 1) return Object.freeze({ kind: 'tap' });
+    if (raw.kind === 'spatial' && Object.keys(raw).length === 3 && typeof raw.x === 'number' && typeof raw.y === 'number' && Number.isFinite(raw.x) && Number.isFinite(raw.y)) return Object.freeze({ kind: 'spatial', x: raw.x, y: raw.y });
+    throw new TypeError('Invalid pair branch');
+  };
+  try {
+    const first = leaf(value.first, entry.first), second = leaf(value.second, entry.second);
+    if (first === null && second === null) return;
+    return Object.freeze({ first, second });
+  } catch { return; }
 }
 class GestureValue {
   constructor(key, definition) {
@@ -1391,7 +1432,7 @@ function unmount(mounted) {
   textEditings.delete(mounted.editingToken);
   appearances.delete(mounted.appearanceToken);
   taps.delete(mounted.tapToken);
-  retireLongPress(mounted.longPressToken);
+  retireLongPress(mounted.longPressToken); pairGroups.delete(mounted.pairToken);
   for (const cell of mounted.dependencies) cell.dependents.delete(mounted);
   try { unmountAll(mounted.children); } catch (error) { failures.push(error); }
   try { disposeComponent(mounted.component); } catch (error) { failures.push(error); }
@@ -1501,7 +1542,17 @@ function finishEvaluation(mounted, children) {
   });
   unmountAll(old.values());
   if (value.kind === 'modifier' && value.props.name === 'window') windowViews.set(mounted.id, mounted);
-  const { body, fallback, rows, row, action, onMessage, onError, api, onSubmit, onEditingChanged, onAppearance, onTap, onLongPress, onPressingChanged, pressingState, focusBinding, definition, setup, componentProps, ...props } = value.props;
+  const { body, fallback, rows, row, action, onMessage, onError, api, onSubmit, onEditingChanged, onAppearance, onTap, onLongPress, onPressingChanged, onPair, pressingState, focusBinding, definition, setup, componentProps, ...props } = value.props;
+  const ownedPair = props.name === 'testGesturePair' && props.dispatch === true && typeof onPair === 'function';
+  const pairActive = ownedPair ? track(mounted, () => pairInputActive(mounted)) : false;
+  const pairSignature = ownedPair ? JSON.stringify([props.first, props.second, props.priority, pairActive]) : null;
+  if (!ownedPair || mounted.pairSignature !== pairSignature) { pairGroups.delete(mounted.pairToken); mounted.pairToken = undefined; }
+  if (ownedPair) {
+    mounted.pairToken ??= nextPair++; mounted.pairSignature = pairSignature;
+    const entry = pairGroups.get(mounted.pairToken) ?? { id: mounted.id, arm: 0, lastArm: 0, completion: 0 };
+    Object.assign(entry, { callback: onPair, mounted, active: pairActive, first: props.first, second: props.second });
+    pairGroups.set(mounted.pairToken, entry); props.epoch = mounted.pairToken;
+  }
   const gesture = pressingState === undefined ? undefined : gestureProjection(pressingState);
   if (gesture?.mounted != null && gesture.mounted !== mounted.id) throw new Error('A GestureState can attach to only one mounted gesture');
   if (props.name !== 'onLongPressGesture' || mounted.longPressDuration !== props.minimumDuration || mounted.longPressDistance !== props.maximumDistance || mounted.longPressPriority !== props.priority || mounted.longPressObserver !== !!onPressingChanged || mounted.longPressState !== gesture || !onLongPress) {
@@ -1643,7 +1694,7 @@ function shutdown(error, partialMounts = []) {
   availabilityWatches.clear(); availabilityTokens.clear();
   for (const observer of [...computations]) disposeComputed(observer);
   for (const id of [...webAPIs.keys()]) disposeWebAPI(id);
-  dirty.clear(); updates.clear(); actions.clear(); webErrors.clear(); textSubmits.clear(); textEditings.clear(); appearances.clear(); taps.clear(); longPresses.clear(); windowViews.clear();
+  dirty.clear(); updates.clear(); actions.clear(); webErrors.clear(); textSubmits.clear(); textEditings.clear(); appearances.clear(); taps.clear(); longPresses.clear(); pairGroups.clear(); windowViews.clear();
   for (const { listeners, cell } of cells.values()) { listeners.clear(); cell.dependents.clear(); }
   cells.clear();
   try { request('dispose'); } catch (caught) { failure ??= caught; }
@@ -1688,6 +1739,22 @@ bridge.listen(json => {
       if (result && typeof result.then === 'function') {
         Promise.resolve(result).catch(() => {});
         throw new TypeError('Tap callbacks must be synchronous; use scope.task for asynchronous work');
+      }
+    }
+    else if (['gesturePairArm', 'gesturePairReset', 'gesturePair'].includes(event.type)) {
+      const entry = pairGroups.get(event.token);
+      if (!entry || entry.id !== event.id || !Number.isSafeInteger(event.arm) || event.arm < 1) return;
+      if (event.type === 'gesturePairArm') { if (event.arm > entry.lastArm) entry.arm = entry.lastArm = event.arm; return; }
+      if (event.type === 'gesturePairReset') { if (event.arm === entry.arm) entry.arm = 0; return; }
+      if (entry.arm !== event.arm || !entry.active || !untracked(() => pairInputActive(entry.mounted)) || !Number.isSafeInteger(event.completion) || event.completion <= entry.completion) return;
+      const value = pairSnapshot(event.value, entry); if (!value) return;
+      if (!request('gesturePair.claim', { id: event.id, token: event.token, arm: event.arm, completion: event.completion }).accepted) return;
+      entry.completion = event.completion;
+      const callback = entry.callback;
+      const result = taskStorage.run(undefined, () => untracked(() => callback(value)));
+      if (result && typeof result.then === 'function') {
+        Promise.resolve(result).catch(() => {});
+        throw new TypeError('Gesture pair callbacks must be synchronous; use scope.task for asynchronous work');
       }
     }
     else if (event.type === 'longPress') {
@@ -1760,6 +1827,8 @@ export function runApp(options) {
 export const __testing = process.env.JONUI_TEST === '1' ? Object.freeze({
   request,
   flush,
+  gesturePair: testGesturePair,
+  pairStats: () => ({ active: pairGroups.size, armed: [...pairGroups.values()].filter(entry => entry.arm > 0).length }),
   webRequestStats: () => ({ apis: webAPIs.size, pending: [...webAPIs.values()].reduce((n, entry) => n + entry.runs.size, 0) }),
   taskStats: () => ({ pending: pendingTasks.size }),
   effectStats: () => ({ active: effects.size, pending: pendingEffects.size }),
@@ -1767,5 +1836,5 @@ export const __testing = process.env.JONUI_TEST === '1' ? Object.freeze({
   computedStats: () => ({ active: computations.size, dependencies: [...computations].reduce((n, observer) => n + observer.dependencies.size, 0) }),
   focusStats: () => ({ listeners: focusListeners.size, watching: focusWatch !== null }),
   availabilityStats: () => ({ names: availabilityWatches.size, listeners: [...availabilityWatches.values()].reduce((n, watch) => n + watch.entries.size, 0) }),
-  stats: () => ({ actions: actions.size + focusListeners.size + [...availabilityWatches.values()].reduce((n, watch) => n + watch.entries.size, 0) + textSubmits.size + textEditings.size + appearances.size + taps.size + [...longPresses.values()].reduce((n, entry) => n + 1 + Number(!!entry.pressing), 0) + [...webErrors.values()].filter(Boolean).length + [...webAPIs.values()].reduce((n, entry) => n + Object.keys(entry.api).length, 0), cells: cells.size, dependencies: [...cells.values()].reduce((n, v) => n + v.cell.dependents.size, 0) }),
+  stats: () => ({ actions: actions.size + pairGroups.size + focusListeners.size + [...availabilityWatches.values()].reduce((n, watch) => n + watch.entries.size, 0) + textSubmits.size + textEditings.size + appearances.size + taps.size + [...longPresses.values()].reduce((n, entry) => n + 1 + Number(!!entry.pressing), 0) + [...webErrors.values()].filter(Boolean).length + [...webAPIs.values()].reduce((n, entry) => n + Object.keys(entry.api).length, 0), cells: cells.size, dependencies: [...cells.values()].reduce((n, v) => n + v.cell.dependents.size, 0) }),
 }) : undefined;

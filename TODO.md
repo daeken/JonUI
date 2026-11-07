@@ -1710,12 +1710,49 @@ shortcut/contracts, both long-press main/window modes and all four lazy layouts.
 No full-suite pass or fix for the recorded mixed-sheet close SIGSEGV is claimed.
 The public gesture surface is unchanged; keep broad composition unchecked.
 
-Next: continue the group prototype with owned group-token dispatch and explicit
-leaf callback/path and causal-session semantics, using native completion identity
-rather than the input observer interval. Define/freeze optional public result
-values and branch-state ownership before exposing a composition method. Add
-sheet/lazy/owned-window, nested-group and long-press composition coverage before
-claiming those cases; hardware and minimum-OS checks remain open.
+Owned group-end dispatch prototype (2026-11-07), continuing composition ownership:
+
+- [x] Add test-only owned root group-end dispatch for callback-free tap/spatial leaves, frozen optional snapshots and single-use native completion claims.
+- [ ] Define causal branch sessions, leaf callback paths/order and branch GestureState reset before exposing public composition.
+- [ ] Add nested/long-press and lazy/owned-window composition dispatch coverage; complete hardware/minimum-OS checks.
+
+`__testing.gesturePair` mounts one current synchronous Node callback and independent
+configuration token. Callback-bearing leaves and long/nested groups are rejected,
+so this increment does not imply leaf/path/session semantics. Private results copy
+and freeze tagged tap/spatial branches or null; both-null/malformed snapshots are
+dropped. Equal-count double clicks dispatch two distinct native completions even
+when the observer interval is shared. Current handlers preserve tokens; descriptor,
+priority, disabled and ancestor presentation changes retire them. Static group
+descriptions track presentation bindings. Delivery checks live ancestry, runs
+untracked outside task context, and rejects duplicate/old/malformed events.
+
+A host-assigned native arm lease plus a synchronous single-use completion claim
+reject queued ends after physical retirement, before Node sees a queued reset.
+Native claim validation requires the current live node/token/arm and a pending
+completion; once consumed it cannot replay. Rearming/reset, graph retirement and
+shutdown clear pending entries and leases. Pending ends are bounded to 128 per
+arm and overflow aborts rather than silently dropping input. No public API, native
+binding cell, extra production timer or monitor is added. Throws/thenables dispose
+the app; callbacks can synchronously remove their owner without reviving delivery.
+
+Validation: native build, 202 unit/compiler cases, 11 coverage workflow tests, both
+type checkers and API classification pass. Twenty-seven focused offscreen native
+gates pass, including five new dispatch/sheet/throw/thenable/held-close gates.
+These verify full/partial frozen results, current handlers and State writes,
+priority/count changes, pending/held replacement, disabled ancestors, single-use
+claims, retained-sheet dismissal/re-entry and twenty owner lifetimes returning
+callbacks/cells/views/arms/pending completions/timers to baseline. Existing pair
+rearming/optional/control matrix, typed values/state, ordinary/spatial priorities,
+taps/windows/all lazy layouts, both long-press main/window modes and appearance/
+layout/contracts regressions pass. No full-suite pass or mixed-sheet-close fix is
+claimed. New dispatch in lazy/owned windows, nested/long composition, public result
+schema and hardware/minimum-OS behavior remain open; keep broad gestures unchecked.
+
+Next: define and probe causal leaf completion/session ownership and callback paths
+before allowing callback-bearing leaves or exposing a composition method. Preserve
+native terminal completion identity separately from observer intervals; do not
+infer a leaf end from changed-phase presence. Add branch-state reset and the
+remaining lifecycle contexts before checking composition complete.
 
 ## 3. Application and operating-system integration
 

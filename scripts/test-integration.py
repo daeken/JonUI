@@ -38,6 +38,9 @@ def run(entry, case='', failure=None, driver=None, timeout=30, layout=False):
         assert all(result.stdout.count(marker) == 1 for marker in ['RPC_SCOPE_DISPOSE', 'RPC_STOP']), (result.stdout, result.stderr)
     if entry.endswith('focus-subscribe-error.mjs'):
         assert all(result.stdout.count(marker) == 1 for marker in ['FOCUS_SCOPE_DISPOSE', 'FOCUS_STOP']), (result.stdout, result.stderr)
+    if entry.endswith('gesture-pair-error.mjs'):
+        assert result.returncode == (0 if case == 'close' else 1), (case, result.returncode, result.stdout, result.stderr)
+        assert all(result.stdout.count(marker) == 1 for marker in ['PAIR_DISPOSE', 'PAIR_STOP']), (case, result.stdout, result.stderr)
     if entry.endswith('long-press-error.mjs'):
         assert result.returncode == (0 if case.endswith('close') else 1), (case, result.returncode, result.stdout, result.stderr)
         assert all(result.stdout.count(marker) == 1 for marker in ['PRESS_DISPOSE', 'PRESS_STOP']), (case, result.stdout, result.stderr)
@@ -196,6 +199,10 @@ for mode in ['vertical-stack', 'horizontal-stack', 'vertical-grid', 'horizontal-
     run('tests/integration/tap-lazy.mjs', case='spatial-' + mode, timeout=90, layout=True)
 for mode, message in [('spatial-throw', 'intentional tap failure'), ('spatial-high-throw', 'intentional tap failure'), ('spatial-simultaneous-promise', 'must be synchronous')]:
     run('tests/integration/taps-error.mjs', case=mode, failure=message, layout=True)
+run('tests/integration/gesture-pair-dispatch.mjs', timeout=90, layout=True)
+run('tests/integration/gesture-pair-sheet.mjs', timeout=45, layout=True)
+for mode, failure in [('throw', 'intentional pair failure'), ('promise', 'Gesture pair callbacks must be synchronous'), ('close', None)]:
+    run('tests/integration/gesture-pair-error.mjs', case=mode, failure=failure, layout=True)
 run('tests/integration/gesture-pair-rearm.mjs', timeout=90, layout=True)
 run('tests/integration/gesture-pair-probe.mjs', case='no-layout')
 run('tests/integration/gesture-pair-probe.mjs', case='close', layout=True)

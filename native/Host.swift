@@ -101,7 +101,8 @@ private func validateLayout(_ kind: String, _ props: [String: Any]) throws {
     case "modifier":
         switch props["name"] as? String {
         case "testGesturePair":
-            try keys(["name", "first", "second", "priority", "epoch"])
+            try keys(["name", "first", "second", "priority", "epoch", "dispatch"])
+            try boolean("dispatch")
             let environment = ProcessInfo.processInfo.environment
             guard environment["JONUI_TEST"] == "1", environment["JONUI_TEST_OFFSCREEN"] == "1", environment["JONUI_TEST_LAYOUT"] == "1",
                   let epoch = props["epoch"].flatMap(layoutNumber), epoch > 0, epoch.rounded() == epoch, epoch < Double(Int.max),
@@ -1210,6 +1211,9 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var tapTestTimers: [Int: [Timer]] = [:]
     private var pairProbeInterval = 0, pairProbeRejected = 0, pairProbeRejectedEnds = 0, pairProbeCompletion = 0
     private var pairProbeArms: [Int: PairProbeArm] = [:]
+    private var pairDispatchArms: [Int: Int] = [:]
+    private var pairDispatchPending: [Int: Set<Int>] = [:]
+    private var pairDispatchSerial = 0
     private var pairProbeTraces: [Int: [[String: Any]]] = [:]
     let testing = ProcessInfo.processInfo.environment["JONUI_TEST"] == "1"
     var layoutTesting: Bool { testing && ProcessInfo.processInfo.environment["JONUI_TEST_LAYOUT"] == "1" }
@@ -1294,8 +1298,16 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let current = box.props["epoch"] as? Int
         guard current == event.epoch, current == event.definitionEpoch,
               event.slot == nil || [0, 1].contains(event.slot!) else { pairProbeRejected += 1; if event.phase == "ended" { pairProbeRejectedEnds += 1 }; return }
-        if event.phase == "armed", let slot = event.slot { pairProbeArms[id] = PairProbeArm(epoch: event.epoch, slot: slot) }
-        else if event.phase == "reset" { pairProbeArms.removeValue(forKey: id) }
+        if event.phase == "armed", let slot = event.slot {
+            pairProbeArms[id] = PairProbeArm(epoch: event.epoch, slot: slot)
+            if box.props["dispatch"] as? Bool == true {
+                pairDispatchSerial += 1; pairDispatchArms[id] = pairDispatchSerial; pairDispatchPending.removeValue(forKey: id)
+                emit(["type": "gesturePairArm", "id": id, "token": event.epoch, "arm": pairDispatchSerial])
+            }
+        } else if event.phase == "reset" {
+            pairProbeArms.removeValue(forKey: id); pairDispatchPending.removeValue(forKey: id)
+            if let arm = pairDispatchArms.removeValue(forKey: id) { emit(["type": "gesturePairReset", "id": id, "token": event.epoch, "arm": arm]) }
+        }
         else if ["changed", "ended"].contains(event.phase) {
             guard let slot = event.slot, pairProbeArms[id] == PairProbeArm(epoch: event.epoch, slot: slot) else {
                 pairProbeRejected += 1; if event.phase == "ended" { pairProbeRejectedEnds += 1 }; return
@@ -1306,7 +1318,16 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
         var trace: [String: Any] = ["epoch": event.epoch, "interval": event.interval, "phase": event.phase,
                                     "slot": event.slot as Any? ?? NSNull(), "first": event.first, "second": event.second,
                                     "time": ProcessInfo.processInfo.systemUptime]
-        if event.phase == "ended" { pairProbeCompletion += 1; trace["completion"] = pairProbeCompletion }
+        if event.phase == "ended" {
+            pairProbeCompletion += 1; trace["completion"] = pairProbeCompletion
+            if box.props["dispatch"] as? Bool == true, let arm = pairDispatchArms[id] {
+                guard (pairDispatchPending[id]?.count ?? 0) < 128 else { ju_runtime_abort("Gesture pair completion queue overflow"); return }
+                trace["dispatchArm"] = arm
+                pairDispatchPending[id, default: []].insert(pairProbeCompletion)
+                emit(["type": "gesturePair", "id": id, "token": event.epoch, "arm": arm, "completion": pairProbeCompletion,
+                      "value": ["first": event.first, "second": event.second]])
+            }
+        }
         traces.append(trace); pairProbeTraces[id] = traces
     }
     // Reset owned transient state without synthesizing a pressing observer callback.
@@ -1356,7 +1377,7 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
         for coordinator in hostedControls.values { coordinator.invalidate() }
         window?.contentView = nil
         root = nil; nodes.removeAll(); cells.removeAll(); webViews.removeAll(); hostedControls.removeAll(); layoutFrames.removeAll()
-        retiredWindowNodes.removeAll(); pairProbeTraces.removeAll(); pairProbeArms.removeAll()
+        retiredWindowNodes.removeAll(); pairProbeTraces.removeAll(); pairProbeArms.removeAll(); pairDispatchArms.removeAll(); pairDispatchPending.removeAll()
         shortcutTestEvents.removeAll(); shortcutTestResults.removeAll()
         // Balance held test mouse-downs before tearing down their tracking loops.
         for timers in Array(tapTestTimers.values) { timers.last?.fire(); for timer in timers { timer.invalidate() } }; tapTestTimers.removeAll()
@@ -1980,7 +2001,7 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 }
                 if kind == "modifier", modifier == "testGesturePair", let previous = nodes[id], previous.kind == "modifier", previous.string("name") == modifier,
                    let oldEpoch = previous.props["epoch"] as? Int, let newEpoch = props["epoch"] as? Int {
-                    let changed = try jsonData([props["first"]!, props["second"]!, props["priority"]!]) != jsonData([previous.props["first"]!, previous.props["second"]!, previous.props["priority"]!])
+                    let changed = try jsonData([props["first"]!, props["second"]!, props["priority"]!, props["dispatch"] as? Bool ?? false]) != jsonData([previous.props["first"]!, previous.props["second"]!, previous.props["priority"]!, previous.props["dispatch"] as? Bool ?? false])
                     guard newEpoch >= oldEpoch, !changed || newEpoch > oldEpoch else { throw BridgeError("Test gesture pair changes require a newer epoch") }
                 }
                 if kind == "modifier" && modifier == "window", ![1, 2].contains(children.count) { throw BridgeError("Invalid child count for window") }
@@ -2034,6 +2055,8 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
             nodes = nodes.filter { reachable.contains($0.key) }
             pairProbeTraces = pairProbeTraces.filter { reachable.contains($0.key) && nodes[$0.key]?.kind == "modifier" && nodes[$0.key]?.string("name") == "testGesturePair" }
             pairProbeArms = pairProbeArms.filter { reachable.contains($0.key) && nodes[$0.key]?.kind == "modifier" && nodes[$0.key]?.string("name") == "testGesturePair" && nodes[$0.key]?.props["epoch"] as? Int == $0.value.epoch }
+            pairDispatchArms = pairDispatchArms.filter { pairProbeArms[$0.key] != nil && nodes[$0.key]?.props["dispatch"] as? Bool == true }
+            pairDispatchPending = pairDispatchPending.filter { pairDispatchArms[$0.key] != nil }
             layoutSurfaces = layoutSurfaces.filter { reachable.contains($0.key) }
             retiredWindowNodes.formIntersection(reachable)
             namedFocusNodes = focusNames
@@ -2052,7 +2075,8 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
             let snapshot: [String: Any] = ["nodes": views, "states": states, "liveViews": ViewBox.live, "liveCells": Cell.live,
                 "webViewCount": webViews.count, "textInputCount": textCount, "hostedControlCount": hostedControls.count,
                 "ownedWindowCount": ownedWindows.count, "focusWindowCount": focusWindows.count,
-                "pairProbeArmOwners": pairProbeArms.count,
+                "pairProbeArmOwners": pairProbeArms.count, "pairDispatchArmOwners": pairDispatchArms.count,
+                "pairDispatchPendingCount": pairDispatchPending.values.reduce(0) { $0 + $1.count },
                 "pairProbeTraceCount": pairProbeTraces.values.reduce(0) { $0 + $1.count }, "pairProbeOwners": pairProbeTraces.count,
                 "layoutSurfaceCount": layoutSurfaces.count, "pointerTimerCount": tapTestTimers.values.reduce(0) { $0 + $1.filter { $0.isValid }.count },
                 "availabilityWatchCount": availabilityWatches.count, "availabilityNotificationCount": availabilityNotifications.count,
@@ -2181,6 +2205,17 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
                  "current": surface.view?.window != nil && surface.view?.window === currentFocusWindow(),
                  "frames": surface.frames.filter { liveNode($0.key) != nil }.map { ["id": $0.key, "rect": rectangle($0.value)] as [String: Any] }] as [String: Any]
             }]
+        case "gesturePair.claim" where testing && layoutTesting && offscreen:
+            func counter(_ key: String) throws -> Int {
+                guard let value = message[key].flatMap(layoutNumber), value > 0, value.rounded() == value, value <= 9007199254740991 else { throw BridgeError("Invalid gesture pair claim") }
+                return Int(value)
+            }
+            guard Set(message.keys) == Set(["op", "id", "token", "arm", "completion"]) else { throw BridgeError("Invalid gesture pair claim") }
+            let id = try counter("id"), token = try counter("token"), arm = try counter("arm"), completion = try counter("completion")
+            guard !stopping, let box = liveNode(id), box.kind == "modifier", box.string("name") == "testGesturePair", box.props["dispatch"] as? Bool == true,
+                  box.props["epoch"] as? Int == token, pairDispatchArms[id] == arm, pairDispatchPending[id]?.remove(completion) != nil else { return ["accepted": false] }
+            if pairDispatchPending[id]?.isEmpty == true { pairDispatchPending.removeValue(forKey: id) }
+            return ["accepted": true]
         case "debug.pairTrace" where testing && layoutTesting && offscreen:
             guard Set(message.keys).isSubset(of: ["op", "id"]),
                   let value = message["id"].flatMap(layoutNumber), value > 0, value.rounded() == value, value < Double(Int.max),

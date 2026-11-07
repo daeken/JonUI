@@ -395,8 +395,8 @@ callback delivery from the pointer-start capture. Old epochs are rejected by the
 live-node collector, including a demonstrated completion after an epoch changes
 while the mouse is held. The collector retains at most 128 records per live probe
 node, drains explicitly, and clears owners on graph retirement and shutdown.
-There is no application-event dispatch, Node callback registry, native binding
-cell, extra timer or global event monitor for this experiment.
+In trace-only mode there is no Node callback registry or application-event
+dispatch. Neither mode adds a native binding cell, timer or global event monitor.
 
 The current adapter's actual offscreen Command-click results include:
 
@@ -444,8 +444,47 @@ and accept the fresh one after release. The full optional-value/control matrix,
 bounded trace draining, malformed/gated input, held shutdown and 20 owner lifetimes
 remain verified.
 
-Before public exposure, add owned group-token dispatch, leaf callback/path and
-causal-session semantics, immutable public optional results, transient branch-state
-reset, and sheet/lazy/owned-window composition tests. Long-press leaves and nested
+Before public exposure, complete leaf callback/path and causal-session semantics,
+choose immutable public optional results, add transient branch-state reset, and
+expand lazy/owned-window composition tests. Long-press leaves and nested
 groups remain outside this tap/spatial prototype. Hardware/minimum-OS validation
 and the existing inactive-pointer limitations remain open.
+
+
+### Internal owned group-end dispatch
+
+The test-only `__testing.gesturePair(view, first, second, callback, options)`
+attaches one owned synchronous group-end callback. It accepts tap/spatial leaves
+**without leaf callbacks** and a normal/high/simultaneous priority. Callback-bearing
+leaves and long-press/nested groups are rejected. All three native test flags above
+remain required; this is not a public composition API.
+
+Each accepted end produces a copied, frozen `{ first, second }` snapshot with the
+same tagged tap/spatial/null branches as the probe. Both-null and malformed values
+are dropped. These private tags distinguish void presence from absence without
+committing the public API to this representation. No leaf callback is synthesized
+from a group result; changed values still do not establish completed branches.
+
+A mounted group owns a token independent of other attachments. Count/kind/priority,
+disabled eligibility and ancestor sheet/window presentation changes retire the
+token; current callback rebuilds preserve it. Presentation bindings are tracked
+by the modifier even when the logical group description is static. Delivery also
+checks current ancestry before calling a handler. Callbacks run untracked outside
+task context; throws or thenables stop the app and dispose its owners.
+
+The host assigns an arm lease whenever the native recognizer becomes armed and
+invalidates it on reset, disappearance, reconfiguration or removal. Before a Node
+handler runs, a synchronous native claim must consume the completion once under
+the matching live node/token/arm. This prevents an end queued before native
+retirement from surviving a later reset queued behind it. Completion sequence and
+arm high-water checks reject repeats and old leases. Native pending completions
+are bounded to 128 per arm; overflow aborts instead of silently dropping ends.
+Claims, re-arming, graph retirement and shutdown release pending entries.
+
+Native checks cover current callbacks and State writes, equal-count double-click
+ends, mixed-count optional results across priorities, pending/held replacements,
+disabled ancestors, retained-sheet dismissal/re-entry, failure/thenable/held-close
+cleanup and twenty owner lifetimes. Unit checks additionally inject malformed,
+duplicate and retired events and synchronous owner removal. Compound leaf paths,
+causal sessions, branch GestureState and lazy/owned-window dispatch remain future
+work. Existing raw recognition/control tests do not prove those dispatch paths.
