@@ -1447,6 +1447,40 @@ content, including native-close retirement. Automatic transient state, explicit
 cancel reasons, priority/composition and hardware/unmodified inactive delivery
 remain open; other gestures/animation follow those ownership checks.
 
+Long-press presentation ownership follow-up (2026-11-07): a real held-scroll
+probe reproduced an offscreen completion after its lazy row lost native layout
+while retaining its logical owner/token. NativeLongPressGesture now clears its
+pending recognition token on native disappearance. This suppresses completion
+from an evicted row or dismissed sheet without unmounting logical State or
+replacing its callback token. A fresh visible press captures that token again.
+No callback/reset notification is synthesized, and no new public API, JS/native
+registry, timer, binding cell or observer is added by the fix.
+
+New native fixtures cover real held recognition and early-release/movement
+cancellation in independent roots/sheets, cross-root and sheet-parent rejection,
+current handlers, native close during a hold, fresh owned-root State on reopen,
+retained sheet State/token on dismissal/reappearance and 20 owned-root lifetimes.
+All four lazy stack/grid variants verify actual recognition after scroll, cancel
+when a held row disappears, retained logical State/token and fresh reappearance,
+held logical removal and 20 container lifetimes each. Phase callbacks cannot run
+after logical retirement; view/cell/callback/surface/timer counts return to
+baseline. Offscreen probes and tests leave the app inactive and windows non-key.
+
+Validation: native build, 189 unit/compiler cases, 11 coverage workflow tests,
+both type checkers and API classification pass. Twenty-nine focused offscreen
+native gates pass (five new ownership/lazy scenarios plus the 24 prior long-press,
+failure/held-shutdown, spatial/priority/lazy/shape/window/layout/appearance/shortcut/
+contract gates). The initial probe's visible failure was fixed and its behavior
+is now a regression assertion in every lazy variant. No full-suite pass or fix
+for the recorded focus-mixed-sheet AppKit close SIGSEGV is claimed. Partially
+clipped but still realized targets and general occlusion are not classified as
+native disappearance. Unmodified inactive delivery, hardware/minimum OS,
+explicit cancellation reasons and automatic transient-state reset remain open.
+Keep gestures/animation unchecked. Next actionable increment: long-press priority/
+composition with native controls, retaining recognition/pressing lifecycle and
+cancellation behavior; then define owned transient gesture state/general gesture
+composition before adding other gestures/animation.
+
 ## 3. Application and operating-system integration
 
 Button Command shortcuts completed (2026-11-07), continuing keyboard navigation:

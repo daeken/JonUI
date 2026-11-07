@@ -187,16 +187,22 @@ run untracked outside task context, and must be synchronous. Throwing or returni
 a Promise stops/disposes the app. Current handler changes retain the token.
 Duration/distance changes or adding/removing the observer retire it. Native state
 captures the starting token, so an old countdown cannot complete through a newer
-handler/configuration. Removal/close retires callbacks and drops late events.
+handler/configuration. Logical removal/close retires callbacks and drops late
+events. Native disappearance also clears the pending recognition token, even
+when a lazy row or sheet keeps its logical owner alive. A press from the old
+presentation cannot perform after disappearance; a fresh visible press captures
+the current token again. Logical State and callback identity survive this native
+hide/show cycle.
 
 Pressing notifications are not a GestureState binding or a guaranteed cleanup
 hook. Configuration replacement and logical retirement discard old notifications,
 including a possible final false; reset any shared external flag when you
 reconfigure and use `scope.onDispose` for guaranteed owner cleanup. Native lazy
-visibility and other controls may also affect recognition. Explicit cancellation
-reasons, automatic transient-state reset, priority/composition and positive
-sheet/owned-root/lazy long-press coverage remain open. No ordering guarantee is
-added beyond the native phase stream.
+visibility and other controls may also affect recognition. Native disappearance
+does not synthesize an observer notification. Explicit cancellation reasons,
+automatic transient-state reset, priority/composition, partially clipped but still
+realized targets, occlusion and broader control interoperability remain open.
+No ordering guarantee is added beyond the native phase stream.
 
 Main-window automation covers threshold timing, early release, movement
 cancellation, zero thresholds, current handlers/configuration epochs, native field
@@ -205,3 +211,13 @@ main-run-loop release/move timers; teardown balances mouse-up and invalidates th
 Callback failures must exit with status 1, and shutdown while held must exit cleanly,
 so crashes cannot masquerade as expected failure in those gates. This test-only
 infrastructure adds no production timer.
+
+Owned-window/sheet automation verifies actual held recognition, early-release and
+movement cancellation, cross-root target rejection, current handlers and native
+close during a hold. Dismissing a sheet cancels its pending recognition while
+retaining logical State/token; showing it again accepts a fresh press. All four
+lazy layouts verify cancellation when scrolling a held row out of native
+realization, retained State/token and fresh reappearance, held logical removal,
+and 20 lifetimes each. These are native-disappearance guarantees, not a general
+pixel/occlusion visibility test. Unmodified inactive delivery and hardware checks
+remain open.

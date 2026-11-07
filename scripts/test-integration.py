@@ -200,3 +200,6 @@ run('tests/integration/long-press.mjs', timeout=90, layout=True)
 for mode, message in [('perform', 'intentional long press failure'), ('perform-promise', 'must be synchronous'), ('pressing', 'intentional long press failure'), ('pressing-promise', 'must be synchronous')]:
     run('tests/integration/long-press-error.mjs', case=mode, failure=message, layout=True)
 run('tests/integration/long-press-error.mjs', case='close', layout=True)
+run('tests/integration/long-press-windows.mjs', timeout=90, layout=True)
+for mode in ['vertical-stack', 'horizontal-stack', 'vertical-grid', 'horizontal-grid']:
+    run('tests/integration/long-press-lazy.mjs', case=mode, timeout=90, layout=True)

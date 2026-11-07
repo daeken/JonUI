@@ -29,6 +29,19 @@ Status meanings:
 
 ## Current review
 
+- Long-press ownership review (2026-11-07): a real held-scroll probe exposed a
+  completion after lazy native disappearance. Clearing native recognition state
+  onDisappear fixes it without new public API/resources or logical-owner/token
+  changes. All four lazy variants verify recognition/cancel after scrolling,
+  retained State/token and fresh reappearance, held removal and 20 lifetimes.
+  Owned-root/sheet tests verify native recognition, routing/current handlers,
+  dismiss/reappear, native close while held and 20 root lifetimes. Native-phase
+  notifications are not synthesized for cleanup. Build, 189 unit/compiler cases,
+  11 coverage workflow tests, both type checkers and 29 focused native gates pass.
+  No full-suite pass or sheet-close crash fix is claimed. Partial clipping/
+  occlusion, priority/composition, automatic GestureState, explicit cancel reasons
+  and hardware/unmodified inactive delivery remain open.
+
 - Long-press review (2026-11-07): View.onLongPressGesture exposes native threshold
   recognition and optional synchronous pressing notifications, finite nonnegative
   seconds/point distance and owned configuration tokens. Native state pins each
@@ -40,9 +53,9 @@ Status meanings:
   shutdown exits 0 and four error modes require exactly 1, disposing once. Build,
   189 unit/compiler cases, 11 coverage workflow tests, both type checkers and 24
   focused native gates pass. No full-suite pass or sheet-close crash fix is
-  claimed. Pressing is not automatic GestureState/reset on retirement. Positive
-  sheet/owned/lazy long-press interop, cancel reasons, priority/composition,
-  hardware/unmodified inactive delivery and other gestures/animation remain open.
+  claimed. Pressing is not automatic GestureState/reset on retirement. The
+  ownership review above adds sheet/owned/lazy coverage. Cancel reasons, priority/
+  composition, hardware/unmodified inactive delivery and other gestures remain open.
 
 - Spatial tap review (2026-11-07): View.onSpatialTapGesture/TapLocation deliver
   frozen finite local x/y snapshots with native single/double count and normal/
@@ -468,15 +481,15 @@ Status meanings:
 | VStack | Available | Tracked child array, alignment and optional spacing. | Native layout/keyed identity verified; baseline documentation in docs/layout.md. <!-- api: VStack --> |
 | HStack | Available | Tracked child array, vertical/baseline alignment and spacing. | Native geometry and dynamic alignment verified. <!-- api: HStack --> |
 | ZStack | Missing | Child array and two-axis alignment. | Layer order, hit testing, identity and accessibility. |
-| LazyVStack | Available | Eager logical keyed scopes; lazy native rows. | Actual partial realization/scrolling/removal, keyed local State and owner cleanup verified; native rectangular-margin Command-taps after scroll and clipped-point rejection covered. <!-- api: LazyVStack --> |
-| LazyHStack | Available | Eager logical keyed scopes; lazy native columns. | Partial realization, horizontal scroll, keyed state and cleanup verified; native rectangular-margin Command-taps after scroll and clipped-point rejection covered. <!-- api: LazyHStack --> |
-| LazyVGrid | Available | Detached fixed/flexible/adaptive tracks; keyed state. | Native geometry/repacking/scrolling and scoped cleanup verified; native rectangular-margin Command-taps after scroll and clipped-point rejection covered. <!-- api: LazyVGrid, GridItem --> |
-| LazyHGrid | Available | Detached row tracks; keyed state. | Native horizontal grid measurement/repacking and cleanup verified; native rectangular-margin Command-taps after scroll and clipped-point rejection covered. <!-- api: LazyHGrid --> |
+| LazyVStack | Available | Eager logical keyed scopes; lazy native rows. | Actual partial realization/scrolling/removal, keyed local State and owner cleanup verified; native rectangular-margin Command-taps and long-press recognition/disappearance cancellation after scroll, retained State/token and clipped-point rejection covered. <!-- api: LazyVStack --> |
+| LazyHStack | Available | Eager logical keyed scopes; lazy native columns. | Partial realization, horizontal scroll, keyed state and cleanup verified; native rectangular-margin Command-taps and long-press recognition/disappearance cancellation after scroll, retained State/token and clipped-point rejection covered. <!-- api: LazyHStack --> |
+| LazyVGrid | Available | Detached fixed/flexible/adaptive tracks; keyed state. | Native geometry/repacking/scrolling and scoped cleanup verified; native rectangular-margin Command-taps and long-press recognition/disappearance cancellation after scroll, retained State/token and clipped-point rejection covered. <!-- api: LazyVGrid, GridItem --> |
+| LazyHGrid | Available | Detached row tracks; keyed state. | Native horizontal grid measurement/repacking and cleanup verified; native rectangular-margin Command-taps and long-press recognition/disappearance cancellation after scroll, retained State/token and clipped-point rejection covered. <!-- api: LazyHGrid --> |
 | Grid | Missing | Eager rows/columns, alignment, spacing. | Cell spans, unsized axes, anchors and row identity. |
 | GridRow | Missing | Child cells and row alignment. | Requires Grid with span/alignment contracts. |
 | Spacer | Available | Optional finite nonnegative minimum length. | Native layout verified; no owned mutable state. <!-- api: Spacer --> |
 | Divider | Available | Stateless native separator. | Rendered in native hierarchy; style/orientation follow native layout. <!-- api: Divider --> |
-| ScrollView | Partial | Axes and indicator visibility; content owns state. | Native scroll/geometry and lazy rectangular-margin Command-taps verified; test driver rejects requested points outside ancestor viewports. Position Binding, reader, bounce and target APIs remain. <!-- api: ScrollView --> |
+| ScrollView | Partial | Axes and indicator visibility; content owns state. | Native scroll/geometry, lazy rectangular-margin Command-taps and long-press disappearance cancellation verified; test driver rejects requested points outside ancestor viewports. Position Binding, reader, bounce and target APIs remain. <!-- api: ScrollView --> |
 | ScrollViewReader | Missing | Stable scroll target IDs and scroll actions. | Cancellation, unrealized lazy targets and window ownership. |
 | ScrollPosition / ScrollGeometry | Missing | Position/anchor and read-only scroll snapshots. | Define typed coalesced scroll events, Binding and revision rules. |
 | List | Partial | String/number/null single-selection Binding; keyed rows. | Basic Landmarks selection/state verified; editing, multi-select, sections/styles and drag/drop remain. <!-- api: List --> |
@@ -630,7 +643,7 @@ Status meanings:
 | onTapGesture / double tap | Partial | Native count 1/2 and normal/high/simultaneous priority; synchronous current Node handler, owned modifier token, disabled ancestors and cleanup. | Actual main/owned-window recognition, keyed/count changes, local State, failures, cross-root/sheet-parent rejection, native-close retirement/reopen and 20 lifetimes verified. Native lazy stack/grid and sheet Command-taps verified; unmodified inactive scroll/sheet delivery remains unverified. Ordinary Button/Toggle/nested priority composition and stable field focus verified; primitive interaction regions and modifier order verified; separate SpatialTapGesture supplies local snapshots. General coordinates/shapes, different-count conflicts and broader control/browser/scroll composition remain. <!-- api: View.onTapGesture --> |
 | highPriorityGesture / simultaneousGesture | Partial (tap only) | onTapGesture priority selects native precedence; changes retire its token while preserving control identity. | Ordinary Button/Toggle/nested Command-click outcomes, disabled behavior and cleanup verified. General Gesture values, explicit masks, sequential/exclusive composition and broader native/browser/scroll interop remain. |
 | contentShape / interaction regions | Partial | Native rectangle/circle/ellipse/capsule paths for interaction only; immutable descriptor, no drawing/clipping/layout change. | Native margin/corner/order tests, stable keyed State/tokens/field focus, disabled owners, lazy rectangular-margin taps and cleanup verified. Custom/even-odd paths, preview/hover kinds, broad AppKit/browser interop and general Shape drawing remain. <!-- api: View.contentShape --> |
-| LongPressGesture | Partial (macOS view modifier) | Native recognition plus optional synchronous pressing booleans; seconds/point thresholds and owned config token, pinned at press start. | Main-window actual hold/early-release/distance cancellation, zero thresholds, current handlers/config retirement, native field identity, failure/shutdown cleanup and 20 lifetimes verified. No guaranteed final false on retirement; auto GestureState, explicit cancel reasons, priority/general Gesture composition, positive sheet/owned/lazy and hardware coverage remain. <!-- api: View.onLongPressGesture --> |
+| LongPressGesture | Partial (macOS view modifier) | Native recognition plus optional synchronous pressing booleans; seconds/point thresholds and owned config token, pinned at press start. | Actual hold/cancel in main/owned/sheet/all lazy layouts, native-disappearance invalidation with retained State/token and fresh reappearance, native close/held removal, current handlers/field identity, failure/shutdown cleanup and 20 lifetimes per new scenario verified. No guaranteed final false on retirement; partial clipping/occlusion, auto GestureState, cancel reasons, priority/general composition and hardware remain. <!-- api: View.onLongPressGesture --> |
 | DragGesture | Missing | Translation, location, prediction and coordinate space. | High-rate event coalescing, GestureState and cleanup. |
 | MagnifyGesture / RotationGesture | Missing | Scale/angle phase and anchor. | Trackpad/touch availability and cancellation. |
 | SpatialTapGesture | Partial (macOS) | Readonly TapLocation local x/y snapshot via onSpatialTapGesture; count/priority/owner tokens, same synchronous cleanup as ordinary taps. | SDK macOS 13/14 overload audit; real points in resized/padded/main/sheet/owned/lazy layouts, control composition, stale/malformed payloads and 20 lifetimes verified. Named/global spaces, input-kind filters, other platforms and hardware remain. <!-- api: View.onSpatialTapGesture, TapLocation --> |
@@ -730,7 +743,7 @@ can still bypass local enforcement; this is not server-side branch protection.
 Repository instructions require the same review for contributors and automation.
 
 <!-- coverage-review:generated -->
-Review baseline (checkout HEAD before commit): `a52b595ef99743bcfd9f2c272aa97101e40470aa`.
+Review baseline (checkout HEAD before commit): `c047937c2884ae8d850db718d00ae3e010ca2b51`.
 
-Staged source-tree SHA-256 (excluding this catalog): `302498d526efb7edfcfd12e6e46417b015aae646d014d8f1fe5340cf8d73cffa`.
+Staged source-tree SHA-256 (excluding this catalog): `70c2eefa60206a42d98bd93524529b875379606d0435b2b50bf10898c63b35e3`.
 <!-- /coverage-review:generated -->

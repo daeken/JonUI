@@ -352,6 +352,9 @@ private struct NativeLongPressGesture: View {
             if pressing { recognitionToken = token }
             if enabled || !pressing { pressingChanged(recognitionToken ?? token, pressing) }
         }, perform: { if enabled, let started = recognitionToken { performed(started) } })
+        // Lazy/sheet disappearance can retain the logical owner and its token.
+        // A native countdown from that old presentation must not perform later.
+        .onDisappear { recognitionToken = nil }
     }
 }
 
