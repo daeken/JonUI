@@ -1,5 +1,5 @@
 import type { TapLocation } from 'jonui';
-import { Button, Component, Picker, Text, Toggle, VStack, runApp } from 'jonui';
+import { TapGesture, SpatialTapGesture, LongPressGesture, Button, Component, Picker, Text, Toggle, VStack, runApp } from 'jonui';
 
 const Demo = Component(scope => {
   const singles = scope.state(0), doubles = scope.state(0), actions = scope.state(0), taps = scope.state(0), disabled = scope.state(false);
@@ -19,15 +19,15 @@ const Demo = Component(scope => {
       { value: 'rectangle', label: 'Rectangle' }, { value: 'circle', label: 'Circle' },
       { value: 'ellipse', label: 'Ellipse' }, { value: 'capsule', label: 'Capsule' },
     ], style: 'segmented' }),
-    Text(`Single taps: ${singles.value}`).padding(20).contentShape(shape.value).onTapGesture(() => { singles.value++; }),
-    Text(`Double taps: ${doubles.value}`).padding(20).contentShape(shape.value).onTapGesture(() => { doubles.value++; }, { count: 2 }),
+    Text(`Single taps: ${singles.value}`).padding(20).contentShape(shape.value).gesture(TapGesture().onEnded(() => { singles.value++; })),
+    Text(`Double taps: ${doubles.value}`).padding(20).contentShape(shape.value).gesture(TapGesture({ count: 2 }).onEnded(() => { doubles.value++; })),
     Text(`Local tap: ${point.value.x.toFixed(1)}, ${point.value.y.toFixed(1)}`)
       .frame({ width: 360, height: 80 }).contentShape(shape.value)
-      .onSpatialTapGesture(location => { point.value = location; }, { priority: priority.value }),
+      .gesture(SpatialTapGesture().onEnded(location => { point.value = location; }), { priority: priority.value }),
     Toggle('Recognize holds together with Button actions', { isOn: together.binding }),
     Button(`Holds: ${longs.value} · actions: ${longActions.value} · ${pressing.value ? 'pressing' : 'idle'}`, () => { longActions.value++; })
       .frame({ width: 360, height: 60 }).contentShape(shape.value)
-      .onLongPressGesture(() => { longs.value++; }, { priority: together.value ? 'simultaneous' : 'normal', pressing }),
+      .gesture(LongPressGesture({ pressing }).onEnded(() => { longs.value++; }), { priority: together.value ? 'simultaneous' : 'normal' }),
     Text('Hit shapes change the padded labels’ interaction area without drawing or clipping.').font('caption'),
   ], { spacing: 20 })
     .padding(20);

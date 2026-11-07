@@ -1575,6 +1575,54 @@ remain unresolved; no full-suite pass is claimed. Keep gestures/animation unchec
 Next independent increment: define typed Gesture values and composition ownership,
 including conflict/reset mappings, before adding high-rate drag/animation APIs.
 
+
+Typed leaf gesture values (2026-11-07): `TapGesture`, `SpatialTapGesture` and
+`LongPressGesture` now create immutable, branded descriptions with copied options.
+`value.onEnded(action)` returns a new leaf with one replacement terminal action;
+it does not mutate the original or build a callback chain. `view.gesture(value,
+{ priority })` attaches through the existing native modifier contracts. Priority
+belongs to each attachment; high remains rejected for long presses in TypeScript
+and runtime. Ordinary tap actions take no arguments, spatial taps receive frozen
+local points, and typed long presses receive true on native performed recognition.
+The existing onLongPressGesture convenience retains its zero-argument action.
+Installed-SDK audit confirms LongPressGesture.Value is Bool, within the existing
+macOS 14 target; no new native overload or deployment requirement is introduced.
+
+Constructing/copying values allocates no native view, token, cell or subscription.
+Each mounted attachment owns an independent callback/configuration token; sharing
+a stateless description shares its function but not its attachment lifetime.
+Current handler rebuilds retain tokens, while count/mode/priority and long-press
+config/observer/state changes keep their existing retirement/reset rules. Omitted
+onEnded still participates in native competition without a user action. A shared
+owned GestureState remains exclusive and descendant/window-scoped; a description
+with disposed state cannot be reattached. No bridge schema, native recognizer,
+callback table, binding cell or production timer is added. The demo includes
+leaf-value authoring alongside convenience modifiers.
+
+Validation: native build, 197 unit/compiler cases, 11 coverage workflow tests,
+both type checkers and API classification pass. Thirty-five focused offscreen
+native gates pass. A shared-description fixture verifies real native recognition,
+action-free high/normal Button competition, independent attachment tokens, sibling
+survival after retirement and 20 owner lifetimes. Existing tap-priority and long-
+press state/priority/main/owned/sheet/all-lazy/failure/shutdown fixtures now exercise
+typed attachments; ordinary/spatial convenience regressions pass in the same gate.
+Refreshed main/action-failure/held-shutdown checks pass in both long-press modes,
+including explicit native boolean-result assertions.
+
+Composition ownership is specified in docs/gestures.md: stacked gesture modifiers
+are independent attachments, without compound results or a shared recognition
+transaction. Compound trees need one native session/config epoch and stable leaf
+paths, explicit absent/failed/complete result rules, branch-safe transient-state
+reset, and real arbitration/lifecycle coverage. Joining independently queued Node
+callbacks cannot establish native compound recognition. No simultaneous-pair,
+sequential/exclusive value, general updating/masks, high-rate coalescing or reset
+transaction is exposed. Keep gestures/animation unchecked. Next increment: native
+simultaneous-pair value/ownership prototype, including void/absent branch semantics
+and atomic group retirement, before exposing its public composition method.
+High-priority nested long presses, hardware/unmodified inactive delivery and the
+recorded mixed-sheet AppKit close crash remain unresolved; no full-suite pass is
+claimed.
+
 ## 3. Application and operating-system integration
 
 Button Command shortcuts completed (2026-11-07), continuing keyboard navigation:

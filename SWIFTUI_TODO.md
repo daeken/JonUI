@@ -29,6 +29,21 @@ Status meanings:
 
 ## Current review
 
+- Typed leaf-value review (2026-11-07): immutable TapGesture/SpatialTapGesture/
+  LongPressGesture descriptions and View.gesture reuse native modifier schemas,
+  independent attachment tokens and current-handler/config retirement rules.
+  Constructor priority is rejected; long-press high remains unsupported. Actions
+  have void/local-point/recognized-boolean payloads; onEnded replaces in a new leaf.
+  Descriptions allocate no native resources; owned pressing state remains exclusive.
+  SDK confirms LongPressGesture.Value Bool; no native overload/deployment change.
+  Build, 197 unit/compiler cases, 11 workflow tests, both type checkers and
+  classification and 35 focused offscreen native gates pass. Refreshed long-press
+  boolean-result/failure/shutdown checks pass in both modes. Shared-description
+  retirement, action-free precedence, typed priorities/state/lazy/sheet/owned roots
+  and cleanup are covered. Compound-session/branch/reset requirements are recorded
+  in docs/gestures.md. Pair/sequence/exclusive values, native masks/updating,
+  high-rate events and reset transactions remain open; no full parity/suite claim.
+
 - Owned GestureState review (2026-11-07): scope.gestureState supplies a branded
   read-only tracked boolean for one descendant long press in its owner window
   root. No native scalar cell/writable binding. End/cancel, config/state/attachment
@@ -674,7 +689,8 @@ Status meanings:
 | task / refreshable | Partial analog | Scoped task cancellation exists. | Native view-appearance task, ID-triggered task and refresh UI integration remain. |
 | onSubmit / onEditingChanged | Partial | Native text revision snapshot before Node callback. | Supported text controls verified; richer submit scopes/triggers remain. |
 | onTapGesture / double tap | Partial | Native count 1/2 and normal/high/simultaneous priority; synchronous current Node handler, owned modifier token, disabled ancestors and cleanup. | Actual main/owned-window recognition, keyed/count changes, local State, failures, cross-root/sheet-parent rejection, native-close retirement/reopen and 20 lifetimes verified. Native lazy stack/grid and sheet Command-taps verified; unmodified inactive scroll/sheet delivery remains unverified. Ordinary Button/Toggle/nested priority composition and stable field focus verified; primitive interaction regions and modifier order verified; separate SpatialTapGesture supplies local snapshots. General coordinates/shapes, different-count conflicts and broader control/browser/scroll composition remain. <!-- api: View.onTapGesture --> |
-| highPriorityGesture / simultaneousGesture | Partial | Tap priority selects native precedence; long presses support normal/simultaneous. Changes retire tokens while preserving control identity. | Ordinary/spatial taps and long-press Button/Toggle/nested Command-event outcomes, disabled behavior and cleanup verified. High long presses are blocked by native nested arbitration with pressing observation. General Gesture values, explicit masks, sequential/exclusive composition and broader native/browser/scroll interop remain. |
+| Typed Gesture values | Partial (leaf descriptors) | Immutable reusable leaves; View.gesture attaches independent owned callback/config epochs. | Tap/spatial/long-press options, current callbacks, epochs, reuse, precedence and cleanup verified; long press has a recognized-boolean action value. No simultaneous-pair, sequence/exclusive result values, explicit masks or general updating API. <!-- api: Gesture, GesturePriority, TapGesture, SpatialTapGesture, LongPressGesture, View.gesture --> |
+| highPriorityGesture / simultaneousGesture | Partial | Typed leaf attachments and tap conveniences select native precedence; long presses support normal/simultaneous. Changes retire tokens while preserving control identity. | Ordinary/spatial taps and long-press Button/Toggle/nested Command-event outcomes, disabled behavior and cleanup verified. High long presses are blocked by native nested arbitration with pressing observation. General Gesture values, explicit masks, sequential/exclusive composition and broader native/browser/scroll interop remain. |
 | contentShape / interaction regions | Partial | Native rectangle/circle/ellipse/capsule paths for interaction only; immutable descriptor, no drawing/clipping/layout change. | Native margin/corner/order tests, stable keyed State/tokens/field focus, disabled owners, lazy rectangular-margin taps and cleanup verified. Custom/even-odd paths, preview/hover kinds, broad AppKit/browser interop and general Shape drawing remain. <!-- api: View.contentShape --> |
 | LongPressGesture | Partial (macOS view modifier) | Native normal/simultaneous recognition plus optional synchronous pressing booleans and owned auto-reset GestureState; seconds/point thresholds and owned config token, pinned at press start. | Actual hold/cancel in main/owned/sheet/all lazy layouts, native-disappearance invalidation with retained State/token and fresh reappearance, native close/held removal, current handlers/field identity, control/nested composition, priority replacement, zero-start ordering, failure/shutdown cleanup and 20 lifetimes verified in both modes. Observer callbacks have no guaranteed final false on retirement; the optional owned pressing state resets. High priority is blocked by native nested arbitration. Partial clipping/occlusion, generic GestureState/updating, cancel reasons, general composition and hardware remain. <!-- api: View.onLongPressGesture --> |
 | DragGesture | Missing | Translation, location, prediction and coordinate space. | High-rate event coalescing, GestureState and cleanup. |
@@ -776,7 +792,7 @@ can still bypass local enforcement; this is not server-side branch protection.
 Repository instructions require the same review for contributors and automation.
 
 <!-- coverage-review:generated -->
-Review baseline (checkout HEAD before commit): `61b5cfe5c0f9ee6129fa9aa544e74c4e9bf22836`.
+Review baseline (checkout HEAD before commit): `3fff40a5899264b61133e053808c20a9aa16ba1d`.
 
-Staged source-tree SHA-256 (excluding this catalog): `8ec0ebf3e0006a78cc162351080a98953a04eddb6fa4e2978b2d8ae6881175cd`.
+Staged source-tree SHA-256 (excluding this catalog): `83bab3a002a1bcbe80e478dc1a9d1f1587ed94d8b1833aeb1aae53c521137dc5`.
 <!-- /coverage-review:generated -->

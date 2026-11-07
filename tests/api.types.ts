@@ -580,3 +580,30 @@ Component(scope => {
 Text('Invalid').onLongPressGesture(() => {}, { pressing: State(false) });
 // @ts-expect-error Forged read-only records are not owned GestureState.
 Text('Invalid').onLongPressGesture(() => {}, { pressing: { value: false } });
+
+import { TapGesture, SpatialTapGesture, LongPressGesture } from 'jonui';
+Text('Tap value').gesture(TapGesture({ count: 2 }).onEnded(() => {}), { priority: 'high' });
+Text('Spatial value').gesture(SpatialTapGesture().onEnded(point => { const x: number = point.x; }));
+Text('Hold value').gesture(LongPressGesture().onEnded(success => { const b: boolean = success; }), { priority: 'simultaneous' });
+Component(scope => { const held = scope.gestureState(); const gesture = LongPressGesture({ pressing: held, onPressingChanged: value => { const b: boolean = value; } }); return () => Text(String(held.value)).gesture(gesture); });
+// @ts-expect-error Long-press high priority remains unsupported.
+Text('Invalid').gesture(LongPressGesture(), { priority: 'high' });
+// @ts-expect-error Attachment priority is separate from the reusable description.
+TapGesture({ priority: 'high' });
+// @ts-expect-error Gestures have opaque identity.
+Text('Invalid').gesture({ onEnded() {} });
+// @ts-expect-error Ordinary taps have no location payload.
+TapGesture().onEnded(point => { console.log(point.x); });
+// @ts-expect-error Spatial snapshots are readonly.
+SpatialTapGesture().onEnded(point => { point.x = 1; });
+// @ts-expect-error Actions must be synchronous.
+TapGesture().onEnded(async () => {});
+// @ts-expect-error Spatial actions must be synchronous.
+SpatialTapGesture().onEnded(() => Promise.resolve());
+// @ts-expect-error Long-press actions must be synchronous.
+LongPressGesture().onEnded(async () => {});
+// @ts-expect-error Long-press observers must be synchronous.
+LongPressGesture({ onPressingChanged: async () => {} });
+
+// @ts-expect-error Long-press recognition is a boolean, not a location.
+LongPressGesture().onEnded(success => { console.log(success.x); });

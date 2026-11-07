@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { Component, Focus, State, Text, TextField, View, VStack, runApp, __testing as test } from 'jonui';
+import { LongPressGesture, Component, Focus, State, Text, TextField, View, VStack, runApp, __testing as test } from 'jonui';
 const initialPriority = process.env.JONUI_CASE === 'simultaneous' ? 'simultaneous' : 'normal';
 const priority = State(initialPriority);
 const shown = State(false), duration = State(0.06), distance = State(10), observed = State(true), revision = State(0), disabled = State(false), mutation = State('none');
@@ -9,9 +9,7 @@ const Owner = Component(scope => {
   return () => {
     const current = revision.value;
     return VStack([
-      Text(`Hold: ${hits.value} · ${pressing.value ? 'held' : 'idle'}`).frame({ width: 260, height: 80 }).contentShape('rectangle').onLongPressGesture(() => { hits.value++; events.push({ kind: 'perform', current, at: Date.now() }); }, {
-        pressing, priority: priority.value, minimumDuration: duration.value, maximumDistance: distance.value,
-        ...(observed.value ? { onPressingChanged: value => {
+      Text(`Hold: ${hits.value} · ${pressing.value ? 'held' : 'idle'}`).frame({ width: 260, height: 80 }).contentShape('rectangle').gesture(LongPressGesture({ pressing, minimumDuration: duration.value, maximumDistance: distance.value, ...(observed.value ? { onPressingChanged: value => {
           assert.equal(pressing.value, value); events.push({ kind: value, current, at: Date.now() });
           if (value && mutation.value === 'revision') revision.value++;
           if (value && mutation.value === 'priority') priority.value = priority.value === 'normal' ? 'simultaneous' : 'normal';
@@ -19,9 +17,8 @@ const Owner = Component(scope => {
           if (value && mutation.value === 'observer') observed.value = false;
           if (value && mutation.value === 'remove') shown.value = false;
           if (value && mutation.value === 'disable') disabled.value = true;
-        } } : {}),
-      }),
-      TextField('Field', { text: text.binding, focusName: 'field' }).frame({ width: 240, height: 30 }).onLongPressGesture(() => {}, { priority: priority.value, minimumDuration: duration.value, maximumDistance: distance.value }),
+        } } : {}) }).onEnded(recognized => { assert.equal(recognized, true); hits.value++; events.push({ kind: 'perform', current, at: Date.now() }); }), { priority: priority.value }),
+      TextField('Field', { text: text.binding, focusName: 'field' }).frame({ width: 240, height: 30 }).gesture(LongPressGesture({ minimumDuration: duration.value, maximumDistance: distance.value }).onEnded(() => {}), { priority: priority.value }),
     ], { spacing: 16 }).disabled(disabled.value);
   };
 });

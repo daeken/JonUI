@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import { Button, Component, Focus, ForEach, State, Text, TextField, Toggle, View, VStack, runApp, __testing as test } from 'jonui';
+import { LongPressGesture, Button, Component, Focus, ForEach, State, Text, TextField, Toggle, View, VStack, runApp, __testing as test } from 'jonui';
+const leaf = (callback, { priority, ...settings } = {}) => LongPressGesture(settings).onEnded(callback);
 const duration = State(0.5);
 const shown = State(false), priority = State('normal'), revision = State(0), reversed = State(false), blocked = State(false);
 const events = [], timing = []; let model, setups = 0, disposals = 0;
@@ -14,10 +15,10 @@ const Owner = Component(scope => {
     });
     const record = kind => { total.value++; events.push([kind, current]); timing.push([kind, Date.now()]); };
     const rows = {
-      field: () => TextField('Field', { text: text.binding, focusName: 'field' }).frame({ width: 260, height: 40 }).onLongPressGesture(() => record('field'), options('field')),
-      button: () => Button('Button', () => record('button')).frame({ width: 260, height: 40 }).onLongPressGesture(() => record('button-hold'), options('button')),
-      toggle: () => Toggle('Toggle', { isOn: on.binding }).frame({ width: 260, height: 40 }).onLongPressGesture(() => record('toggle-hold'), options('toggle')),
-      nested: () => Text('Nested').frame({ width: 260, height: 40 }).onLongPressGesture(() => record('child'), { minimumDuration: duration.value }).onLongPressGesture(() => record('parent'), options('nested')),
+      field: () => TextField('Field', { text: text.binding, focusName: 'field' }).frame({ width: 260, height: 40 }).gesture(leaf(() => record('field'), options('field')), { priority: priority.value }),
+      button: () => Button('Button', () => record('button')).frame({ width: 260, height: 40 }).gesture(leaf(() => record('button-hold'), options('button')), { priority: priority.value }),
+      toggle: () => Toggle('Toggle', { isOn: on.binding }).frame({ width: 260, height: 40 }).gesture(leaf(() => record('toggle-hold'), options('toggle')), { priority: priority.value }),
+      nested: () => Text('Nested').frame({ width: 260, height: 40 }).gesture(leaf(() => record('child'), { minimumDuration: duration.value })).gesture(leaf(() => record('parent'), options('nested')), { priority: priority.value }),
     };
     const order = Object.keys(rows); if (reversed.value) order.reverse();
     return VStack([ForEach(order, { id: id => id }, id => rows[id]()), Text(`Total: ${total.value} · ${Object.values(held).some(state => state.value) ? 'held' : 'idle'}`)], { spacing: 12 }).disabled(blocked.value);

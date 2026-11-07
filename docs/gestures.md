@@ -293,3 +293,78 @@ arbitrary Gesture/updating API. Input coalescing, drag values, animation/reset
 transactions and explicit cancellation reasons remain future work. It follows
 native disappearance, not general partial clipping or occlusion. Offscreen
 Command-event tests retain the hardware/inactive-pointer limits above.
+
+## Typed gesture values
+
+`TapGesture`, `SpatialTapGesture` and `LongPressGesture` create immutable reusable
+leaf descriptions. Attach one with `view.gesture(value, { priority })`:
+
+```ts
+const doubleTap = TapGesture({ count: 2 }).onEnded(() => { count.value++; });
+Text('First').gesture(doubleTap);
+Text('Second').gesture(doubleTap, { priority: 'high' });
+
+Text('Point').gesture(SpatialTapGesture().onEnded(point => { location.value = point; }));
+Text(held.value ? 'Held' : 'Ready').gesture(
+  LongPressGesture({ pressing: held, minimumDuration: 0.4 }).onEnded(() => { count.value++; }),
+  { priority: 'simultaneous' },
+);
+```
+
+| Constructor | Description options | Action value | Attachment priorities |
+| --- | --- | --- | --- |
+| `TapGesture` | `count: 1 \| 2` (default 1) | No arguments | normal, high, simultaneous |
+| `SpatialTapGesture` | `count: 1 \| 2` (default 1) | Frozen local `TapLocation` | normal, high, simultaneous |
+| `LongPressGesture` | `minimumDuration`, `maximumDistance`, `pressing`, `onPressingChanged` | Boolean `true` on successful recognition | normal, simultaneous |
+
+Priority belongs to each attachment, defaults to normal, and is rejected in
+constructor options. Long-press high priority remains rejected by TypeScript and
+runtime validation. The constructors copy and validate options immediately.
+`onEnded` returns a new leaf with one terminal action; a later `onEnded` replaces
+that action in the new value, leaving the original value unchanged. There is no
+callback chain. Omitting `onEnded` attaches a native gesture without a user action;
+it still participates in native competition and owns a normal attachment.
+
+Constructing/copying a description allocates no native view, token, cell or
+subscription. Each mounted attachment independently owns its configuration token
+and latest callback. Sharing a stateless description across views shares the
+callback function, while retirement of one view leaves other attachments intact.
+Callbacks are synchronous, untracked and task-isolated, with the same failure
+cleanup as the `onTapGesture`/`onSpatialTapGesture`/`onLongPressGesture` conveniences.
+Create a new `onEnded` action inside a tracked body when it captures changing
+props; a stored closure retains its ordinary JavaScript captures.
+
+The lowering uses those same native modifier contracts. A typed long-press action
+receives `true` for the native performed phase; cancellation never calls it. The
+`onLongPressGesture` convenience retains its zero-argument callback. Tap count/mode/priority,
+long-press configuration/observer presence/pressing state, current-handler
+replacement, disabled ancestors, coordinates, lazy realization and cleanup retain
+their existing rules. Rebuilding an equivalent description does not retire its
+attachment. Long-press `GestureState` stays exclusive to one mounted attachment in
+its owner subtree/window root; copying its description grants no extra ownership.
+Reusing a description with disposed owned state is rejected on attachment.
+
+Multiple `.gesture(...)` modifiers are independent native attachments whose
+precedence is governed by their individual priority. They do not expose a compound
+value or a shared recognition transaction. Simultaneous attachment priority is
+supported; a SwiftUI-style `SimultaneousGesture`, sequence or exclusive value has
+not been implemented.
+
+Before compound values are exposed, the implementation must establish:
+
+- One native recognition-session identity and configuration epoch for a compound
+  tree, with stable leaf paths. An old branch must not complete into a replacement
+  tree or reset a new branch's state.
+- Native recognition/arbitration and typed result rules for missing, failed and
+  completed branches, including void tap values. Joining independently queued Node
+  callbacks cannot establish those rules.
+- Exclusive transient-state ownership per live leaf, reset on branch loss,
+  cancellation, disappearance, replacement and owner disposal, while preserving
+  current callbacks and stable native control identity.
+- Actual control/nested-gesture tests, early release/movement/disable/removal,
+  lazy/sheet/owned-window tests, synchronous failures and repeated ownership cleanup
+  for each composition kind before its coverage is marked available.
+
+Native masks, general updating, generic transient values, high-rate coalescing,
+reset transactions and hardware checks remain open. The existing high-priority
+nested long-press blocker is unchanged.

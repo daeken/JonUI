@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { Component, State, Text, View, runApp, __testing as test } from 'jonui';
+import { LongPressGesture, Component, State, Text, View, runApp, __testing as test } from 'jonui';
 const shown = State(false), attached = State(true), selected = State(0), mutation = State('none');
 let states, hits = 0, disposals = 0;
 const Owner = Component(scope => {
@@ -12,7 +12,7 @@ const Owner = Component(scope => {
   });
   return () => {
     const held = ownedStates[selected.value], target = Text(`Press: ${held.value}`).frame({ width: 260, height: 80 }).contentShape('rectangle');
-    return attached.value ? target.onLongPressGesture(() => { assert.equal(held.value, true); hits++; }, { pressing: held, minimumDuration: 0.06 }) : target;
+    return attached.value ? target.gesture(LongPressGesture({ pressing: held, minimumDuration: 0.06 }).onEnded(() => { assert.equal(held.value, true); hits++; })) : target;
   };
 });
 const app = runApp({ title: 'Owned pressing state', width: 400, height: 260, content: View(() => shown.value ? Owner() : Text('removed')) });

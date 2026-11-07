@@ -3,6 +3,7 @@ declare const bindingBrand: unique symbol;
 declare const viewBrand: unique symbol;
 declare const focusTargetBrand: unique symbol;
 declare const focusBindingBrand: unique symbol;
+declare const gestureBrand: unique symbol;
 declare const gestureStateBrand: unique symbol;
 declare const focusWindowBrand: unique symbol;
 /** Opaque weak native responder handle; capture from an already focused control. */
@@ -169,6 +170,20 @@ export type ForegroundStyle = "primary" | "secondary" | "yellow";
 export interface TapLocation { readonly x: number; readonly y: number }
 
 type SynchronousCallbackValidation<Result> = [Extract<Result, PromiseLike<unknown>>] extends [never] ? [] : [never];
+/** Attachment precedence; long presses currently support normal/simultaneous only. */
+export type GesturePriority = 'normal' | 'high' | 'simultaneous';
+/** Immutable reusable leaf description. Mounted views independently own callbacks and configuration epochs. */
+export interface Gesture<Value = void, Priority extends GesturePriority = GesturePriority> {
+  readonly [gestureBrand]: { readonly value: Value; readonly priority: Priority };
+  /** Return a new leaf with this terminal action; replaces an earlier action without changing the original value. */
+  onEnded<Result>(callback: (...args: Value extends void ? [] : [value: Value]) => Result, ...validation: SynchronousCallbackValidation<Result>): Gesture<Value, Priority>;
+}
+export function TapGesture(options?: { count?: 1 | 2 }): Gesture;
+export function SpatialTapGesture(options?: { count?: 1 | 2 }): Gesture<TapLocation>;
+export function LongPressGesture<PressingResult = void>(options?: {
+  minimumDuration?: number; maximumDistance?: number; pressing?: GestureState; onPressingChanged?: (pressing: boolean) => PressingResult;
+}, ...validation: SynchronousCallbackValidation<PressingResult>): Gesture<boolean, 'normal' | 'simultaneous'>;
+
 export interface View {
   readonly [viewBrand]: true;
   /** Modifiers return new values; they do not mutate the receiver. */
@@ -199,6 +214,8 @@ export interface View {
   onLongPressGesture<Result, PressingResult = void>(callback: () => Result, options?: {
     minimumDuration?: number; maximumDistance?: number; priority?: "normal" | "simultaneous"; pressing?: GestureState; onPressingChanged?: (pressing: boolean) => PressingResult;
   }, ...validation: SynchronousCallbackValidation<Result | PressingResult>): View;
+  /** Attach a typed leaf; omitted onEnded is a native gesture with no user action. Priority belongs to this attachment. */
+  gesture<Value, Priority extends GesturePriority>(gesture: Gesture<Value, Priority>, options?: { priority?: NoInfer<Priority> }): View;
   /** Attach an owned focus projection to a supported control through single-child modifiers; native availability/eligibility still apply. */
   focused(binding: FocusBinding): View;
   /** Button-only native Command shortcut; key is one lowercase ASCII letter/digit. Explicit modifier combinations are not supported yet. */

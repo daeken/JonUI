@@ -383,12 +383,49 @@ function disposeComputed(observer) {
   detachComputation(observer); observer.dependents.clear();
   observer.callback = null; observer.value = undefined; observer.error = undefined;
 }
-function tapModifier(view, name, callback, options) {
-  if (typeof callback !== 'function') throw new TypeError(`${name} expects a function`);
-  const { count = 1, priority = 'normal' } = layoutOptions(options, ['count', 'priority'], name);
+function tapSettings(options, name, attachment = true) {
+  const { count = 1, priority = 'normal' } = layoutOptions(options, attachment ? ['count', 'priority'] : ['count'], name);
   if (count !== 1 && count !== 2) throw new TypeError('Tap count must be 1 or 2');
   if (!['normal', 'high', 'simultaneous'].includes(priority)) throw new TypeError('Invalid tap priority');
-  return view.modifier(name, { count, priority, onTap: callback });
+  return { count, priority };
+}
+function longPressSettings(options, name, attachment = true) {
+  const { minimumDuration = 0.5, maximumDistance = 10, priority = 'normal', pressing, onPressingChanged } = layoutOptions(options, attachment ? ['minimumDuration', 'maximumDistance', 'priority', 'pressing', 'onPressingChanged'] : ['minimumDuration', 'maximumDistance', 'pressing', 'onPressingChanged'], name);
+  layoutNumber(minimumDuration, 'minimumDuration', true); layoutNumber(maximumDistance, 'maximumDistance', true);
+  layoutEnum(priority, ['normal', 'simultaneous'], 'long press priority');
+  if (onPressingChanged !== undefined && typeof onPressingChanged !== 'function') throw new TypeError('onPressingChanged expects a function');
+  if (pressing !== undefined) gestureProjection(pressing);
+  return { minimumDuration, maximumDistance, priority, pressing, onPressingChanged };
+}
+function tapModifier(view, name, callback, options) {
+  if (typeof callback !== 'function') throw new TypeError(`${name} expects a function`);
+  return view.modifier(name, { ...tapSettings(options, name), onTap: callback });
+}
+const gestureValues = new WeakMap(), gestureValueKey = Symbol('JonUI.Gesture'), emptyGestureAction = () => {};
+function gestureValue(value) {
+  const definition = gestureValues.get(value);
+  if (!definition) throw new TypeError('Expected a JonUI Gesture value');
+  return definition;
+}
+class GestureValue {
+  constructor(key, definition) {
+    if (key !== gestureValueKey) throw new TypeError('Use a JonUI gesture constructor');
+    gestureValues.set(this, Object.freeze(definition)); Object.freeze(this);
+  }
+  onEnded(callback) {
+    if (typeof callback !== 'function') throw new TypeError('Gesture.onEnded expects a function');
+    return new GestureValue(gestureValueKey, { ...gestureValue(this), callback });
+  }
+}
+/** Unmounted, reusable immutable descriptions; each view attachment owns its tokens. */
+export function TapGesture(options = {}) {
+  return new GestureValue(gestureValueKey, { method: 'onTapGesture', options: Object.freeze(tapSettings(options, 'TapGesture', false)) });
+}
+export function SpatialTapGesture(options = {}) {
+  return new GestureValue(gestureValueKey, { method: 'onSpatialTapGesture', options: Object.freeze(tapSettings(options, 'SpatialTapGesture', false)) });
+}
+export function LongPressGesture(options = {}) {
+  return new GestureValue(gestureValueKey, { method: 'onLongPressGesture', options: Object.freeze(longPressSettings(options, 'LongPressGesture', false)) });
 }
 class ViewValue {
   constructor(kind, props = {}, children = []) {
@@ -437,12 +474,16 @@ class ViewValue {
   onSpatialTapGesture(callback, options = {}) { return tapModifier(this, 'onSpatialTapGesture', callback, options); }
   onLongPressGesture(callback, options = {}) {
     if (typeof callback !== 'function') throw new TypeError('onLongPressGesture expects a function');
-    const { minimumDuration = 0.5, maximumDistance = 10, priority = 'normal', pressing, onPressingChanged } = layoutOptions(options, ['minimumDuration', 'maximumDistance', 'priority', 'pressing', 'onPressingChanged'], 'onLongPressGesture');
-    layoutNumber(minimumDuration, 'minimumDuration', true); layoutNumber(maximumDistance, 'maximumDistance', true);
-    layoutEnum(priority, ['normal', 'simultaneous'], 'long press priority');
-    if (onPressingChanged !== undefined && typeof onPressingChanged !== 'function') throw new TypeError('onPressingChanged expects a function');
-    if (pressing !== undefined) gestureProjection(pressing);
+    const { minimumDuration, maximumDistance, priority, pressing, onPressingChanged } = longPressSettings(options, 'onLongPressGesture');
     return this.modifier('onLongPressGesture', { minimumDuration, maximumDistance, priority, observesPressing: !!onPressingChanged || !!pressing, tracksPressing: !!pressing, pressingState: pressing, onLongPress: callback, onPressingChanged });
+  }
+  gesture(value, options = {}) {
+    const definition = gestureValue(value);
+    const { priority = 'normal' } = layoutOptions(options, ['priority'], 'gesture');
+    const callback = definition.callback;
+    // The existing performed phase represents successful native long-press recognition.
+    const action = callback && definition.method === 'onLongPressGesture' ? () => callback(true) : callback ?? emptyGestureAction;
+    return this[definition.method](action, { ...definition.options, priority });
   }
   focused(binding) {
     const projection = focusProjection(binding);

@@ -39,6 +39,9 @@ native pressing notifications. Add `priority: "simultaneous"` to recognize holds
 alongside native control actions or child long presses (default: `"normal"`).
 For automatic pressing reset, allocate `const held = scope.gestureState()` during
 component setup and pass `{ pressing: held }`; render with read-only `held.value`.
+Reusable typed leaves are available as `TapGesture().onEnded(action)`,
+`SpatialTapGesture().onEnded(point => …)` and `LongPressGesture({ pressing: held })`.
+Attach them with `view.gesture(value, { priority })`; each view owns its attachment.
 
 ## Build and run
 

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
-import { Button, Component, Focus, ForEach, State, Text, TextField, Toggle, View, VStack, runApp, __testing as test } from 'jonui';
+import { TapGesture, SpatialTapGesture, Button, Component, Focus, ForEach, State, Text, TextField, Toggle, View, VStack, runApp, __testing as test } from 'jonui';
 const gesture = process.env.JONUI_CASE === 'spatial' ? 'onSpatialTapGesture' : 'onTapGesture';
+const leaf = (callback, { count = 1 } = {}) => (gesture === 'onSpatialTapGesture' ? SpatialTapGesture({ count }) : TapGesture({ count })).onEnded(callback);
 const shown = State(false), priority = State('normal'), revision = State(0), reversed = State(false), blocked = State(false);
 const events = []; let model, setups = 0, disposals = 0;
 const Owner = Component(scope => {
@@ -9,11 +10,11 @@ const Owner = Component(scope => {
   return () => {
     const current = revision.value, options = { priority: priority.value }, record = kind => { total.value++; events.push([kind, current]); };
     const rows = {
-      field: () => TextField('Field', { text: text.binding, focusName: 'field' }).frame({ width: 260, height: 40 })[gesture](() => record('field'), options),
-      button: () => Button('Button', () => record('button')).frame({ width: 260, height: 40 })[gesture](() => record('button-tap'), options),
-      toggle: () => Toggle('Toggle', { isOn: on.binding }).frame({ width: 260, height: 40 })[gesture](() => record('toggle-tap'), options),
-      nested: () => Text('Nested').frame({ width: 260, height: 40 })[gesture](() => record('child'))[gesture](() => record('parent'), options),
-      double: () => Text('Double').frame({ width: 260, height: 40 })[gesture](() => record('double'), { ...options, count: 2 }),
+      field: () => TextField('Field', { text: text.binding, focusName: 'field' }).frame({ width: 260, height: 40 }).gesture(leaf(() => record('field'), options), { priority: priority.value }),
+      button: () => Button('Button', () => record('button')).frame({ width: 260, height: 40 }).gesture(leaf(() => record('button-tap'), options), { priority: priority.value }),
+      toggle: () => Toggle('Toggle', { isOn: on.binding }).frame({ width: 260, height: 40 }).gesture(leaf(() => record('toggle-tap'), options), { priority: priority.value }),
+      nested: () => Text('Nested').frame({ width: 260, height: 40 }).gesture(leaf(() => record('child'))).gesture(leaf(() => record('parent'), options), { priority: priority.value }),
+      double: () => Text('Double').frame({ width: 260, height: 40 }).gesture(leaf(() => record('double'), { ...options, count: 2 }), { priority: priority.value }),
     };
     const order = Object.keys(rows); if (reversed.value) order.reverse();
     return VStack([ForEach(order, { id: id => id }, id => rows[id]()), Text(`Total: ${total.value}`)], { spacing: 12 }).disabled(blocked.value);
