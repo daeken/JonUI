@@ -200,11 +200,11 @@ Each controller captures the active window context through a fresh native
 snapshot on its first post-commit effect. Its `actual` can reflect any named
 control in that context, including controls declared by another component.
 Every request is generation-stamped and bound to the captured context. A context
-change permanently sets read-only `retired.value` to true, clears actual to null
+change sets read-only `retired.value` to true, clears actual to null
 and releases its observation subscription. A request racing ahead of the context
 notification is rejected by the native context guard. Parent-controller requests
 cannot move focus into a new sheet. Returning to the parent does not resume that
-controller; remount its owner to start a new context.
+controller automatically; call `resume()` or remount its owner to start a new context.
 
 Retired controllers retain editable desired intent for display but issue no
 further focus requests. `request` after retirement is inert. Unmount/setup failure
@@ -213,12 +213,41 @@ requests/writes from canceled tasks or disposed owners are ignored. Read-only
 computed views follow normal scoped Computed disposal rules. Render/computed
 focus writes and allocation outside setup are rejected.
 
+### Explicit resumption
+
+`resume()` ends the old observation immediately and queues a fresh active-window
+snapshot after view commit. It preserves the controller object, desired value,
+subscriptions to desired data and component model. Actual is cleared and retired
+remains true until the fresh snapshot succeeds; the controller then tracks its
+new context with retired false. Resumption is passive: retained intent and older
+pending requests are not replayed, and focus does not move just to resume.
+
+```ts
+focus.resume();              // Bind the current active context after commit.
+focus.request('name');       // A new request in this turn applies after resuming.
+```
+
+A desired-value change made after `resume()` is also a new request. An unchanged
+value needs `request(name)`. Multiple resumes coalesce; the last one discards
+requests queued before it. This can rebind to a sheet while it is active or to
+the parent after dismissal. It does not automatically select a physical window,
+activate the app or restore the old desired responder.
+
+Task and RPC calls carry their starting focus lifetime. After another caller
+resumes a controller, those older contexts cannot write its desired value or
+queue requests. Newly started work can write it. A current task that explicitly
+calls `resume()` authorizes its own following writes until another resumption.
+Canceled tasks cannot resume, and commands whose caller is canceled before their
+after-commit effect runs are suppressed. Already accepted desired data may remain
+for display; no canceled queued command moves native focus. Disposal before a
+queued resumption prevents the new observation session from starting.
+
 The controller exposes no scalar `binding` for desired focus. General SwiftUI
-`focused` bindings, boolean variants, context resumption and realization-aware
+`focused` bindings, boolean variants, automatic physical-window resumption and realization-aware
 policies remain future work. Controllers created in a parent context before a
 sheet appears retire when that sheet becomes active; this is not a sheet
 appearance hook. Try `bin/jonui examples/focus-controller/app.ts` for requests,
-actual/desired display, modal retirement and a reset preserving form values.
+actual/desired display, passive resumption and a full component reset preserving form values.
 
 ## Captured responder targets
 
@@ -662,7 +691,10 @@ to suppress automatic window ordering animations. A mixed-sheet regression
 reproduced the recorded platform crash in UpdateCycle during AppKit's sheet-close
 animation loop. The test checks the per-window policy, with repeated focused
 owner-retirement stress. Ordinary launches retain their normal animation policy;
-the animated framework path remains a separate limitation.
+the framework path remains a separate limitation. A later full-suite run also
+reproduced the same UpdateCycle null call during sheet-close animation with
+`animationBehavior = .none`; that window policy has not eliminated the intermittent
+failure. The focused mixed-sheet recheck passed. No platform crash fix is claimed.
 
 Mixed-sheet tests combine plain/secure text inputs, a multiline editor, DatePicker,
 and a two-input WebView in the same real AppKit sheet. They verify command cycles

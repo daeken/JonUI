@@ -11,9 +11,10 @@ const Form = Component(scope => {
       Button('Request Name', () => focus.request('name')),
       Button('Request Notes', () => focus.request('notes')),
       Button('Clear', () => focus.request(null)),
+      Button('Resume here', () => focus.resume()),
     ]),
     Text(`Desired: ${focus.desired.value ?? 'none'}; actual: ${focus.actual.value ?? 'none'}`).font('caption'),
-    Text(focus.retired.value ? 'This focus session ended. Reset to start a new one.' : 'Tab or click to change actual focus without changing the request.').font('caption'),
+    Text(focus.retired.value ? 'This focus session ended. Resume here to keep its intent and form values.' : 'Tab or click to change actual focus without changing the request.').font('caption'),
   ], { alignment: 'leading', spacing: 12 });
 });
 
@@ -23,7 +24,7 @@ await runApp({ title: 'JonUI owned focus controller', width: 620, height: 420, c
     Button('Open sheet', () => { presented.value = true; }),
     Button('Reset focus session', () => { session.value++; }),
   ]),
-  Text('A window-context change ends the controller; form values survive reset.').font('caption'),
+  Text('Resume binds the current window without replaying the old request. Reset also starts a new component.').font('caption'),
 ], { alignment: 'leading', spacing: 12 }).padding(20).sheet({ isPresented: presented.binding, content: VStack([
   Text('Independent sheet focus').font('headline'),
   TextField('Sheet field', { text: sheetValue.binding, focusName: 'sheet' }),

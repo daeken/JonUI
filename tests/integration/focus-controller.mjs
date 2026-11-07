@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict';
 import { Component, DatePicker, Focus, ForEach, SecureField, State, Text, TextEditor, TextField, View, VStack, WebView, runApp, __testing as test } from 'jonui';
 const shown = State(false), reversed = State(false), presented = State(false), blocked = State(false), passive = State(false), parent = State('parent'), initial = State(null);
-let model, controller, setups = 0, disposals = 0; const gates = [];
+let model, controller, setups = 0, disposals = 0, completions = 0; const gates = [];
 const Panel = Component(scope => {
   setups++; const local = model = { a: scope.state('A'), b: scope.state('B'), secure: scope.state('dummy'), editor: scope.state('notes'), date: scope.state(Date.UTC(2028, 0, 1)), sheet: scope.state('sheet') };
   const focus = controller = scope.focus(initial.value);
   scope.onDispose(() => { disposals++; });
-  scope.task(async () => { await new Promise(resolve => gates.push(resolve)); focus.request('parent'); focus.desired.value = 'parent'; });
+  scope.task(async () => { await new Promise(resolve => gates.push(resolve)); focus.request('parent'); focus.desired.value = 'parent'; completions++; });
   return () => VStack([
     Text(`Actual: ${focus.actual.value ?? 'none'}; desired: ${focus.desired.value ?? 'none'}; retired: ${focus.retired.value}`),
     ForEach(reversed.value ? ['b', 'a'] : ['a', 'b'], { id: id => id }, id => TextField('Same title', { text: local[id].binding, focusName: id })),
@@ -56,6 +56,16 @@ controller.request('a'); controller.request(null); await sleep(50); assert.equal
 controller.request('unavailable'); await sleep(40); assert.equal(controller.actual.value, null); assert.equal(controller.desired.value, 'unavailable'); assert.equal(controller.retired.value, false);
 await request('a');
 
+// Explicit resume is passive, keeps the owner/model and invalidates older writers.
+assert.equal(Focus.requestNamed('b'), true); await until(() => controller.actual.value === 'b', 'user focus before resume');
+const originalModel = model, values = [model.a.value, model.b.value, model.editor.value];
+controller.resume(); await until(() => !controller.retired.value && controller.actual.value === 'b', 'passive same-window resume');
+assert.equal(controller, original); assert.equal(model, originalModel); assert.equal(controller.desired.value, 'a'); assert.equal(Focus.currentName(), 'b');
+gates.shift()(); await until(() => completions === 1, 'earlier task completed');
+assert.equal(controller.desired.value, 'a'); assert.equal(Focus.currentName(), 'b');
+controller.resume(); controller.request('a'); await until(() => !controller.retired.value && controller.actual.value === 'a', 'fresh same-turn request');
+assert.deepEqual([model.a.value, model.b.value, model.editor.value], values);
+
 // A new modal context retires the old controller even when an intent was queued.
 presented.value = true; controller.request('sheet'); test.flush();
 await until(() => test.request('debug.focusContext').sheet && controller.retired.value, 'modal context retirement');
@@ -63,20 +73,29 @@ assert.equal(controller.actual.value, null); assert.equal(controller.desired.val
 assert.deepEqual(test.focusStats(), { listeners: 0, watching: false }); assert.equal(watch().observations, 0); assert.equal(watch().notifications, 0);
 assert.equal(Focus.requestNamed('sheet'), true); controller.request('parent'); controller.desired.value = 'a'; test.flush(); await sleep(40);
 assert.equal(Focus.currentName(), 'sheet'); assert.equal(controller.actual.value, null); assert.equal(controller.retired.value, true);
+controller.resume(); await until(() => !controller.retired.value && controller.actual.value === 'sheet', 'explicit sheet resumption');
+assert.equal(controller.desired.value, 'a'); assert.equal(Focus.currentName(), 'sheet');
 presented.value = false; await until(() => !test.request('debug.focusContext').sheet, 'sheet dismissed');
-assert.equal(Focus.requestNamed('parent'), true); await sleep(40); assert.equal(Focus.currentName(), 'parent'); assert.equal(controller.retired.value, true);
+await until(() => controller.retired.value, 'resumed sheet context retired on dismiss');
+assert.equal(Focus.requestNamed('parent'), true); controller.resume();
+await until(() => !controller.retired.value && controller.actual.value === 'parent', 'explicit parent resumption');
+assert.equal(controller.desired.value, 'a'); assert.equal(Focus.currentName(), 'parent'); assert.equal(controller, original); assert.equal(model, originalModel);
+for (let i = 0; i < 20; i++) {
+  controller.resume(); await until(() => !controller.retired.value && controller.actual.value === 'parent', `passive resume ${i}`);
+  assert.equal(controller.desired.value, 'a'); assert.equal(Focus.currentName(), 'parent'); assert.equal(watch().observations, 1); assert.equal(watch().notifications, 4);
+}
 shown.value = false;
 await until(() => snapshot().hostedControlCount === 1 && snapshot().webViewCount === 0 && snapshot().liveViews === snapshot().nodes.length, 'retired owner disposed');
-const baseline = test.stats(); gates.shift()(); await sleep(20); assert.deepEqual(test.stats(), baseline);
+const baseline = test.stats(); await sleep(20); assert.deepEqual(test.stats(), baseline);
 initial.value = 'editor';
 for (let i = 0; i < 20; i++) {
   shown.value = true; await until(() => snapshot().hostedControlCount === 6 && test.focusStats().listeners === 1 && !controller.retired.value && controller.actual.value === 'editor', `initial named request on fresh controller ${i}`);
   assert.notEqual(controller, original); await request('editor');
-  const retired = controller; retired.request('secure'); shown.value = false; test.flush();
+  const retired = controller; retired.resume(); retired.request('secure'); shown.value = false; test.flush();
   await until(() => snapshot().hostedControlCount === 1 && snapshot().webViewCount === 0 && snapshot().liveViews === snapshot().nodes.length, `pending controller disposal ${i}`);
-  gates.shift()(); retired.request('parent'); retired.desired.value = 'parent'; await sleep(10);
+  gates.shift()(); retired.resume(); retired.request('parent'); retired.desired.value = 'parent'; await sleep(10);
   assert.deepEqual(test.stats(), baseline); assert.deepEqual(test.focusStats(), { listeners: 0, watching: false }); assert.equal(watch().observations, 0); assert.equal(watch().notifications, 0);
 }
 assert.equal(setups, 21); assert.equal(disposals, setups);
 test.request('debug.close'); await app; assert.deepEqual(test.stats(), { actions: 0, cells: 0, dependencies: 0 }); assert.equal(snapshot().liveCells, 0);
-console.log('PASS owned focus controller: passive snapshot, tracked desired/read-only actual, mixed native/WebKit requests, repeated/failed requests, no feedback, keyed identity, context retirement and 20 pending/canceled owner lifetimes');
+console.log('PASS owned focus controller: mixed native/WebKit requests, passive same-window/sheet/parent resumption with retained model identity, stale task leases, 20 observer resume cycles and 20 pending/canceled owner lifetimes');

@@ -29,14 +29,25 @@ Status meanings:
 
 ## Current review
 
+- Explicit focus resume review (2026-11-07): controller resume preserves state
+  and identity, rebinds after commit and suppresses retained/older intent. Task/RPC
+  lifetime leases and pre-effect cancellation checks prevent obsolete callers
+  from issuing requests or activating observers. Passive same-window/sheet/parent
+  resumption, 20 observer cycles and 20 owner lifetimes pass focused native gates;
+  six runtime cases bring the total to 129. All 71 native scenarios pass on full
+  rerun; final caller-reference cleanup passes the focused native gate. Unit/type
+  checks and API classification pass. The first full run reproduced the recorded UpdateCycle/AppKit
+  sheet-close null call despite window animation suppression; focused mixed-sheet
+  rerun passes. This platform limitation is not claimed fixed. Projected
+  FocusState bindings remain Missing.
 - Owned focus review (2026-11-07): setup-only `scope.focus` separates tracked
   desired intent from read-only actual/retired values and applies after-commit,
   generation/context-bound requests. Context change retires the controller and
-  its observer permanently; remount starts a new session. Passive/initial named
+  its observer; explicit resume or remount starts a new session. Passive/initial named
   requests, native text/date/WebKit, unavailable/repeated requests, no feedback,
   keyed identity, modal isolation and 20 canceled/pending owner lifetimes pass
   focused native validation. Five new runtime cases bring the total to 123;
-  type checks pass. General FocusState bindings/context resumption remain Missing.
+  type checks pass. General FocusState bindings/automatic resumption remain Missing.
   Native build, all 71 offscreen native scenarios, 123 unit tests,
   Deno/TypeScript checks and API classification pass.
 - Focus acknowledgement review (2026-11-07): observed imperative movements now
@@ -86,10 +97,11 @@ Status meanings:
 - Initial comprehensive inventory of the current TypeScript API, native bridge,
   examples and tests, including known limitations. All public exported symbols
   and View/Focus/ComponentScope members have explicit classification markers.
-- Current validation: native build; 123 runtime/compiler unit tests; 71 offscreen
+- Current validation: 129 runtime/compiler unit tests; 71 offscreen
   native scenarios; Deno/TypeScript checks. Mixed-sheet automatic window animation
   suppression also passed three additional 20-owner stress runs. The original
-  animated offscreen sheet path has reproduced an AppKit/UpdateCycle crash and
+  offscreen sheet path has reproduced an AppKit/UpdateCycle crash, including a
+  recurrence with NSWindow animation suppression in this review, and
   remains a limitation; ordinary app animations are not claimed fixed.
 - Full keyboard access is currently false. Native NSStepper/NSSegmentedControl
   eligible-focus paths remain unverified; do not alter user preferences or force
@@ -276,8 +288,8 @@ Status meanings:
 | Environment / EnvironmentObject | Missing | Inherited typed values, actions and services. | Native host propagates internal SwiftUI environment, but no general public TS API. |
 | AppStorage | Missing | Preferences-backed typed state and external changes. | UserDefaults namespace, migrations and subscription teardown. |
 | SceneStorage | Missing | Per-scene restorable state. | Requires scene ownership and persistence/version policy. |
-| FocusState | Missing | Desired/actual boolean or optional named target Binding. | A separate owned named controller exists; add projected focused bindings, boolean variants and context resumption. Earlier boolean experiment was removed due stale-observation races. |
-| Scoped focus controller | Partial (JonUI) | Tracked validated desired intent; read-only actual/retired; after-commit context-bound requests. | Passive/initial requests, native text/date/WebKit, no feedback, keyed identity, modal retirement and owner cleanup verified; context resumption and realization-aware policies remain. <!-- api: FocusController, ComponentScope.focus --> |
+| FocusState | Missing | Desired/actual boolean or optional named target Binding. | A separate owned named controller with explicit resume exists; add projected focused bindings and boolean variants. Earlier boolean experiment was removed due stale-observation races. |
+| Scoped focus controller | Partial (JonUI) | Tracked desired intent; read-only actual/retired; context-bound requests and passive explicit resume. | Native text/date/WebKit, no feedback/replay, keyed identity, modal/resume/task lifetime and owner cleanup verified; projected bindings, automatic physical-window resumption and realization policies remain. <!-- api: FocusController, ComponentScope.focus --> |
 | Native focus observation | Partial (JonUI) | Nullable named responder snapshots and coalesced subscriptions; generation-stamped movement acknowledgements; no desired Binding. | Text/date/WebKit/single-sheet observation, generation/sequence/context guards and cleanup verified; owned desired/observed binding, broader controls/IME/AX remain. <!-- api: Focus.subscribe --> |
 | Focus commands | Partial | Native next/previous/clear plus four-axis geometric move. | Real text/date/WebKit/sheet/directional paths verified; full keyboard-access and optional non-editing arrow routing remain. <!-- api: Focus, Focus.next, Focus.previous, Focus.clear, Focus.move --> |
 | Captured / named focus | Partial | Weak opaque physical target or exact UTF-8 name; currentName snapshot; optional active-window Tab cycle. | Text/date/WebKit names, actual-name queries, captures and single-sheet application-dispatched Tab cycles verified; buttons/toggles/slider/stepper/picker registration and eligibility remain. <!-- api: FocusTarget, Focus.capture, Focus.request, Focus.requestNamed, Focus.currentName, Focus.setTraversal --> |
@@ -412,7 +424,7 @@ can still bypass local enforcement; this is not server-side branch protection.
 Repository instructions require the same review for contributors and automation.
 
 <!-- coverage-review:generated -->
-Review baseline (checkout HEAD before commit): `3452360809842a0a67441bf1d396688a2da28baa`.
+Review baseline (checkout HEAD before commit): `39dbfe62a67815214b809f7127b8fb4a2d7f8394`.
 
-Staged source-tree SHA-256 (excluding this catalog): `209443f3262d461b1098ab4c633dd64dee46c8a6a645df60337a8b70e8c87e24`.
+Staged source-tree SHA-256 (excluding this catalog): `ab2d3caf4d201feb4296ce3642bcc5119b204384e2dc744763fb79aabab11421`.
 <!-- /coverage-review:generated -->

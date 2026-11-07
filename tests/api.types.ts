@@ -150,7 +150,9 @@ WebView({ html: "", data: () => 1 });
 WebView({ url: "https://example.com" });
 
 const ScopedCounter = Component<{ label: string }>((scope, initial) => {
-  const focus = scope.focus(); focus.desired.value = 'name'; focus.request(null);
+  const focus = scope.focus(); focus.desired.value = 'name'; focus.request(null); focus.resume();
+  // @ts-expect-error Resume uses the current context and accepts no arguments.
+  focus.resume('name');
   const actual: string | null = focus.actual.value; const retired: boolean = focus.retired.value; void actual; void retired;
   // @ts-expect-error Actual focus is readonly.
   focus.actual.value = 'name';

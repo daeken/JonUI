@@ -430,6 +430,7 @@ test('focus controllers enforce setup/render/computed purity and clean up snapsh
     escaped = scope; const before = h.calls.length; assert.throws(() => scope.focus(1), /Focus names/); assert.equal(h.calls.length, before);
     focus = scope.focus(); return () => {
       assert.throws(() => focus.request('bad'), /outside view bodies/); assert.throws(() => { focus.desired.value = 'bad'; }, /outside view bodies/);
+      assert.throws(() => focus.resume(), /outside view bodies/);
       return ui.Text('owner');
     };
   });
@@ -441,6 +442,100 @@ test('focus controllers enforce setup/render/computed purity and clean up snapsh
   const app = launch(failed.ui, Failing()); await assert.rejects(app, /snapshot unavailable/);
   assert.deepEqual(failed.ui.__testing.focusStats(), { listeners: 0, watching: false }); assert.deepEqual(failed.ui.__testing.stats(), { actions: 0, cells: 0, dependencies: 0 });
   assert.ok(failed.calls.some(c => c.op === 'focus.unwatch'));
+});
+
+test('focus resume preserves identity and intent, is passive, and accepts fresh same-turn requests', async () => {
+  const h = await setup(), { ui } = h; h.focus.focused = true; let focus;
+  const Owner = ui.Component(scope => { focus = scope.focus('a'); return () => ui.Text(focus.actual.value ?? 'none'); });
+  const done = launch(ui, Owner()); await tick(); const original = focus;
+  h.focus.name = 'b'; h.focus.context = 2;
+  const prior = h.calls.filter(c => c.focusRequest).at(-1).focusRequest;
+  h.emit({ type: 'focusChanged', token: prior.token, sequence: ++h.focus.sequence, context: 2, generation: prior.generation, name: 'b' }); await tick();
+  assert.equal(focus.retired.value, true); focus.resume(); await tick();
+  assert.equal(focus, original); assert.equal(focus.retired.value, false); assert.equal(focus.actual.value, 'b'); assert.equal(focus.desired.value, 'a');
+  assert.equal(h.calls.filter(c => c.op === 'focus.named').length, 1, 'retained intent is not replayed');
+  focus.request('obsolete'); focus.resume(); await tick(); assert.equal(focus.actual.value, 'b'); assert.equal(focus.desired.value, 'obsolete');
+  assert.equal(h.calls.filter(c => c.op === 'focus.named').length, 1, 'resume cancels requests queued before it');
+  focus.resume(); focus.request('c'); await tick(); assert.equal(focus.actual.value, 'c');
+  focus.resume(); focus.desired.value = 'd'; await tick(); assert.equal(focus.actual.value, 'd');
+  focus.resume(); focus.request(null); await tick(); assert.equal(focus.actual.value, null);
+  h.emit({ type: 'stop' }); await done; assert.deepEqual(ui.__testing.stats(), { actions: 0, cells: 0, dependencies: 0 });
+});
+
+test('repeated resumes replace pending sessions and disposal prevents queued activation', async () => {
+  const h = await setup(), { ui } = h; h.focus.focused = true; const shown = ui.State(true); let focus;
+  const Owner = ui.Component(scope => { focus = scope.focus(); return () => ui.Text('owner'); });
+  const done = launch(ui, ui.View(() => shown.value ? Owner() : ui.Text('hidden'))); await tick();
+  const token = h.calls.find(c => c.op === 'focus.watch').token;
+  h.emit({ type: 'focusChanged', token, sequence: ++h.focus.sequence, context: 1, generation: 0, name: 'queued gain' });
+  focus.resume(); focus.request('obsolete'); focus.resume(); await tick();
+  assert.equal(focus.actual.value, null); assert.equal(focus.desired.value, 'obsolete');
+  assert.equal(h.calls.filter(c => c.op === 'focus.watch').length, 2); assert.ok(!h.calls.some(c => c.op === 'focus.named'));
+  const starts = h.calls.filter(c => c.op === 'focus.watch').length;
+  focus.resume(); shown.value = false; await tick(); focus.resume(); focus.request('late'); await tick();
+  assert.equal(h.calls.filter(c => c.op === 'focus.watch').length, starts); assert.deepEqual(ui.__testing.focusStats(), { listeners: 0, watching: false });
+  h.emit({ type: 'stop' }); await done;
+});
+
+test('resume blocks earlier task writers while a task explicitly resuming can authorize its own requests', async () => {
+  const h = await setup(), { ui } = h; h.focus.focused = true; const trigger = ui.State(0); const gates = []; let focus;
+  const Owner = ui.Component(scope => {
+    focus = scope.focus();
+    scope.task(async () => { const current = trigger.value; await new Promise(resolve => gates.push(resolve)); focus.request(current ? 'fresh' : 'obsolete'); focus.desired.value = current ? 'fresh' : 'obsolete'; });
+    scope.task(async () => { await new Promise(resolve => gates.push(resolve)); focus.resume(); focus.request('authorized'); });
+    return () => ui.Text('owner');
+  });
+  const done = launch(ui, Owner()); await tick(); focus.resume(); await tick(); gates[0](); await tick();
+  assert.equal(focus.desired.value, null); assert.ok(!h.calls.some(c => c.op === 'focus.named'));
+  trigger.value = 1; await tick(); gates[2](); await tick(); assert.equal(focus.actual.value, 'fresh');
+  gates[1](); await tick(); assert.equal(focus.actual.value, 'authorized'); assert.equal(focus.desired.value, 'authorized');
+  const derived = ui.Computed(() => focus.resume()); assert.throws(() => derived.value, /Computed callbacks cannot resume scoped focus/);
+  h.emit({ type: 'stop' }); await done;
+});
+
+test('RPC focus writes respect resumption leases and explicit RPC resumption', async () => {
+  const h = await setup(), { ui } = h; h.focus.focused = true; const gates = []; let focus;
+  const Owner = ui.Component(scope => {
+    focus = scope.focus();
+    return () => ui.WebView({ html: '', api: { async hold(explicit) {
+      await new Promise(resolve => gates.push(resolve)); if (explicit) focus.resume();
+      focus.request(explicit ? 'authorized RPC' : 'obsolete RPC'); focus.desired.value = explicit ? 'authorized RPC' : 'obsolete RPC';
+    } } });
+  });
+  const done = launch(ui, Owner()); await tick(); const node = [...h.nodes.values()].find(n => n.kind === 'webview');
+  const invoke = (call, explicit) => h.emit({ type: 'webRequest', document: 'doc', id: node.id, epoch: node.props.rpcEpoch, call, method: 'hold', args: [explicit] });
+  invoke(1, false); invoke(2, true); focus.resume(); await tick(); gates[0](); await tick();
+  assert.equal(focus.desired.value, null); assert.ok(!h.calls.some(c => c.op === 'focus.named'));
+  gates[1](); await tick(); assert.equal(focus.actual.value, 'authorized RPC');
+  h.emit({ type: 'stop' }); await done; assert.deepEqual(ui.__testing.stats(), { actions: 0, cells: 0, dependencies: 0 });
+});
+
+test('cancellation before commit suppresses queued focus requests and resumptions', async () => {
+  const h = await setup(), { ui } = h; h.focus.focused = true; const resumeNow = ui.State(false); let focus, stopRequest, stopResume;
+  const Owner = ui.Component(scope => {
+    focus = scope.focus();
+    stopRequest = scope.task(() => { focus.request('canceled request'); stopRequest(); });
+    stopResume = scope.task(() => { if (!resumeNow.value) return; focus.resume(); focus.request('canceled resume'); stopResume(); });
+    return () => ui.Text('owner');
+  });
+  const done = launch(ui, Owner()); await tick(); assert.ok(!h.calls.some(c => c.op === 'focus.named'));
+  assert.equal(focus.retired.value, false); assert.deepEqual(ui.__testing.focusStats(), { listeners: 1, watching: true });
+  resumeNow.value = true; await tick(); assert.ok(!h.calls.some(c => c.op === 'focus.named'));
+  assert.equal(focus.retired.value, true); assert.deepEqual(ui.__testing.focusStats(), { listeners: 0, watching: false });
+  focus.resume(); focus.request('fresh'); await tick(); assert.equal(focus.actual.value, 'fresh');
+  h.emit({ type: 'stop' }); await done;
+});
+
+test('document replacement cancels a queued RPC resumption before observer activation', async () => {
+  const h = await setup(), { ui } = h; h.focus.focused = true; const html = ui.State('first'); let focus;
+  const Owner = ui.Component(scope => {
+    focus = scope.focus(); return () => ui.WebView({ html: html.value, api: { replace() { focus.resume(); focus.request('obsolete RPC'); html.value = 'replacement'; } } });
+  });
+  const done = launch(ui, Owner()); await tick(); const node = [...h.nodes.values()].find(n => n.kind === 'webview');
+  h.emit({ type: 'webRequest', document: 'doc', id: node.id, epoch: node.props.rpcEpoch, call: 1, method: 'replace', args: [] }); await tick();
+  assert.ok(!h.calls.some(c => c.op === 'focus.named')); assert.equal(focus.retired.value, true); assert.deepEqual(ui.__testing.focusStats(), { listeners: 0, watching: false });
+  focus.resume(); await tick(); assert.equal(focus.actual.value, null); assert.equal(focus.desired.value, 'obsolete RPC');
+  h.emit({ type: 'stop' }); await done;
 });
 
 test('disabled validates flags before transport and property changes preserve scoped bindings/actions', async () => {

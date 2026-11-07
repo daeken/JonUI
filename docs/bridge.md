@@ -764,8 +764,8 @@ stale sessions and atomic malformed-stamp rejection. Runtime tests cover queued
 gains, consecutive requests, acknowledgement floors, stale generations and
 reentrant/joining listeners. No desired state is written by these observations.
 
-`scope.focus` owns a desired-name cell, actual-name cell, retirement cell and
-attempt counter, plus two effects and two read-only computations. Desired exposes
+`scope.focus` owns a desired-name cell, actual-name cell, retirement cell,
+attempt counter and activation counter, plus two effects and two read-only computations. Desired exposes
 tracked value/subscription operations with focus-name validation, without a scalar
 Binding. The activation effect subscribes to internal metadata and uses
 `focus.snapshot { token }` to obtain a fresh observation barrier. That operation
@@ -784,18 +784,44 @@ Internal metadata subscribers also receive context-only changes when the nullabl
 name is unchanged; public name-only subscriptions retain their duplicate filtering.
 A controller retires on a session/context mismatch or a rejected context-bound
 acknowledgement. Retirement clears actual, stops its subscription and disables
-requests permanently. Desired may still change as local data. Owner disposal
+requests until explicit resumption. Desired may still change as local data. Owner disposal
 releases private cells/effects/computations and cancels pending work through the
 normal scope lifecycle. Snapshot failure stops the newly registered observer
 before propagating the error. No new native controller registry, responder,
 capture ID, timer or input interceptor is allocated.
 
-This provides an owned context session, with explicit remount after modal context
+This provides an owned context session, with explicit resume or remount after modal context
 changes. It does not automatically resume an old physical window or implement
 SwiftUI projected FocusState bindings. Native tests verify passive activation,
 initial named requests, mixed text/date/WebKit focus, desired/actual isolation,
 repeated/failed requests, availability, keyed identity, modal retirement and 20
 pending/canceled owner lifetimes with baseline resources.
+
+`FocusController.resume()` stops its old subscription, invalidates readiness and
+advances the activation counter. The activation effect reruns after commit,
+obtains a fresh watch/snapshot and clears retirement. A baseline of desired value
+and attempt revision is captured at the call: unchanged retained intent is skipped,
+while requests queued after the call apply against the new context. Later resume
+calls replace that baseline. A resume during an active session is also passive.
+Per-listener/session barriers make old queued observations inert without replacing
+the controller, native view graph or model cells.
+
+Task and RPC run records capture a private focus lifetime clock at start. Each
+controller resume advances that clock and its lease; older runs cannot write that
+controller's desired state or queue focus requests. Other controllers keep their
+own leases. A weak task-to-lease grant permits a current task explicitly resuming
+the controller to issue its own following requests. Cancellation still takes
+precedence. Pending request/resume callers are checked again before effects touch
+native focus or start a new observer. Disposal also clears pending caller and
+baseline references. Canceled callers are released; retained
+desired data is not rolled back. This adds no native counter or task permission
+change for ordinary State writes or global imperative Focus commands.
+
+Runtime coverage includes passive/same-turn/repeated resumes, pending observer
+delivery, task/RPC leases, explicit authorizers, cancellation before commit and
+document replacement. Native coverage keeps one controller/model through sheet
+and parent resumption, rejects an earlier task's writes, repeats 20 observer
+resumes and disposes 20 owners with queued resume/request work at baseline resources.
 
 An experimental two-way boolean FocusState adapter was discarded:
 late framework observations could revive an obsolete blur request, so it is not

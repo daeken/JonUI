@@ -15,6 +15,7 @@ const recoveryScopes = [];
 const pendingStateReleases = new Set();
 const pendingEffects = new Set(), effects = new Set();
 const taskStorage = new AsyncLocalStorage(), pendingTasks = new Set();
+let focusLeaseClock = 0;
 const computationStorage = new AsyncLocalStorage(), computations = new Set();
 const liveDependencies = new WeakSet();
 const webErrors = new Map(), webAPIs = new Map();
@@ -122,7 +123,7 @@ function createTaskContext(run) {
   });
 }
 function startTask(owner, callback, remember) {
-  const run = { owner, cancelled: false, controller: new AbortController(), cleanups: new Set() };
+  const run = { owner, focusEpoch: focusLeaseClock, cancelled: false, controller: new AbortController(), cleanups: new Set() };
   remember(run); pendingTasks.add(run);
   const context = createTaskContext(run);
   let result;
@@ -446,12 +447,23 @@ function initializeComponent(mounted) {
       assertNotComputing('allocate focus controllers');
       if (!owned.initializing || owned.disposed) throw new Error('Allocate focus controllers during component setup');
       if (initialName !== null) focusName(initialName);
-      const desired = scope.state(initialName), actual = scope.state(null), retired = scope.state(false), revision = scope.state(0);
-      let context, token, ready = false, first = true, unsubscribe = () => {};
-      function retire() {
-        ready = false; retired.value = true; actual.value = null; unsubscribe();
+      const desired = scope.state(initialName), actual = scope.state(null), retired = scope.state(false), revision = scope.state(0), activation = scope.state(0);
+      let context, token, ready = false, first = true, resuming = false, baseline = null, lease = focusLeaseClock, requestTask = null, resumeTask = null, unsubscribe = () => {};
+      const taskLeases = new WeakMap();
+      const allowed = task => !task || task.focusEpoch >= lease || taskLeases.get(task) === lease;
+      function canWrite(action) {
+        if (owned.disposed || !canMoveFocus(action)) return false;
+        const task = taskStorage.getStore();
+        return allowed(task);
       }
+      function retire() {
+        ready = false; requestTask = null; retired.value = true; actual.value = null; unsubscribe();
+      }
+      scope.onDispose(() => { ready = false; requestTask = null; resumeTask = null; baseline = null; unsubscribe(); });
       scope.effect(() => {
+        activation.value;
+        const caller = resumeTask; resumeTask = null;
+        if (caller && !taskIsCurrent(caller)) { resuming = false; baseline = null; requestTask = null; retired.value = true; return; }
         unsubscribe = subscribeFocus(sample => {
           if (!ready) return;
           if (sample.token !== token || sample.context !== context) { retire(); return; }
@@ -461,14 +473,20 @@ function initializeComponent(mounted) {
           const sample = request('focus.snapshot', { token: focusWatch.token }).observation;
           if (!sample) throw new Error('Focus observation session expired');
           receiveFocusChange(sample);
-          token = sample.token; context = sample.context; ready = true; actual.value = sample.name;
+          token = sample.token; context = sample.context; ready = true; resuming = false; retired.value = false; actual.value = sample.name;
         } catch (error) { unsubscribe(); throw error; }
         return () => { ready = false; unsubscribe(); };
       });
       scope.effect(() => {
         const name = desired.value, attempt = revision.value, ended = retired.value;
-        if (!ready || ended) return;
+        if (!ready || ended) { if (!resuming) requestTask = null; return; }
+        if (baseline) {
+          const prior = baseline; baseline = null;
+          if (name === prior.name && attempt === prior.attempt) return;
+        }
         if (first) { first = false; if (name === null && attempt === 0) return; }
+        const caller = requestTask; requestTask = null;
+        if (caller && (!allowed(caller) || !taskIsCurrent(caller))) return;
         if (focusWatch?.token !== token) { retire(); return; }
         const result = requestFocus(name === null ? 'focus.move' : 'focus.named', name === null ? { direction: 'clear' } : { name }, context);
         const sample = result.observation;
@@ -478,8 +496,10 @@ function initializeComponent(mounted) {
       const selection = Object.freeze({
         get value() { return desired.value; },
         set value(name) {
-          if (owned.disposed || !canMoveFocus('write desired focus')) return;
+          if (!canWrite('write desired focus')) return;
           if (name !== null) focusName(name);
+          if (untracked(() => desired.value) === name) return;
+          requestTask = taskStorage.getStore();
           desired.value = name;
         },
         subscribe: listener => desired.subscribe(listener),
@@ -487,9 +507,20 @@ function initializeComponent(mounted) {
       return Object.freeze({
         desired: selection, actual: scope.computed(() => actual.value), retired: scope.computed(() => retired.value),
         request(name) {
-          if (owned.disposed || !canMoveFocus('request scoped focus') || untracked(() => retired.value)) return;
+          if (!canWrite('request scoped focus') || !resuming && untracked(() => retired.value)) return;
           if (name !== null) focusName(name);
+          requestTask = taskStorage.getStore();
           desired.value = name; revision.value = untracked(() => revision.value) + 1;
+        },
+        resume() {
+          if (owned.disposed || !canMoveFocus('resume scoped focus')) return;
+          lease = ++focusLeaseClock;
+          const task = taskStorage.getStore(); if (task) taskLeases.set(task, lease);
+          resumeTask = task;
+          baseline = untracked(() => ({ name: desired.value, attempt: revision.value }));
+          ready = false; first = false; resuming = true; requestTask = null; unsubscribe();
+          actual.value = null; retired.value = true;
+          activation.value = untracked(() => activation.value) + 1;
         },
       });
     },
@@ -859,7 +890,7 @@ function handleWebRequest(event) {
   if (!request('web.claim', route).accepted) return;
   const reply = result => request('web.reply', { ...route, result });
   if (!Object.hasOwn(entry.api, method)) { reply({ ok: false, error: { name: 'TypeError', message: 'Unknown WebView API method' } }); return; }
-  const run = { web: true, route, key, owner: entry.owner, cancelled: false, controller: new AbortController(), cleanups: new Set() };
+  const run = { web: true, focusEpoch: focusLeaseClock, route, key, owner: entry.owner, cancelled: false, controller: new AbortController(), cleanups: new Set() };
   run.context = createTaskContext(run); entry.runs.set(key, run);
   let result;
   try { result = taskStorage.run(run, () => entry.api[method](...jsonSnapshot(args))); }

@@ -796,6 +796,39 @@ unchecked; next define context resumption and a projected binding contract witho
 reintroducing observation-to-desired feedback. Hardware/IME/AX/nested-sheet gaps
 remain recorded above.
 
+Explicit focus resumption completed (2026-11-07): `FocusController.resume()`
+preserves controller/model identity and desired intent while stopping the old
+observation and queuing a fresh context snapshot after commit. It is passive;
+older queued requests and retained intent are not replayed. Requests or changed
+desired values after resume can apply in the same turn. Repeated resumes use the
+last baseline; disposal prevents queued activation. The controller now owns five
+cells (including activation), two effects and two computations.
+
+Task/RPC birth epochs and per-controller leases prevent earlier work from writing
+into a controller resumed by another caller. A current task explicitly resuming
+can authorize its following writes; cancellation takes precedence. Pending
+request and resume callers are checked again before after-commit native work,
+including RPC document replacement. Accepted desired data remains local data.
+The example offers passive resume alongside full component reset.
+
+Six new runtime cases bring the total to 129, covering passive/queued/same-turn
+resumption, no replay, identity, task/RPC leases, explicit authorization, disposal,
+cancellation and document replacement. Focused native checks pass through
+same-window/sheet/parent resumption with preserved model identity, an older task,
+20 observer resume cycles and 20 canceled/pending owner lifetimes. Deno/TypeScript
+checks pass. The first full regression run reproduced the recorded framework
+sheet-close crash in the mixed-sheet gate (which does not call resume): the
+2026-11-07 01:41:33 -0600 report again shows a null call from
+UC::DriverCore::continueProcessing inside NSSheetMoveHelper.closeSheet's nested
+animation loop. NSWindow.animationBehavior.none alone has not eliminated this
+intermittent platform failure. The focused mixed-sheet rerun and all 71 scenarios
+in the full-suite recheck pass. Final caller-reference cleanup also passes the
+focused controller gate. All 129 unit tests, Deno/TypeScript checks and API
+classification pass. No framework crash fix is claimed. Keep the broad focus item
+unchecked. Next: define projected focused bindings and boolean variants without
+observation-to-desired feedback. Automatic physical-window resumption, lazy target
+realization policy and recorded hardware/IME/AX/nested-sheet gaps remain open.
+
 ## 3. Application and operating-system integration
 
 - [ ] Support multiple windows with independent roots and explicit window ownership.
