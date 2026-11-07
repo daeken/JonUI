@@ -105,7 +105,7 @@ SecureField('Editing', { text: title.binding, onEditingChanged: editing => { voi
 TextEditor({ text: title.binding, onEditingChanged: editing => { const active: boolean = editing; void active; } });
 // @ts-expect-error Editing callbacks receive boolean session transitions.
 TextField('Invalid', { text: title.binding, onEditingChanged: (text: string) => {} });
-// @ts-expect-error Multiline Return inserts a newline; editors have no submit callback.
+// Opt-in submit leaves Shift-Return available for newlines.
 TextEditor({ text: title.binding, onSubmit: () => {} });
 View(() => Text(title.value), { fallback: error => Text(String(error)) });
 // @ts-expect-error Multiline editors require string state.
@@ -484,7 +484,7 @@ SecureField('Invalid', { text: amount.binding });
 TextField('Invalid', { text: title.binding, onSubmit: true });
 // @ts-expect-error Submit callbacks read State; no raw text argument is passed.
 SecureField('Invalid', { text: title.binding, onSubmit: (text: string) => { void text; } });
-// @ts-expect-error Multiline Return remains text input, rather than submit.
+// Editors can opt in to Return submission.
 TextEditor({ text: title.binding, onSubmit: () => {} });
 
 const instant = State<number>(Date.UTC(2026, 10, 7, 18, 30));
@@ -607,3 +607,9 @@ LongPressGesture({ onPressingChanged: async () => {} });
 
 // @ts-expect-error Long-press recognition is a boolean, not a location.
 LongPressGesture().onEnded(success => { console.log(success.x); });
+
+ScrollView(Text('transcript'), { followBottom: true, scrollResetKey: 'chat' });
+// @ts-expect-error Follow intent must be boolean.
+ScrollView(Text('transcript'), { followBottom: 'yes' });
+// @ts-expect-error Reset identity must be a string.
+ScrollView(Text('transcript'), { scrollResetKey: 1 });

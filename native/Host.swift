@@ -77,7 +77,9 @@ private func validateLayout(_ kind: String, _ props: [String: Any]) throws {
     }
     switch kind {
     case "scroll":
-        try keys(["axes", "showsIndicators"]); try choice("axes", ["vertical", "horizontal", "both"]); try boolean("showsIndicators")
+        try keys(["axes", "showsIndicators", "followBottom", "scrollResetKey"]); try boolean("followBottom");
+        if let key = props["scrollResetKey"], !(key is String) { throw BridgeError("Invalid scroll reset key") }
+        if props["followBottom"] as? Bool == true, (props["axes"] as? String ?? "vertical") != "vertical" { throw BridgeError("Follow bottom requires vertical axes") }; try choice("axes", ["vertical", "horizontal", "both"]); try boolean("showsIndicators")
     case "spacer": try keys(["minLength"]); try number("minLength", nonnegative: true)
     case "vstack", "hstack", "lazyvstack", "lazyhstack":
         try keys(["alignment", "spacing"]); try choice("alignment", ["vstack", "lazyvstack"].contains(kind) ? horizontalAlignments : verticalAlignments); try number("spacing")
@@ -239,10 +241,12 @@ private func validateInput(_ kind: String, _ props: [String: Any]) throws {
             }
         }
     case "texteditor":
-        try keys(["state", "monospaced", "editing", "focusName"])
+        try keys(["state", "monospaced", "submit", "editing", "focusName"])
         guard let raw = props["monospaced"], CFGetTypeID(raw as CFTypeRef) == CFBooleanGetTypeID() else { throw BridgeError("TextEditor monospaced must be a boolean") }
-        if let raw = props["editing"] {
-            guard let token = layoutNumber(raw), token > 0, token.rounded() == token, token < Double(Int.max) else { throw BridgeError("Invalid text editing token") }
+        for key in ["submit", "editing"] {
+          if let raw = props[key] {
+            guard let token = layoutNumber(raw), token > 0, token.rounded() == token, token < Double(Int.max) else { throw BridgeError("Invalid text \(key) token") }
+          }
         }
     case "form":
         try keys(["style"])
@@ -511,6 +515,79 @@ private struct NativeGesturePairProbe: View {
 
 // Own focus state at a stable input identity; callbacks and bindings only hold
 // weak references to the bridge objects so an old SwiftUI view cannot retain them.
+// Native geometry observation avoids a persistent ScrollViewReader anchor,
+// which can restore an old offset when a reader scrolls up.
+private struct FollowBottomScroll: View {
+    let content: AnyView
+    let showsIndicators: Bool
+    let resetKey: String
+    var body: some View {
+        ScrollView(.vertical, showsIndicators: showsIndicators) {
+            content.background(ScrollFollowerProbe(resetKey: resetKey))
+        }
+    }
+}
+private struct ScrollFollowerProbe: NSViewRepresentable {
+    let resetKey: String
+    func makeNSView(context: Context) -> FollowerView { FollowerView() }
+    func updateNSView(_ view: FollowerView, context: Context) {
+        if view.resetKey != resetKey { view.resetKey = resetKey; view.following = true; view.forceBottom = true }
+        view.schedule()
+    }
+    static func dismantleNSView(_ view: FollowerView, coordinator: ()) { view.invalidate() }
+    final class FollowerView: NSView {
+        var resetKey: String?
+        var following = true, forceBottom = true
+        private var active = true, scheduled = false, sampling = false
+        private weak var scroll: NSScrollView?
+        private var tokens: [NSObjectProtocol] = []
+        private var lastDocument: CGSize = .zero, lastViewport: CGSize = .zero
+        override func viewDidMoveToWindow() { super.viewDidMoveToWindow(); schedule() }
+        override func layout() { super.layout(); schedule() }
+        func invalidate() {
+            active = false
+            for token in tokens { NotificationCenter.default.removeObserver(token) }
+            tokens.removeAll(); scroll = nil
+        }
+        func schedule() {
+            guard active, !scheduled else { return }
+            scheduled = true
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.active else { return }
+                self.scheduled = false; self.connect(); self.sample()
+            }
+        }
+        private func connect() {
+            guard let candidate = enclosingScrollView, candidate !== scroll else { return }
+            for token in tokens { NotificationCenter.default.removeObserver(token) }
+            tokens.removeAll(); scroll = candidate
+            candidate.contentView.postsBoundsChangedNotifications = true
+            candidate.documentView?.postsFrameChangedNotifications = true
+            for (name, object) in [(NSView.boundsDidChangeNotification, candidate.contentView as NSView),
+                                   (NSView.frameDidChangeNotification, candidate.documentView ?? candidate.contentView)] {
+                tokens.append(NotificationCenter.default.addObserver(forName: name, object: object, queue: .main) { [weak self] _ in self?.sample() })
+            }
+        }
+        private func sample() {
+            guard active, !sampling, let scroll, let document = scroll.documentView else { return }
+            sampling = true; defer { sampling = false }
+            let clip = scroll.contentView, size = document.bounds.size, viewport = clip.bounds.size
+            guard size.height > 0, viewport.height > 0 else { return }
+            let resized = size != lastDocument || viewport != lastViewport
+            lastDocument = size; lastViewport = viewport
+            let bottom = document.isFlipped ? max(0, size.height - viewport.height) : CGFloat(0)
+            if forceBottom || (resized && following) {
+                forceBottom = false
+                clip.scroll(to: NSPoint(x: clip.bounds.minX, y: bottom))
+                scroll.reflectScrolledClipView(clip)
+            } else if !resized {
+                following = abs(clip.bounds.minY - bottom) <= 32
+            }
+        }
+        deinit { for token in tokens { NotificationCenter.default.removeObserver(token) } }
+    }
+}
+
 private struct NativeTextInput: View {
     let kind: String
     let title: String
@@ -811,6 +888,9 @@ private struct NativeView: View {
             })
         case "scroll":
             let axes: Axis.Set = box.string("axes", "vertical") == "both" ? [.horizontal, .vertical] : box.string("axes", "vertical") == "horizontal" ? .horizontal : .vertical
+            if box.props["followBottom"] as? Bool == true {
+                return AnyView(FollowBottomScroll(content: child(), showsIndicators: box.props["showsIndicators"] as? Bool ?? true, resetKey: box.string("scrollResetKey")))
+            }
             return AnyView(ScrollView(axes, showsIndicators: box.props["showsIndicators"] as? Bool ?? true) { child() })
         case "form":
             let form = Form { ForEach(box.children.map(ViewReference.init)) { item in NativeView(reference: item, host: host) } }
@@ -1171,7 +1251,7 @@ private final class OwnedWindow: NSObject, NSWindowDelegate {
 private final class JonUIApplication: NSApplication {
     func routeTraversalEvent(_ event: NSEvent) -> Bool {
         guard let window = event.window, let host = delegate as? Host else { return false }
-        return host.handleTraversalKey(event, in: window)
+        return host.handleEditorSubmitKey(event, in: window) || host.handleTraversalKey(event, in: window)
     }
     override func sendEvent(_ event: NSEvent) {
         if let host = delegate as? Host, host.handleTapTestEvent(event) { return }
@@ -1417,7 +1497,7 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
         emit(["type": "longPress", "id": id, "token": token, "phase": "reset"])
     }
     func textSubmit(_ id: Int, token: Int) {
-        guard !stopping, let box = liveNode(id), ["textfield", "securefield"].contains(box.kind),
+        guard !stopping, let box = liveNode(id), ["textfield", "securefield", "texteditor"].contains(box.kind),
               box.props["submit"] as? Int == token, let state = box.props["state"] as? Int, let cell = cells[state] else { return }
         emit(["type": "textSubmit", "id": id, "token": token, "state": cell.snapshot().merging(["id": state]) { _, new in new }])
     }
@@ -1835,6 +1915,28 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
         guard let best, window.makeFirstResponder(best), let current = focusView(window.firstResponder) else { return false }
         return current === best || current.isDescendant(of: best)
     }
+    // Route before NSTextView inserts a newline. Only the focused, live, opt-in
+    // editor participates; IME confirmation and modified Return stay native.
+    func handleEditorSubmitKey(_ event: NSEvent, in window: NSWindow) -> Bool {
+        guard !stopping, window === currentFocusWindow(), event.type == .keyDown,
+              [UInt16(36), UInt16(76)].contains(event.keyCode),
+              event.modifierFlags.intersection([.shift, .command, .control, .option]).isEmpty,
+              let editor = window.firstResponder as? NSTextView,
+              editor.isEditable, !editor.hasMarkedText() else { return false }
+        for (id, control) in hostedControls {
+            guard let box = liveNode(id), box.kind == "texteditor",
+                  let token = box.props["submit"] as? Int,
+                  control.target(in: window) === editor,
+                  eligibleFocusView(editor, in: window) else { continue }
+            if let state = box.props["state"] as? Int, let cell = cells[state] {
+                nativeWrite(cell, value: editor.string)
+            }
+            // Holding Return should not submit a subsequent draft repeatedly.
+            if !event.isARepeat { textSubmit(id, token: token) }
+            return true
+        }
+        return false
+    }
     func handleTraversalKey(_ event: NSEvent, in window: NSWindow) -> Bool {
         guard !stopping, window === currentFocusWindow(), focusTabNavigation,
               event.type == .keyDown, event.keyCode == 48,
@@ -2149,6 +2251,10 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
             scheduleAvailabilityWatch()
             return [:]
         case "dispose": stopping = true; dispose(); return [:]
+        case "debug.application" where testing:
+            return ["bundleIdentifier": Bundle.main.bundleIdentifier ?? "",
+                    "displayName": Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String ?? "JonUI",
+                    "quitMenuTitle": NSApp.mainMenu?.items.first?.submenu?.items.first?.title ?? ""]
         case "debug.snapshot" where testing:
             let views: [[String: Any]] = nodes.values.sorted { $0.id < $1.id }.map {
                 ["id": $0.id, "kind": $0.kind, "props": $0.props, "children": $0.children.map(\.id)]
@@ -2450,6 +2556,15 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 "token": focusWatchToken as Any? ?? NSNull(), "generation": focusRequestGeneration]
         case "debug.focusTraversal" where testing:
             return ["count": focusTraversal.count, "tabNavigation": focusTabNavigation]
+        case "debug.return" where testing:
+            guard let window = currentFocusWindow() else { throw BridgeError("No test window") }
+            let flags: NSEvent.ModifierFlags = message["shift"] as? Bool == true ? .shift : []
+            guard let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags,
+                timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil,
+                characters: "\r", charactersIgnoringModifiers: "\r", isARepeat: false, keyCode: 36) else { throw BridgeError("Cannot create Return") }
+            let intercepted = handleEditorSubmitKey(event, in: window)
+            if !intercepted { window.sendEvent(event) }
+            return ["intercepted": intercepted]
         case "debug.tab" where testing:
             guard let window = currentFocusWindow() else { throw BridgeError("No test window") }
             var flags: NSEvent.ModifierFlags = []
@@ -2646,7 +2761,8 @@ struct JonUI {
         let host = Host(); app.delegate = host
         let menu = NSMenu(), application = NSMenuItem(); menu.addItem(application)
         let submenu = NSMenu(); application.submenu = submenu
-        let quit = NSMenuItem(title: "Quit JonUI", action: #selector(Host.quit), keyEquivalent: "q"); quit.target = host; submenu.addItem(quit)
+        let applicationName = Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String ?? "JonUI"
+        let quit = NSMenuItem(title: "Quit \(applicationName)", action: #selector(Host.quit), keyEquivalent: "q"); quit.target = host; submenu.addItem(quit)
         // Supply the standard text editing responder actions for native text fields.
         let edit = NSMenuItem(title: "Edit", action: nil, keyEquivalent: ""); menu.addItem(edit)
         let editMenu = NSMenu(title: "Edit"); edit.submenu = editMenu

@@ -1,0 +1,32 @@
+import assert from 'node:assert/strict';
+import { State, TextEditor, Text, View, VStack, runApp, __testing as test } from 'jonui';
+const text = State('hello 🦊'), enabled = State(true), version = State(1), shown = State(true);
+const events = [];
+const app = runApp({ title: 'Editor submit', width: 500, height: 300, content: View(() => {
+  const v = version.value;
+  return shown.value ? VStack([TextEditor({ text: text.binding, onSubmit: enabled.value ? () => events.push([v, text.value]) : undefined }).frame({height:150}), Text(String(events.length))]) : Text('hidden');
+}) });
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+async function until(fn) { for(let i=0;i<300;i++) { if(fn()) return; await sleep(10); } throw Error('timeout'); }
+await until(() => test.request('debug.editors').count === 1);
+assert.equal(test.request('debug.focus', {editor:0}).accepted, true);
+await sleep(30);
+assert.equal(test.request('debug.return').intercepted, true);
+await until(() => events.length === 1);
+assert.deepEqual(events[0], [1, 'hello 🦊']); assert.equal(text.value, 'hello 🦊');
+assert.equal(test.request('debug.return', {shift:true}).intercepted, false);
+await until(() => text.value.includes('\n')); assert.equal(events.length, 1);
+version.value = 2; test.flush(); await sleep(30);
+assert.equal(test.request('debug.return').intercepted, true);
+await until(() => events.length === 2); assert.deepEqual(events[1], [2,text.value]);
+test.request('debug.markedText', {value:'候補'});
+assert.equal(test.request('debug.return').intercepted, false);
+await sleep(30); assert.equal(events.length,2);
+test.request('debug.markedText');
+enabled.value=false;test.flush(); await sleep(30);
+assert.equal(test.request('debug.return').intercepted, false); await sleep(30);assert.equal(events.length,2);
+shown.value=false;test.flush();await until(() => test.request('debug.editors').count===0);
+assert.equal(test.stats().actions,0);
+test.request('debug.close'); await app;
+assert.deepEqual(test.stats(),{actions:0,cells:0,dependencies:0});
+console.log('PASS editor submit: Return, Shift-Return newline, Unicode snapshot, current callback, IME, opt-out and cleanup');

@@ -29,6 +29,12 @@ Status meanings:
 
 ## Current review
 
+- Cosmurgy app-bundle review: native application menu now derives its Quit label from CFBundleDisplayName, retaining JonUI as fallback. A test-only debug.application probe exposes bundle identity/display name/Quit label for offscreen packaging verification; no public widget/API surface or parity classification changes. Cosmurgy bundle diagnostics/signature/configuration tests (4), actual bundled-host native UI/restart/compaction/service-swap gates, and existing editor-submit/scroll-follow bridge gates verify the development subset. Local ad-hoc signing is not notarization, universal distribution or minimum-OS certification. Validation: TypeScript check, all 209 unit tests, all 11 coverage-workflow tests, coverage classification, editor-submit/scroll-follow/editing/submit gates, and generic bundle plus bare-executable identity gates pass. Existing TextEditor/ScrollView row limitations remain.
+
+- Cosmurgy transcript/composer review: ScrollView adds opt-in vertical `followBottom` and `scrollResetKey`. A scoped native document/clip geometry observer follows growth and resizing only while within 32pt of the bottom; scrolling up pauses following, returning to bottom resumes, and reset identity returns to latest. Observer cleanup uses weak captures, representable dismantling and deinit. Default/horizontal scroll behavior is unchanged; general position Binding/reader/target parity remains unimplemented. Native build, both TypeScript checks, 209 bridge unit tests, offscreen scroll-follow/editor-submit gates and Cosmurgy native reload/restart/persistence gates pass. Shell geometry assertions bound the composer panel to 150pt, text input to 50pt and give the transcript at least 300pt at the test window size. Physical trackpad and minimum-OS verification remain outstanding.
+
+- Cosmurgy composer review: TextEditor now supports opt-in `onSubmit` for unmodified Return/keypad Enter. Shift/Command/Option/Control Return and marked-text confirmation remain native; default editors still insert newlines. Routing uses the focused live hosted NSTextView, flushes its current string, suppresses key repeats and reuses owned submit tokens/current-handler delivery. Rich text/selection/find parity is unchanged. Native build, TypeScript checks, 208 unit tests, editor-submit native gate, existing text-editing/text-submit native gates, and Cosmurgy Enter/Shift-Enter/reload/persistence native smoke tests pass offscreen. Hardware and minimum-OS checks remain unverified.
+
 - Framework development paused at the user's request (2026-11-07), after the
   tested leaf-dispatch/npm checkpoint. The backlog and partial coverage remain
   recorded; the pause itself changes no widget/state/API classification.
@@ -585,7 +591,7 @@ Status meanings:
 | ColorPicker | Missing | Color/opacity Binding. | Define JSON color schema; native picker, editing lifecycle and color spaces. |
 | TextField | Partial | String Binding; submit/editing callbacks; optional focus name. | Native Unicode/Return/rebinding/lifetimes and captured focus preservation across tap priority/keyed updates verified; formatters, prompts/styles and selection remain. <!-- api: TextField, TextInputOptions --> |
 | SecureField | Partial | String Binding with masked native rendering. | Native edits/focus verified; formatting/styles and secure-entry policy remain. <!-- api: SecureField --> |
-| TextEditor | Partial | String Binding, monospaced flag, editing callback, focus name. | Native multiline/Unicode/newline/lifetime verified; rich text, selection, writing tools and find remain. <!-- api: TextEditor --> |
+| TextEditor | Partial | String Binding, monospaced flag, editing callback, opt-in Return submit callback (Shift-Return newline, IME passthrough), focus name. | Native multiline/Unicode/newline/lifetime verified; rich text, selection, writing tools and find remain. <!-- api: TextEditor --> |
 | TextFieldLink | Platform gate | Entry/presentation state and text result. | Audit supported Apple platforms and define lifecycle. |
 | ProgressView | Missing | Indeterminate or completed/total value; optional label. | Styles, accessibility and progress model integration. |
 | Gauge | Missing | Value/range and minimum/current/maximum labels. | Define finite numeric contract and native styles. |
@@ -623,7 +629,7 @@ Status meanings:
 | GridRow | Missing | Child cells and row alignment. | Requires Grid with span/alignment contracts. |
 | Spacer | Available | Optional finite nonnegative minimum length. | Native layout verified; no owned mutable state. <!-- api: Spacer --> |
 | Divider | Available | Stateless native separator. | Rendered in native hierarchy; style/orientation follow native layout. <!-- api: Divider --> |
-| ScrollView | Partial | Axes and indicator visibility; content owns state. | Native scroll/geometry, lazy rectangular-margin Command-taps and normal/simultaneous long-press disappearance cancellation/pressing-state reset verified; test driver rejects requested points outside ancestor viewports. Position Binding, reader, bounce and target APIs remain. <!-- api: ScrollView --> |
+| ScrollView | Partial | Axes and indicator visibility; opt-in vertical bottom-follow with reset identity, paused while reading above bottom; content owns state. | Native scroll/geometry, lazy rectangular-margin Command-taps and normal/simultaneous long-press disappearance cancellation/pressing-state reset verified; test driver rejects requested points outside ancestor viewports. Position Binding, reader, bounce and target APIs remain. <!-- api: ScrollView --> |
 | ScrollViewReader | Missing | Stable scroll target IDs and scroll actions. | Cancellation, unrealized lazy targets and window ownership. |
 | ScrollPosition / ScrollGeometry | Missing | Position/anchor and read-only scroll snapshots. | Define typed coalesced scroll events, Binding and revision rules. |
 | List | Partial | String/number/null single-selection Binding; keyed rows. | Basic Landmarks selection/state verified; editing, multi-select, sections/styles and drag/drop remain. <!-- api: List --> |
@@ -880,7 +886,7 @@ can still bypass local enforcement; this is not server-side branch protection.
 Repository instructions require the same review for contributors and automation.
 
 <!-- coverage-review:generated -->
-Review baseline (checkout HEAD before commit): `632db83e2c91876c5da2f08e10d095b69f4565e5`.
+Review baseline (checkout HEAD before commit): `6021b18b3e0187b14205b1100161570e38832042`.
 
-Staged source-tree SHA-256 (excluding this catalog): `73745c7518a031f170a6578b5f7254da62dc228574909fafaade8ebd906ebf64`.
+Staged source-tree SHA-256 (excluding this catalog): `69941e484accb7b2f7323fa948d7fc3f64a3dbbc05027cd45d6f15b966105c3f`.
 <!-- /coverage-review:generated -->

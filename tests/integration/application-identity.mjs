@@ -1,0 +1,10 @@
+import assert from 'node:assert/strict';
+import { Text, runApp, __testing as test } from 'jonui';
+const app = runApp({ title: 'Application identity', width: 320, height: 180, content: Text('Identity probe') });
+for (let i = 0; i < 300 && !test.request('debug.snapshot').windowVisible; i++) await new Promise(resolve => setTimeout(resolve, 10));
+const identity = test.request('debug.application');
+assert.equal(identity.displayName, 'JonUI');
+assert.equal(identity.quitMenuTitle, 'Quit JonUI');
+test.request('debug.close'); await app;
+assert.deepEqual(test.stats(), { actions: 0, cells: 0, dependencies: 0 });
+console.log('PASS application identity: generic JonUI display-name/fallback and Quit menu');

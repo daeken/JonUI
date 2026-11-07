@@ -1030,9 +1030,12 @@ function gridOptions(options, vertical) {
 export const LazyVGrid = (children, options) => new ViewValue('lazyvgrid', gridOptions(options, true), [...children]);
 export const LazyHGrid = (children, options) => new ViewValue('lazyhgrid', gridOptions(options, false), [...children]);
 export const ScrollView = (content, options = {}) => {
-  const props = { axes: 'vertical', showsIndicators: true, ...layoutOptions(options, ['axes', 'showsIndicators'], 'ScrollView') };
+  const props = { axes: 'vertical', showsIndicators: true, ...layoutOptions(options, ['axes', 'showsIndicators', 'followBottom', 'scrollResetKey'], 'ScrollView') };
   layoutEnum(props.axes, ['vertical', 'horizontal', 'both'], 'scroll axes');
   if (typeof props.showsIndicators !== 'boolean') throw new TypeError('ScrollView showsIndicators must be boolean');
+  if (props.followBottom !== undefined && typeof props.followBottom !== 'boolean') throw new TypeError('ScrollView followBottom must be boolean');
+  if (props.scrollResetKey !== undefined && typeof props.scrollResetKey !== 'string') throw new TypeError('ScrollView scrollResetKey must be a string');
+  if (props.followBottom && props.axes !== 'vertical') throw new TypeError('ScrollView followBottom requires vertical axes');
   return new ViewValue('scroll', props, [content]);
 };
 export const Form = (children, options = {}) => {
@@ -1327,11 +1330,12 @@ function textInput(kind, title, options) {
 export const TextField = (title, options) => textInput('textfield', title, options);
 export const SecureField = (title, options) => textInput('securefield', title, options);
 export const TextEditor = options => {
-  const props = layoutOptions(options, ['text', 'monospaced', 'onEditingChanged', 'focusName'], 'TextEditor');
+  const props = layoutOptions(options, ['text', 'monospaced', 'onSubmit', 'onEditingChanged', 'focusName'], 'TextEditor');
   if (props.focusName !== undefined) focusName(props.focusName);
   if (props.monospaced !== undefined && typeof props.monospaced !== 'boolean') throw new TypeError('TextEditor monospaced must be boolean');
   if (props.onEditingChanged !== undefined && typeof props.onEditingChanged !== 'function') throw new TypeError('Text input onEditingChanged must be a function');
-  return new ViewValue('texteditor', { state: binding(props.text), monospaced: props.monospaced ?? false, onEditingChanged: props.onEditingChanged, ...(props.focusName === undefined ? {} : { focusName: props.focusName }) });
+  if (props.onSubmit !== undefined && typeof props.onSubmit !== 'function') throw new TypeError('Text input onSubmit must be a function');
+  return new ViewValue('texteditor', { onSubmit: props.onSubmit, state: binding(props.text), monospaced: props.monospaced ?? false, onEditingChanged: props.onEditingChanged, ...(props.focusName === undefined ? {} : { focusName: props.focusName }) });
 };
 function jsonSnapshot(value, ancestors = new Set()) {
   if (value === null || typeof value === 'string' || typeof value === 'boolean') return value;
@@ -1582,7 +1586,7 @@ function finishEvaluation(mounted, children) {
     appearances.set(mounted.appearanceToken, { id: mounted.id, phase: props.name, callback: onAppearance });
     props.appearance = mounted.appearanceToken;
   }
-  if (value.kind === 'textfield' || value.kind === 'securefield') {
+  if (['textfield', 'securefield', 'texteditor'].includes(value.kind)) {
     if (!onSubmit || mounted.submitState !== props.state) {
       textSubmits.delete(mounted.submitToken); mounted.submitToken = undefined;
     }

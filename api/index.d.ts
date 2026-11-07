@@ -259,7 +259,7 @@ export type GridItem = ({ size: 'fixed'; value: number; min?: never; max?: never
 export function LazyVGrid(children: readonly View[], options: { columns: readonly GridItem[]; alignment?: HorizontalAlignment; spacing?: number }): View;
 /** Native lazy columns; row tracks run vertically. Scopes remain mounted offscreen. */
 export function LazyHGrid(children: readonly View[], options: { rows: readonly GridItem[]; alignment?: VerticalAlignment; spacing?: number }): View;
-export function ScrollView(content: View, options?: { axes?: "vertical" | "horizontal" | "both"; showsIndicators?: boolean }): View;
+export function ScrollView(content: View, options?: { axes?: "vertical" | "horizontal" | "both"; showsIndicators?: boolean; /** Follow vertical content growth while near the bottom; scrollResetKey starts a new transcript. */ followBottom?: boolean; scrollResetKey?: string }): View;
 export function Form(children: readonly View[], options?: { style?: "automatic" | "grouped" | "columns" }): View;
 export function Section(title: string, children: readonly View[], options?: { footer?: string }): View;
 export interface NumericInputOptions {
@@ -335,7 +335,8 @@ export function TextField(title: string, options: TextInputOptions): View;
 /** Masks the native input; the string State remains accessible to application code. */
 export function SecureField(title: string, options: TextInputOptions): View;
 /** Native multiline text input. Monospaced uses the system code font. */
-export function TextEditor(options: { text: Binding<string>; focusName?: string; monospaced?: boolean; onEditingChanged?: (editing: boolean) => void }): View;
+/** With onSubmit, unmodified Return/Enter submits; Shift-Return inserts a newline. Marked-text input is never intercepted. */
+export function TextEditor(options: { text: Binding<string>; onSubmit?: () => void; focusName?: string; monospaced?: boolean; onEditingChanged?: (editing: boolean) => void }): View;
 export type JSONValue = null | boolean | number | string | readonly JSONValue[] | { readonly [key: string]: JSONValue };
 type WebAPIValidation<API> = { [K in keyof API]: K extends 'then' | '__proto__' | 'prototype' | 'constructor' | 'toJSON' ? never : K extends string ? API[K] extends (...args: infer A) => infer R
   ? [A] extends [StateInput<A>] ? [Awaited<R>] extends [void] ? API[K]

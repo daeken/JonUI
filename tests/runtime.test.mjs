@@ -2081,7 +2081,7 @@ test('editing callback options reject invalid inputs before serialization and fa
   for (const create of [options => ui.TextField('Plain', options), options => ui.SecureField('Secret', options), ui.TextEditor]) {
     assert.throws(() => create({ text: text.binding, onEditingChanged: true }), /onEditingChanged/);
   }
-  assert.throws(() => ui.TextEditor({ text: text.binding, onSubmit: () => {} }), /Unknown/);
+  assert.throws(() => ui.TextEditor({ text: text.binding, onSubmit: true }), /onSubmit/);
   assert.throws(() => ui.TextEditor({ text: text.binding, monospaced: 1 }), /monospaced/);
   assert.equal(h.calls.length, before);
   const done = launch(ui, ui.View(() => ui.VStack([
@@ -3493,4 +3493,14 @@ test('current task failures and cancellation cleanup errors dispose sibling work
     assert.deepEqual(ui.__testing.effectStats(), { active: 0, pending: 0 });
     never.resolve(); await tick();
   }
+});
+
+
+test('ScrollView validates opt-in vertical bottom following and reset identity', async () => {
+  const h = await setup(), { ui } = h;
+  for (const followBottom of [null, 1, 'yes']) assert.throws(() => ui.ScrollView(ui.Text('a'), { followBottom }), /followBottom/);
+  assert.throws(() => ui.ScrollView(ui.Text('a'), { followBottom: true, axes: 'horizontal' }), /vertical/);
+  assert.throws(() => ui.ScrollView(ui.Text('a'), { scrollResetKey: 1 }), /scrollResetKey/);
+  const view = ui.ScrollView(ui.Text('a'), { followBottom: true, scrollResetKey: 'conversation' });
+  assert.equal(view.props.followBottom, true); assert.equal(view.props.scrollResetKey, 'conversation');
 });
