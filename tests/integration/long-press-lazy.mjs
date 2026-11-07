@@ -1,13 +1,14 @@
 import assert from 'node:assert/strict';
 import { Component, ForEach, LazyHGrid, LazyHStack, LazyVGrid, LazyVStack, ScrollView, State, Text, View, runApp, __testing as test } from 'jonui';
-const mode = process.env.JONUI_CASE || 'vertical-stack', horizontal = mode.startsWith('horizontal'), grid = mode.endsWith('grid');
+const rawMode = process.env.JONUI_CASE || 'vertical-stack', priority = rawMode.startsWith('simultaneous-') ? 'simultaneous' : 'normal';
+const mode = rawMode.replace(/^simultaneous-/, ''), horizontal = mode.startsWith('horizontal'), grid = mode.endsWith('grid');
 const shown = State(false), ids = State(Array.from({ length: 60 }, (_, id) => id)), revision = State(0), mutation = State('none');
 const models = new Map(), events = []; let setups = 0, disposals = 0;
 const scroll = end => test.request('debug.scroll', { index: 0, x: horizontal ? end : 0, y: horizontal ? 0 : end });
 const Row = Component((scope, id) => {
   setups++; const hits = scope.state(0), pressing = scope.state(false); models.set(id, { hits, pressing }); let retired = false; scope.onDispose(() => { retired = true; disposals++; });
   return () => { const current = revision.value; return Text(`Row ${id}: ${hits.value}`).frame({ width: grid || horizontal ? 110 : 220, height: horizontal ? 60 : 44 }).contentShape('rectangle')
-    .onLongPressGesture(() => { assert.equal(retired, false); hits.value++; events.push([id, 'perform', current]); }, { minimumDuration: 0.05, maximumDistance: 10, onPressingChanged: value => {
+    .onLongPressGesture(() => { assert.equal(retired, false); hits.value++; events.push([id, 'perform', current]); }, { priority, minimumDuration: 0.05, maximumDistance: 10, onPressingChanged: value => {
       assert.equal(retired, false); pressing.value = value; events.push([id, value, current]);
       if (value && mutation.value === 'scroll') scroll(1e6);
       if (value && mutation.value === 'remove') ids.value = ids.value.filter(value => value !== id);

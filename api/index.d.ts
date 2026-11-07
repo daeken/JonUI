@@ -188,7 +188,7 @@ export interface View {
   onSpatialTapGesture<Result>(callback: (location: TapLocation) => Result, options?: { count?: 1 | 2; priority?: "normal" | "high" | "simultaneous" }, ...validation: SynchronousCallbackValidation<Result>): View;
   /** Native recognition plus optional pressing notifications; seconds/points. Retirement does not guarantee a final false notification; use scope.onDispose for cleanup. */
   onLongPressGesture<Result, PressingResult = void>(callback: () => Result, options?: {
-    minimumDuration?: number; maximumDistance?: number; onPressingChanged?: (pressing: boolean) => PressingResult;
+    minimumDuration?: number; maximumDistance?: number; priority?: "normal" | "simultaneous"; onPressingChanged?: (pressing: boolean) => PressingResult;
   }, ...validation: SynchronousCallbackValidation<Result | PressingResult>): View;
   /** Attach an owned focus projection to a supported control through single-child modifiers; native availability/eligibility still apply. */
   focused(binding: FocusBinding): View;

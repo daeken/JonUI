@@ -397,34 +397,36 @@ test('owned availability applies per-controller task leases before validation an
 });
 
 test('long press validates copied options, strips callbacks and delivers current untracked synchronous phase handlers', async () => {
-  const h = await setup(), { ui } = h, version = ui.State(0), value = ui.State(false); const calls = [];
-  for (const callback of [undefined, null, true, 1, {}, []]) assert.throws(() => ui.Text('bad').onLongPressGesture(callback), /expects a function/);
-  for (const options of [null, [], { minimumDuration: -1 }, { minimumDuration: Infinity }, { minimumDuration: true }, { maximumDistance: -1 }, { maximumDistance: NaN }, { onPressingChanged: true }, { priority: 'high' }]) assert.throws(() => ui.Text('bad').onLongPressGesture(() => {}, options));
-  const options = { minimumDuration: 0.1, maximumDistance: 4 }, original = ui.Text('copy').onLongPressGesture(() => {}, options); options.minimumDuration = 1; assert.equal(original.props.minimumDuration, 0.1);
-  const defaults = ui.Text('default').onLongPressGesture(() => {}); assert.equal(defaults.props.minimumDuration, 0.5); assert.equal(defaults.props.maximumDistance, 10);
-  const done = launch(ui, ui.View(() => { const current = version.value; return ui.Text('target').onLongPressGesture(function () { assert.equal(this, undefined); assert.equal(arguments.length, 0); calls.push(['end', current]); }, { onPressingChanged: pressing => { value.value = pressing; calls.push([pressing, current]); } }); })); await tick();
-  const node = [...h.nodes.values()].find(n => n.props.press); assert.equal(node.props.observesPressing, true); assert.equal(node.props.onLongPress, undefined); assert.equal(node.props.onPressingChanged, undefined); assert.equal(ui.__testing.stats().actions, 2);
-  const emit = (phase, pressing, extra = {}) => h.emit({ type: 'longPress', id: node.id, token: node.props.press, phase, pressing, ...extra });
-  emit('wrong'); emit('pressing', 1); emit('performed', undefined, { id: -1 }); emit('performed', undefined, { token: 0 }); assert.deepEqual(calls, []);
-  emit('pressing', true); assert.equal(value.value, true); version.value = 1; await tick(); assert.equal(h.nodes.get(node.id).props.press, node.props.press); emit('performed'); emit('pressing', false);
-  assert.deepEqual(calls, [[true, 0], ['end', 1], [false, 1]]); assert.equal(value.value, false); h.emit({ type: 'stop' }); await done; assert.deepEqual(ui.__testing.stats(), { actions: 0, cells: 0, dependencies: 0 });
+  for (const priority of ['normal', 'simultaneous']) {
+    const h = await setup(), { ui } = h, version = ui.State(0), value = ui.State(false); const calls = [];
+    for (const callback of [undefined, null, true, 1, {}, []]) assert.throws(() => ui.Text('bad').onLongPressGesture(callback), /expects a function/);
+    for (const options of [null, [], { minimumDuration: -1 }, { minimumDuration: Infinity }, { minimumDuration: true }, { maximumDistance: -1 }, { maximumDistance: NaN }, { onPressingChanged: true }, ...[null, true, 1, '', 'high', 'exclusive', [], {}].map(priority => ({ priority }))]) assert.throws(() => ui.Text('bad').onLongPressGesture(() => {}, options));
+    const options = { minimumDuration: 0.1, maximumDistance: 4, priority: 'simultaneous' }, original = ui.Text('copy').onLongPressGesture(() => {}, options); options.minimumDuration = 1; options.priority = 'normal'; assert.equal(original.props.minimumDuration, 0.1); assert.equal(original.props.priority, 'simultaneous');
+    const defaults = ui.Text('default').onLongPressGesture(() => {}); assert.equal(defaults.props.minimumDuration, 0.5); assert.equal(defaults.props.maximumDistance, 10); assert.equal(defaults.props.priority, 'normal');
+    const done = launch(ui, ui.View(() => { const current = version.value; return ui.Text('target').onLongPressGesture(function () { assert.equal(this, undefined); assert.equal(arguments.length, 0); calls.push(['end', current]); }, { priority, onPressingChanged: pressing => { value.value = pressing; calls.push([pressing, current]); } }); })); await tick();
+    const node = [...h.nodes.values()].find(n => n.props.press); assert.equal(node.props.observesPressing, true); assert.equal(node.props.onLongPress, undefined); assert.equal(node.props.onPressingChanged, undefined); assert.equal(ui.__testing.stats().actions, 2);
+    const emit = (phase, pressing, extra = {}) => h.emit({ type: 'longPress', id: node.id, token: node.props.press, phase, pressing, ...extra });
+    emit('wrong'); emit('pressing', 1); emit('performed', undefined, { id: -1 }); emit('performed', undefined, { token: 0 }); assert.deepEqual(calls, []);
+    emit('pressing', true); assert.equal(value.value, true); version.value = 1; await tick(); assert.equal(h.nodes.get(node.id).props.press, node.props.press); emit('performed'); emit('pressing', false);
+    assert.deepEqual(calls, [[true, 0], ['end', 1], [false, 1]]); assert.equal(value.value, false); h.emit({ type: 'stop' }); await done; assert.deepEqual(ui.__testing.stats(), { actions: 0, cells: 0, dependencies: 0 });
+  }
 });
 
 test('long press config/observer changes retire tokens and removal drops pending callbacks', async () => {
-  const h = await setup(), { ui } = h, duration = ui.State(0.5), distance = ui.State(10), observed = ui.State(true), shown = ui.State(true); const calls = [];
-  const done = launch(ui, ui.View(() => shown.value ? ui.Text('hold').onLongPressGesture(() => calls.push('end'), { minimumDuration: duration.value, maximumDistance: distance.value, ...(observed.value ? { onPressingChanged: value => calls.push(value) } : {}) }) : ui.Text('removed'))); await tick();
+  const h = await setup(), { ui } = h, priority = ui.State('normal'), duration = ui.State(0.5), distance = ui.State(10), observed = ui.State(true), shown = ui.State(true); const calls = [];
+  const done = launch(ui, ui.View(() => shown.value ? ui.Text('hold').onLongPressGesture(() => calls.push('end'), { priority: priority.value, minimumDuration: duration.value, maximumDistance: distance.value, ...(observed.value ? { onPressingChanged: value => calls.push(value) } : {}) }) : ui.Text('removed'))); await tick();
   const node = () => [...h.nodes.values()].find(n => n.props.press), emit = n => h.emit({ type: 'longPress', id: n.id, token: n.props.press, phase: 'performed' });
-  for (const change of [() => { duration.value = 0; }, () => { distance.value = 0; }, () => { observed.value = false; }]) {
+  for (const change of [() => { priority.value = 'simultaneous'; }, () => { priority.value = 'normal'; }, () => { duration.value = 0; }, () => { distance.value = 0; }, () => { observed.value = false; }]) {
     const old = node(); change(); await tick(); const next = node(); assert.equal(next.id, old.id); assert.notEqual(next.props.press, old.props.press); const before = calls.length; emit(old); assert.equal(calls.length, before); emit(next); assert.equal(calls.length, before + 1);
   }
   assert.equal(ui.__testing.stats().actions, 1); const old = node(); shown.value = false; await tick(); emit(old); assert.equal(ui.__testing.stats().actions, 0); h.emit({ type: 'stop' }); await done;
 });
 
 test('long press action/pressing failures and thenables dispose owners and all registrations', async () => {
-  for (const phase of ['performed', 'pressing']) for (const promise of [false, true]) {
+  for (const priority of ['normal', 'simultaneous']) for (const phase of ['performed', 'pressing']) for (const promise of [false, true]) {
     const h = await setup(), { ui } = h; let disposed = 0, stopped = 0;
     const fail = () => { if (promise) return Promise.reject(new Error('consumed')); throw new Error('long press failure'); };
-    const Owner = ui.Component(scope => { scope.state(0); scope.onDispose(() => disposed++); return () => ui.Text('hold').onLongPressGesture(phase === 'performed' ? fail : () => {}, { onPressingChanged: phase === 'pressing' ? fail : () => {} }); });
+    const Owner = ui.Component(scope => { scope.state(0); scope.onDispose(() => disposed++); return () => ui.Text('hold').onLongPressGesture(phase === 'performed' ? fail : () => {}, { priority, onPressingChanged: phase === 'pressing' ? fail : () => {} }); });
     const done = launch(ui, Owner(), () => stopped++); await tick(); const node = [...h.nodes.values()].find(n => n.props.press);
     h.emit({ type: 'longPress', id: node.id, token: node.props.press, phase, pressing: true }); await assert.rejects(done, promise ? /must be synchronous/ : /long press failure/); assert.equal(disposed, 1); assert.equal(stopped, 1); assert.deepEqual(ui.__testing.stats(), { actions: 0, cells: 0, dependencies: 0 });
   }

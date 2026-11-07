@@ -39,7 +39,7 @@ def run(entry, case='', failure=None, driver=None, timeout=30, layout=False):
     if entry.endswith('focus-subscribe-error.mjs'):
         assert all(result.stdout.count(marker) == 1 for marker in ['FOCUS_SCOPE_DISPOSE', 'FOCUS_STOP']), (result.stdout, result.stderr)
     if entry.endswith('long-press-error.mjs'):
-        assert result.returncode == (0 if case == 'close' else 1), (case, result.returncode, result.stdout, result.stderr)
+        assert result.returncode == (0 if case.endswith('close') else 1), (case, result.returncode, result.stdout, result.stderr)
         assert all(result.stdout.count(marker) == 1 for marker in ['PRESS_DISPOSE', 'PRESS_STOP']), (case, result.stdout, result.stderr)
     if entry.endswith('taps-error.mjs'):
         assert all(result.stdout.count(marker) == 1 for marker in ['TAP_DISPOSE', 'TAP_STOP']), (case, result.stdout, result.stderr)
@@ -196,10 +196,12 @@ for mode in ['vertical-stack', 'horizontal-stack', 'vertical-grid', 'horizontal-
     run('tests/integration/tap-lazy.mjs', case='spatial-' + mode, timeout=90, layout=True)
 for mode, message in [('spatial-throw', 'intentional tap failure'), ('spatial-high-throw', 'intentional tap failure'), ('spatial-simultaneous-promise', 'must be synchronous')]:
     run('tests/integration/taps-error.mjs', case=mode, failure=message, layout=True)
-run('tests/integration/long-press.mjs', timeout=90, layout=True)
-for mode, message in [('perform', 'intentional long press failure'), ('perform-promise', 'must be synchronous'), ('pressing', 'intentional long press failure'), ('pressing-promise', 'must be synchronous')]:
-    run('tests/integration/long-press-error.mjs', case=mode, failure=message, layout=True)
-run('tests/integration/long-press-error.mjs', case='close', layout=True)
-run('tests/integration/long-press-windows.mjs', timeout=90, layout=True)
-for mode in ['vertical-stack', 'horizontal-stack', 'vertical-grid', 'horizontal-grid']:
-    run('tests/integration/long-press-lazy.mjs', case=mode, timeout=90, layout=True)
+run('tests/integration/long-press-priority.mjs', timeout=120, layout=True)
+for prefix in ['', 'simultaneous-']:
+    run('tests/integration/long-press.mjs', case=prefix.rstrip('-'), timeout=90, layout=True)
+    for mode, message in [('perform', 'intentional long press failure'), ('perform-promise', 'must be synchronous'), ('pressing', 'intentional long press failure'), ('pressing-promise', 'must be synchronous')]:
+        run('tests/integration/long-press-error.mjs', case=prefix + mode, failure=message, layout=True)
+    run('tests/integration/long-press-error.mjs', case=prefix + 'close', layout=True)
+    run('tests/integration/long-press-windows.mjs', case=prefix.rstrip('-'), timeout=90, layout=True)
+    for mode in ['vertical-stack', 'horizontal-stack', 'vertical-grid', 'horizontal-grid']:
+        run('tests/integration/long-press-lazy.mjs', case=prefix + mode, timeout=90, layout=True)

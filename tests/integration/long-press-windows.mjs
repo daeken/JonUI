@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
 import { Component, State, Text, runApp, __testing as test } from 'jonui';
+const priority = process.env.JONUI_CASE === 'simultaneous' ? 'simultaneous' : 'normal';
 const a = State(false), b = State(false), sheet = State(false), revision = State(0), mutation = State('none');
 const events = [], models = new Map(), setups = {}, disposals = {};
 const Target = Component((scope, label) => {
   setups[label] = (setups[label] ?? 0) + 1; const hits = scope.state(0), pressing = scope.state(false); models.set(label, { hits, pressing }); let retired = false;
   scope.onDispose(() => { retired = true; disposals[label] = (disposals[label] ?? 0) + 1; });
-  return () => { const current = revision.value; return Text(`${label}: ${hits.value}`).frame({ width: 250, height: 90 }).contentShape('rectangle').onLongPressGesture(() => { assert.equal(retired, false); hits.value++; events.push([label, 'perform', current]); }, { minimumDuration: 0.05, maximumDistance: 10, onPressingChanged: value => {
+  return () => { const current = revision.value; return Text(`${label}: ${hits.value}`).frame({ width: 250, height: 90 }).contentShape('rectangle').onLongPressGesture(() => { assert.equal(retired, false); hits.value++; events.push([label, 'perform', current]); }, { priority, minimumDuration: 0.05, maximumDistance: 10, onPressingChanged: value => {
     assert.equal(retired, false); pressing.value = value; events.push([label, value, current]);
     if (value && mutation.value === 'dismiss' && label === 'sheet') sheet.value = false;
     if (value && mutation.value === 'close' && label === 'A') test.request('debug.closeWindow', { id: windows().find(w => w.title === 'A').id });

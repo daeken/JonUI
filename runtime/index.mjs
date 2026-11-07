@@ -420,10 +420,11 @@ class ViewValue {
   onSpatialTapGesture(callback, options = {}) { return tapModifier(this, 'onSpatialTapGesture', callback, options); }
   onLongPressGesture(callback, options = {}) {
     if (typeof callback !== 'function') throw new TypeError('onLongPressGesture expects a function');
-    const { minimumDuration = 0.5, maximumDistance = 10, onPressingChanged } = layoutOptions(options, ['minimumDuration', 'maximumDistance', 'onPressingChanged'], 'onLongPressGesture');
+    const { minimumDuration = 0.5, maximumDistance = 10, priority = 'normal', onPressingChanged } = layoutOptions(options, ['minimumDuration', 'maximumDistance', 'priority', 'onPressingChanged'], 'onLongPressGesture');
     layoutNumber(minimumDuration, 'minimumDuration', true); layoutNumber(maximumDistance, 'maximumDistance', true);
+    layoutEnum(priority, ['normal', 'simultaneous'], 'long press priority');
     if (onPressingChanged !== undefined && typeof onPressingChanged !== 'function') throw new TypeError('onPressingChanged expects a function');
-    return this.modifier('onLongPressGesture', { minimumDuration, maximumDistance, observesPressing: !!onPressingChanged, onLongPress: callback, onPressingChanged });
+    return this.modifier('onLongPressGesture', { minimumDuration, maximumDistance, priority, observesPressing: !!onPressingChanged, onLongPress: callback, onPressingChanged });
   }
   focused(binding) {
     const projection = focusProjection(binding);
@@ -1418,12 +1419,12 @@ function finishEvaluation(mounted, children) {
   unmountAll(old.values());
   if (value.kind === 'modifier' && value.props.name === 'window') windowViews.set(mounted.id, mounted);
   const { body, fallback, rows, row, action, onMessage, onError, api, onSubmit, onEditingChanged, onAppearance, onTap, onLongPress, onPressingChanged, focusBinding, definition, setup, componentProps, ...props } = value.props;
-  if (props.name !== 'onLongPressGesture' || mounted.longPressDuration !== props.minimumDuration || mounted.longPressDistance !== props.maximumDistance || mounted.longPressObserves !== props.observesPressing || !onLongPress) {
+  if (props.name !== 'onLongPressGesture' || mounted.longPressDuration !== props.minimumDuration || mounted.longPressDistance !== props.maximumDistance || mounted.longPressPriority !== props.priority || mounted.longPressObserves !== props.observesPressing || !onLongPress) {
     longPresses.delete(mounted.longPressToken); mounted.longPressToken = undefined;
   }
   if (value.kind === 'modifier' && props.name === 'onLongPressGesture') {
     mounted.longPressToken ??= nextLongPress++;
-    mounted.longPressDuration = props.minimumDuration; mounted.longPressDistance = props.maximumDistance; mounted.longPressObserves = props.observesPressing;
+    mounted.longPressDuration = props.minimumDuration; mounted.longPressDistance = props.maximumDistance; mounted.longPressPriority = props.priority; mounted.longPressObserves = props.observesPressing;
     longPresses.set(mounted.longPressToken, { id: mounted.id, callback: onLongPress, pressing: onPressingChanged }); props.press = mounted.longPressToken;
   }
   if (mounted.tapCount !== props.count || mounted.tapPriority !== props.priority || mounted.tapMode !== props.name || !onTap) {

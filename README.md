@@ -35,7 +35,8 @@ and before a gesture to include transparent margins; circle, ellipse and capsule
 interaction paths are supported too. `.onSpatialTapGesture(point => …)` supplies a
 frozen local `{ x, y }` snapshot with the same count and priority options.
 `.onLongPressGesture(action, { onPressingChanged })` adds held recognition and
-native pressing notifications.
+native pressing notifications. Add `priority: "simultaneous"` to recognize holds
+alongside native control actions or child long presses (default: `"normal"`).
 
 ## Build and run
 

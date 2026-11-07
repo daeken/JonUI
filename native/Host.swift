@@ -101,8 +101,9 @@ private func validateLayout(_ kind: String, _ props: [String: Any]) throws {
     case "modifier":
         switch props["name"] as? String {
         case "onLongPressGesture":
-            try keys(["name", "minimumDuration", "maximumDistance", "observesPressing", "press"])
-            guard let duration = props["minimumDuration"].flatMap(layoutNumber), duration >= 0,
+            try keys(["name", "minimumDuration", "maximumDistance", "priority", "observesPressing", "press"])
+            guard let priority = props["priority"] as? String, ["normal", "simultaneous"].contains(priority),
+                  let duration = props["minimumDuration"].flatMap(layoutNumber), duration >= 0,
                   let distance = props["maximumDistance"].flatMap(layoutNumber), distance >= 0,
                   let token = props["press"].flatMap(layoutNumber), token > 0, token.rounded() == token, token < Double(Int.max),
                   let observes = props["observesPressing"] as? NSNumber, CFGetTypeID(observes) == CFBooleanGetTypeID() else { throw BridgeError("Invalid long press gesture") }
@@ -342,19 +343,38 @@ private struct NativeLongPressGesture: View {
     let content: AnyView
     let minimumDuration: Double
     let maximumDistance: CGFloat
+    let priority: String
     let token: Int
     let pressingChanged: (Int, Bool) -> Void
     let performed: (Int) -> Void
     @Environment(\.isEnabled) private var enabled
     @State private var recognitionToken: Int?
+    @State private var pressingActive = false
+    @State private var pendingZeroRecognition: Int?
     var body: some View {
-        content.onLongPressGesture(minimumDuration: minimumDuration, maximumDistance: maximumDistance, pressing: { pressing in
-            if pressing { recognitionToken = token }
+        let simultaneous = LongPressGesture(minimumDuration: minimumDuration, maximumDistance: maximumDistance)
+            .onEnded { success in
+                guard success, enabled else { return }
+                // Zero-duration recognition can precede the convenience modifier's
+                // pressing notification. Wait for that start to pin its token.
+                if minimumDuration == 0 && !pressingActive { pendingZeroRecognition = token }
+                else if let started = recognitionToken { performed(started) }
+            }
+        return content.onLongPressGesture(minimumDuration: minimumDuration, maximumDistance: maximumDistance, pressing: { pressing in
+            pressingActive = pressing
+            if pressing {
+                recognitionToken = token
+            } else { pendingZeroRecognition = nil }
             if enabled || !pressing { pressingChanged(recognitionToken ?? token, pressing) }
-        }, perform: { if enabled, let started = recognitionToken { performed(started) } })
+            if pressing, enabled, pendingZeroRecognition == token { pendingZeroRecognition = nil; performed(token) }
+        }, perform: { if enabled, priority == "normal", let started = recognitionToken { performed(started) } })
+        // Keep the native convenience modifier's pressing/end/cancellation observer
+        // even when controls or descendants win normal recognition. A separate
+        // simultaneous recognizer adds the action without changing that contract.
+        .simultaneousGesture(simultaneous, including: enabled && priority == "simultaneous" ? .all : .subviews)
         // Lazy/sheet disappearance can retain the logical owner and its token.
         // A native countdown from that old presentation must not perform later.
-        .onDisappear { recognitionToken = nil }
+        .onDisappear { recognitionToken = nil; pressingActive = false; pendingZeroRecognition = nil }
     }
 }
 
@@ -759,7 +779,7 @@ private struct NativeView: View {
                 return AnyView(child().sheet(isPresented: boolBinding()) { host.testLayoutRoot(child(1), id: surfaceID) })
             case "onLongPressGesture":
                 let id = box.id, token = box.props["press"] as? Int ?? 0
-                return AnyView(NativeLongPressGesture(content: child(), minimumDuration: Double(box.number("minimumDuration") ?? 0.5), maximumDistance: box.number("maximumDistance") ?? 10, token: token,
+                return AnyView(NativeLongPressGesture(content: child(), minimumDuration: Double(box.number("minimumDuration") ?? 0.5), maximumDistance: box.number("maximumDistance") ?? 10, priority: box.string("priority"), token: token,
                     pressingChanged: { [weak host] started, pressing in host?.longPress(id, token: started, pressing: pressing) },
                     performed: { [weak host] started in host?.longPress(id, token: started) }))
             case "onSpatialTapGesture":

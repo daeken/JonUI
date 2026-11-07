@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 import { Component, Focus, State, Text, TextField, View, VStack, runApp, __testing as test } from 'jonui';
+const initialPriority = process.env.JONUI_CASE === 'simultaneous' ? 'simultaneous' : 'normal';
+const priority = State(initialPriority);
 const shown = State(false), duration = State(0.06), distance = State(10), observed = State(true), revision = State(0), disabled = State(false), mutation = State('none');
 const events = []; let model, setups = 0, disposals = 0;
 const Owner = Component(scope => {
@@ -8,17 +10,18 @@ const Owner = Component(scope => {
     const current = revision.value;
     return VStack([
       Text(`Hold: ${hits.value}`).frame({ width: 260, height: 80 }).contentShape('rectangle').onLongPressGesture(() => { hits.value++; events.push({ kind: 'perform', current, at: Date.now() }); }, {
-        minimumDuration: duration.value, maximumDistance: distance.value,
+        priority: priority.value, minimumDuration: duration.value, maximumDistance: distance.value,
         ...(observed.value ? { onPressingChanged: value => {
           pressing.value = value; events.push({ kind: value, current, at: Date.now() });
           if (value && mutation.value === 'revision') revision.value++;
+          if (value && mutation.value === 'priority') priority.value = priority.value === 'normal' ? 'simultaneous' : 'normal';
           if (value && mutation.value === 'duration') duration.value = 0.4;
           if (value && mutation.value === 'observer') observed.value = false;
           if (value && mutation.value === 'remove') shown.value = false;
           if (value && mutation.value === 'disable') disabled.value = true;
         } } : {}),
       }),
-      TextField('Field', { text: text.binding, focusName: 'field' }).frame({ width: 240, height: 30 }).onLongPressGesture(() => {}, { minimumDuration: duration.value, maximumDistance: distance.value }),
+      TextField('Field', { text: text.binding, focusName: 'field' }).frame({ width: 240, height: 30 }).onLongPressGesture(() => {}, { priority: priority.value, minimumDuration: duration.value, maximumDistance: distance.value }),
     ], { spacing: 16 }).disabled(disabled.value);
   };
 });
@@ -48,9 +51,9 @@ result = await hold(0.14, { x: 40, y: 0, after: 0.015 }); assert.deepEqual(resul
 result = await hold(0.14, { x: 2, y: 0, after: 0.015 }); assert.deepEqual(result.map(e => e.kind), [true, 'perform', false]);
 assert.equal(Focus.requestNamed('field'), true); const captured = Focus.capture(); assert.ok(captured); const first = node(); mutation.value = 'revision';
 result = await hold(); mutation.value = 'none'; assert.deepEqual(result.map(e => [e.kind, e.current]), [[true, 0], ['perform', 1], [false, 1]]); assert.equal(node().props.press, first.props.press); assert.equal(Focus.request(captured), true);
-for (const change of ['duration', 'observer']) {
+for (const change of ['duration', 'observer', 'priority']) {
   const old = node(); mutation.value = change; result = await hold(); mutation.value = 'none'; assert.ok(!result.some(e => e.kind === 'perform')); assert.notEqual(node().props.press, old.props.press); assert.equal(Focus.request(captured), true);
-  duration.value = 0.06; test.flush(); await sleep(40);
+  duration.value = 0.06; priority.value = initialPriority; test.flush(); await sleep(40);
   if (change === 'observer') { result = await hold(); assert.deepEqual(result.map(e => e.kind), ['perform']); }
   observed.value = true; test.flush(); await sleep(40); result = await hold(); assert.deepEqual(result.map(e => e.kind), [true, 'perform', false]);
 }
@@ -69,4 +72,4 @@ for (let i = 0; i < 20; i++) {
   shown.value = false; test.flush(); await until(() => snapshot().hostedControlCount === 0 && snapshot().liveViews === snapshot().nodes.length, `remove ${i}`); assert.deepEqual(test.stats(), baseline); assert.equal(snapshot().pointerTimerCount, 0);
 }
 assert.equal(setups, 21); assert.equal(disposals, setups); test.request('debug.close'); await app; assert.equal(snapshot().pointerTimerCount, 0); assert.equal(snapshot().liveViews, 0); assert.equal(snapshot().liveCells, 0); assert.deepEqual(test.stats(), { actions: 0, cells: 0, dependencies: 0 });
-console.log('PASS long press: real held recognition/early release/distance cancellation, native phase timing and State, current handlers, config/observer epochs, stable field focus, disabling/removal while held, atomic validation and 20 owner lifetimes without activation');
+console.log('PASS long press ' + initialPriority + ': real held recognition/early release/distance cancellation, native phase timing and State, current handlers, config/observer epochs, stable field focus, disabling/removal while held, atomic validation and 20 owner lifetimes without activation');

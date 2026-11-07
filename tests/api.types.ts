@@ -554,5 +554,13 @@ Text('Invalid').onLongPressGesture(async () => {});
 Text('Invalid').onLongPressGesture(() => {}, { onPressingChanged: async () => {} });
 // @ts-expect-error Promise-returning observers are rejected.
 Text('Invalid').onLongPressGesture(() => {}, { onPressingChanged: () => Promise.resolve() });
-// @ts-expect-error Explicit priority is not part of this first long-press API.
-Text('Invalid').onLongPressGesture(() => {}, { priority: 'high' });
+// @ts-expect-error high priority long presses await verified nested arbitration
+Text('High hold').onLongPressGesture(() => {}, { priority: 'high' });
+Text('Together hold').onLongPressGesture(() => {}, { priority: 'simultaneous' });
+// @ts-expect-error Unknown long-press priorities are rejected.
+Text('Invalid').onLongPressGesture(() => {}, { priority: 'exclusive' });
+
+// @ts-expect-error Simultaneous recognition callbacks must also be synchronous.
+Text('Invalid').onLongPressGesture(async () => {}, { priority: 'simultaneous' });
+// @ts-expect-error Simultaneous pressing observers must also be synchronous.
+Text('Invalid').onLongPressGesture(() => {}, { priority: 'simultaneous', onPressingChanged: async () => {} });

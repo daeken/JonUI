@@ -1481,6 +1481,53 @@ composition with native controls, retaining recognition/pressing lifecycle and
 cancellation behavior; then define owned transient gesture state/general gesture
 composition before adding other gestures/animation.
 
+
+Simultaneous long-press composition (2026-11-07): `onLongPressGesture` now accepts
+`priority: 'normal' | 'simultaneous'` (default normal). Normal lets native controls
+or a child long press win, while retaining the outer pressing observer.
+Simultaneous allows the hold action alongside Button actions, Toggle binding
+updates and child recognition. A stable native convenience modifier continues to
+supply pressing/end/cancellation notifications; a native simultaneous recognizer
+adds that action. No production timer, extra callback registration or binding
+cell is added. Duration/distance/observer/priority changes retire the owned token;
+current handlers and captured native field targets survive priority/keyed changes.
+Zero-duration recognition can arrive before pressing start; it waits for that
+start to pin its token. Disappearance clears both pending states.
+
+High-priority long presses remain concretely blocked: native prototypes recognized
+over Button/Toggle, but an outer high-priority long press plus nested normal long
+press both failed to perform when pressing observation was retained. Sequence/drag
+observers and `.all`/`.gesture` masks did not resolve the nested arbitration.
+Those prototypes are not retained, and public/native validation rejects `high`.
+Do not mark general priority/composition complete from the simultaneous subset.
+Further work must reproduce and resolve both control/nested recognition with
+pressing/cancellation and stable field identity before exposing high priority.
+
+Validation: native build, 189 unit/compiler cases, 11 coverage workflow tests,
+both type checkers and API classification pass. Thirty-three focused offscreen
+native gates pass: composition; both modes' main, four callback failure/held
+shutdown, owned-window/sheet and four lazy-layout gates; ordinary/spatial tap
+priority, spatial/shape/tap/window/layout/appearance/shortcut/contract regressions.
+The refreshed composition fixture also passes zero-duration Button/Toggle/nested
+recognition in both modes. The native
+composition fixture covers control/child actions, observer notifications, early
+release/movement cancellation, current keyed handlers, priority epochs, field
+identity, disabled ancestors, atomic wire rejection and 20 owner lifetimes.
+Both modes run the existing held main/owned/sheet/all-four-lazy fixtures and
+failure/shutdown gates, including priority replacement while held. The demo can
+switch a Button between normal and simultaneous holds at runtime.
+
+The offscreen control driver can deliver a requested 10 ms hold after roughly
+220 ms inside native tracking. Registering timers explicitly in eventTracking
+mode did not fix it and is not retained. Composition tests therefore use the
+normal 0.5 s threshold and assert that short native phase durations actually end
+before it; they do not claim exact synthetic timing. No full-suite pass or fix
+for the recorded focus-mixed-sheet AppKit close SIGSEGV is claimed. Keep broad
+gestures/animation unchecked. Next independent actionable increment: define owned
+transient gesture state/reset semantics, then general composition. High priority,
+explicit cancellation reasons, clipping/occlusion and hardware/unmodified inactive
+delivery remain open.
+
 ## 3. Application and operating-system integration
 
 Button Command shortcuts completed (2026-11-07), continuing keyboard navigation:

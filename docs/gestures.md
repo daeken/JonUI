@@ -157,10 +157,16 @@ limits described above.
 
 `view.onLongPressGesture(action, options)` calls `action()` when SwiftUI recognizes
 a held press. Options are `minimumDuration` (seconds, default 0.5),
-`maximumDistance` (local logical points, default 10), and an optional synchronous
+`maximumDistance` (local logical points, default 10), `priority` (`normal` or
+`simultaneous`, default `normal`), and an optional synchronous
 `onPressingChanged(boolean)` observer. Duration and distance must be finite and
-nonnegative. Explicit gesture priorities, input kinds and event locations are
-not part of this first long-press API.
+nonnegative. Normal recognition lets native controls or a descendant long press
+win; the outer pressing observer still follows the press. Simultaneous recognition
+allows the long-press action together with a Button action, Toggle binding update
+or descendant long press. Early release still permits ordinary control actions
+without performing the long press. There is no ordering guarantee between separate
+control/gesture callbacks. High-priority long presses, input kinds and event
+locations remain unsupported.
 
 ```ts
 const count = scope.state(0), pressing = scope.state(false);
@@ -185,7 +191,7 @@ real held Command-mouse events, not a Node timer invoking the gesture callback.
 Action and pressing callbacks share one owned configuration token, stay in Node,
 run untracked outside task context, and must be synchronous. Throwing or returning
 a Promise stops/disposes the app. Current handler changes retain the token.
-Duration/distance changes or adding/removing the observer retire it. Native state
+Duration/distance/priority changes or adding/removing the observer retire it. Native state
 captures the starting token, so an old countdown cannot complete through a newer
 handler/configuration. Logical removal/close retires callbacks and drops late
 events. Native disappearance also clears the pending recognition token, even
@@ -200,7 +206,7 @@ including a possible final false; reset any shared external flag when you
 reconfigure and use `scope.onDispose` for guaranteed owner cleanup. Native lazy
 visibility and other controls may also affect recognition. Native disappearance
 does not synthesize an observer notification. Explicit cancellation reasons,
-automatic transient-state reset, priority/composition, partially clipped but still
+automatic transient-state reset, high priority/general composition, partially clipped but still
 realized targets, occlusion and broader control interoperability remain open.
 No ordering guarantee is added beyond the native phase stream.
 
@@ -221,3 +227,27 @@ realization, retained State/token and fresh reappearance, held logical removal,
 and 20 lifetimes each. These are native-disappearance guarantees, not a general
 pixel/occlusion visibility test. Unmodified inactive delivery and hardware checks
 remain open.
+
+Normal and simultaneous modes use stable native modifier types, preserving a
+captured field target through priority changes and keyed reordering. The native
+convenience modifier continues to own pressing notifications; an additional native
+simultaneous recognizer handles that mode's action. A zero-duration recognition
+can precede the native pressing start, so it waits for that start to capture its
+configuration token. No production timer or additional bridge registration is
+added.
+
+High-priority composition is blocked by a concrete native prototype failure:
+`highPriorityGesture(LongPressGesture)` plus a simultaneous pressing observer
+recognized over Button/Toggle, but an outer high-priority press and nested normal
+long press both failed to perform. Sequence/drag observer variants and `.all`/
+`.gesture` masks did not resolve nested arbitration while retaining the existing
+pressing contract. The public API rejects `high`; future work must prove both
+control and nested behavior, cancellation and stable native identity before
+exposing it. This limitation does not block simultaneous composition or owned
+transient-state work.
+
+The offscreen control driver can deliver a requested 10 ms hold after roughly
+220 ms inside native tracking. Adding the eventTracking run-loop mode did not
+resolve that delay and is not retained. Control early-release tests use a 0.5 s
+threshold and assert that actual native phase durations end before it. They do
+not claim exact synthetic or hardware timing.
