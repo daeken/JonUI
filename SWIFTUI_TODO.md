@@ -29,6 +29,20 @@ Status meanings:
 
 ## Current review
 
+- One-shot retry review (2026-11-07): all three owned focus controllers expose
+  retryWhenReady for current retained non-null intent. Shared availability watches
+  wait without polling/scrolling/realization; one fresh ready attempt ends even on
+  refusal. New intent, rearm, cancel, caller/session/owner retirement or observed
+  responder movement cancels it, including queued work. Internal weak responder
+  revisions distinguish unnamed shared-field-editor owners; public observers
+  remain name-only. No new cells/effects/capture retention or automatic rearm.
+  Five unit cases bring the total to 164; focused offscreen disabled/lazy/private
+  mapping, unnamed fields, task/RPC/sheet/resume and 20 pending owner lifetimes pass.
+  Native build, all 92 offscreen scenarios, 164 unit/compiler cases, both type
+  checkers and API classification pass. The recorded AppKit sheet-close crash did
+  not recur; no framework fix is claimed. Full SwiftUI FocusState parity,
+  viewport policy, triggerless native eligibility, Button/Toggle/Slider targeting,
+  physical windows and existing keyboard/IME/AX/nested-sheet gaps remain open.
 - Owned subscription review (2026-11-07): named/boolean/typed controllers map
   subscribeAvailability to shared native name watches. Owner retirement/resume/
   disposal ends subscriptions; task/RPC cancellation also removes owner tracking.
@@ -407,12 +421,12 @@ Status meanings:
 | AppStorage | Missing | Preferences-backed typed state and external changes. | UserDefaults namespace, migrations and subscription teardown. |
 | SceneStorage | Missing | Per-scene restorable state. | Requires scene ownership and persistence/version policy. |
 | FocusState | Partial (JonUI) | Owned named, standalone boolean and fixed string/number selection controllers, with observed-boolean/request projections. | Text/date/WebKit subset verified; dynamic domains, object/symbol IDs and general SwiftUI overloads remain. Observations do not write desired state. |
-| Scoped focus controller | Partial (JonUI) | Desired/actual/retired state, context requests/resume, named availability snapshots and session-owned subscriptions. | Native text/date/WebKit, context acknowledgement, no feedback/replay, modal/resume/task/RPC lifetime and owner cleanup verified; automatic retry/window policies remain. <!-- api: FocusController, ComponentScope.focus --> |
-| Boolean focus controller | Partial (JonUI) | Opaque binding, separate intent/observation, passive resume, availability snapshot and session-owned subscription. | Text/secure/editor/date/WebKit, conditional clear, private mapping, task/RPC leases, retired snapshots and subscription cleanup verified. General overloads/additional controls remain. <!-- api: BooleanFocusController, ComponentScope.focusBoolean --> |
-| Typed focus selection controller | Partial (JonUI) | Fixed string/number domain, separate nullable intent/observation, bindings/resume and guarded availability snapshots/session subscriptions by non-null ID. | Literal/typed identity, validation, text/date/WebKit, clear, task/RPC leases, context/session cancellation and cleanup verified; dynamic/object domains/general overloads remain. <!-- api: SelectionFocusController, ComponentScope.focusSelection --> |
+| Scoped focus controller | Partial (JonUI) | Desired/actual/retired state, context requests/resume, named availability snapshots/session subscriptions and cancellable one-shot retry of retained intent. | Native text/date/WebKit, no feedback/replay, ready-once/refusal/cancel behavior, unnamed responder guard, modal/resume/task/RPC lifetime and owner cleanup verified; viewport/physical-window policies remain. <!-- api: FocusController, ComponentScope.focus --> |
+| Boolean focus controller | Partial (JonUI) | Opaque binding, separate intent/observation, passive resume, availability snapshot/session subscription and one-shot retry of retained true intent. | Text/secure/editor/date/WebKit, conditional clear, private mapping, retry supersession/cancellation, task/RPC leases and owner cleanup verified. General overloads/additional controls remain. <!-- api: BooleanFocusController, ComponentScope.focusBoolean --> |
+| Typed focus selection controller | Partial (JonUI) | Fixed string/number domain, separate nullable intent/observation, bindings/resume, guarded availability snapshots/session subscriptions and one-shot retained-ID retry. | Literal/typed identity, validation, text/date/WebKit, clear, retry supersession/cancellation, task/RPC leases, context/session and owner cleanup verified; dynamic/object domains/general overloads remain. <!-- api: SelectionFocusController, ComponentScope.focusSelection --> |
 | focused projection | Partial (JonUI) | Boolean actual getter and deferred true/conditional-false request, attached to one named input. | Text/secure/editor/date/WebKit focus verified; Stepper/Picker wiring and unavailable gates verified, successful focus still gated. Modifier/owner/Unicode blur/cleanup covered; containers and remaining native controls unsupported. <!-- api: FocusBinding, View.focused --> |
-| Native focus observation | Partial (JonUI) | Nullable named responder snapshots and coalesced subscriptions; generation-stamped movement acknowledgements; observations do not write intent. | Text/date/WebKit/single-sheet observation, generation/sequence/context guards and cleanup verified; broader controls/IME/AX remain. <!-- api: Focus.subscribe --> |
-| Named focus availability | Partial (JonUI) | Snapshots and shared native/global-context subscriptions plus session-bound owned helpers. | Exact/opaque states, native/lazy/sheet changes, resume/context/task/effect/RPC cancellation and observer cleanup verified; triggerless OS changes, physical windows and automatic retry remain. <!-- api: FocusAvailability, Focus.availabilityNamed, Focus.subscribeAvailability --> |
+| Native focus observation | Partial (JonUI) | Nullable named responder snapshots/coalesced subscriptions; generation-stamped acknowledgements and internal weak responder-owner revisions; observations do not write intent. | Text/date/WebKit/single-sheet, unnamed shared-editor retry guard, public name-only dedup, generation/sequence/context guards and cleanup verified; broader controls/IME/AX remain. <!-- api: Focus.subscribe --> |
+| Named focus availability | Partial (JonUI) | Snapshots/shared native/global-context subscriptions, session-bound owned helpers and opt-in one-shot controller retry. | Exact/opaque states, native/lazy/sheet changes, caller/session/owner cancellation and observer cleanup verified; triggerless OS changes, viewport/physical-window policies remain. <!-- api: FocusAvailability, Focus.availabilityNamed, Focus.subscribeAvailability --> |
 | Focus commands | Partial | Native next/previous/clear plus four-axis geometric move. | Real text/date/WebKit/sheet/directional paths verified; full keyboard-access and optional non-editing arrow routing remain. <!-- api: Focus, Focus.next, Focus.previous, Focus.clear, Focus.move --> |
 | Captured / named focus | Partial | Weak opaque physical target or exact UTF-8 name; currentName snapshot; optional active-window Tab cycle. | Text/date/WebKit focus/captures/Tab verified; Stepper/Picker names and unavailable gates verified, successful eligibility remains gated. Button/Toggle/Slider registration remains. <!-- api: FocusTarget, Focus.capture, Focus.request, Focus.requestNamed, Focus.currentName, Focus.setTraversal --> |
 | focusSection | Partial | Native grouping without a new state cell. | Native grouping/geometry/captures verified; wider control/hardware coverage remains. <!-- api: View.focusSection --> |
@@ -546,7 +560,7 @@ can still bypass local enforcement; this is not server-side branch protection.
 Repository instructions require the same review for contributors and automation.
 
 <!-- coverage-review:generated -->
-Review baseline (checkout HEAD before commit): `3cf03a8dbdd6bb43b72ca3a9fffcb7d4654ddcd5`.
+Review baseline (checkout HEAD before commit): `76d688d942bf4eba4688fc1e14bab6c12db1e415`.
 
-Staged source-tree SHA-256 (excluding this catalog): `5ad442acd54d5db77b33a5cdefd7d253e00bd932a77e99e3a99045f5a04f95c6`.
+Staged source-tree SHA-256 (excluding this catalog): `745b8a7475f70c48509c234c59e0c0da89a9477a1ca542946db8d3636c121b7a`.
 <!-- /coverage-review:generated -->

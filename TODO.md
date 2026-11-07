@@ -1100,6 +1100,40 @@ targets, respecting session, caller and viewport/realization limits. Public
 Button/Toggle/Slider targeting, physical windows, keyboard/IME/AX/nested-sheet and
 the recorded AppKit sheet-close gaps remain open.
 
+Explicit one-shot focus retry completed (2026-11-07): named, boolean and typed
+controllers now expose `retryWhenReady(): () => void` for current retained intent.
+It shares an owned availability watch, rechecks readiness/context/responder and
+queues one after-commit attempt, ending even on refusal. Waiting does not poll,
+scroll or realize a lazy target. Already-focused/null intent is inert. Stop,
+new intent/request, applicable projected clear, rearm, resume, retirement,
+disposal and task/RPC cancellation invalidate waiting or queued retry work.
+Equal desired writes stay inert; old stop closures cannot cancel newer retries.
+Resume requires explicit rearming and supports a same-turn fresh arm.
+
+A weak native responder-owner revision protects against observed moves between
+unnamed fields sharing AppKit's editor, including availability-before-focus event
+delivery. Public named observers still notify only name changes. The guard is
+coalesced, so brief round trips between samples may be missed; typing/DOM selection
+within the same control is not a general user-activity signal. No new controller
+cells/effects, capture retention or polling were added. Ready retains native
+eligibility limits and does not mean viewport/document readiness; AppKit can
+naturally scroll an already-realized target when it receives focus.
+
+Validation: native build, 164 runtime/compiler cases and Deno/TypeScript pass.
+Focused offscreen native coverage passes disabled-to-ready one-shot focus,
+boolean/typed supersession, real unnamed shared-editor movement, stop/resume/
+task/RPC/source/sheet cancellation, external lazy scrolling and 20 pending owner
+lifetimes with baseline resources. The initial fixture incorrectly assumed native
+field order; a test-only field-owner mapping now resolves real targets by identity.
+Unit checks cover ready refusal, queued cancellation and newer conditional clears.
+All 92 offscreen native scenarios and API classification pass; the recorded
+AppKit sheet-close crash did not recur. The new focus-retry demo and
+focus/bridge docs describe the lifecycle and visibility limits. Keep the broad
+focus item unchecked. Next: define public targeting for custom-drawn Button/Toggle/
+Slider without forcing native keyboard eligibility. Physical windows,
+keyboard/IME/AX/nested-sheet policy and the recorded AppKit sheet-close crash
+remain open; no framework fix is claimed.
+
 ## 3. Application and operating-system integration
 
 - [ ] Support multiple windows with independent roots and explicit window ownership.

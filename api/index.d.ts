@@ -64,6 +64,8 @@ export interface FocusController {
   readonly retired: Computed<boolean>;
   /** Queue an after-commit request, including repeated names or explicit null/clear. */
   request(name: string | null): void;
+  /** One-shot cancellable retry of current non-null intent. Waiting does not scroll; session/responder changes cancel it. */
+  retryWhenReady(): () => void;
   /** Snapshot in the current native context; does not request focus or resume this owner. */
   availability(name: string): FocusAvailability | null;
   /** Session-owned initial/coalesced status. Stops on retirement/resume/disposal; subscribe again after resume. */
@@ -80,6 +82,8 @@ export interface BooleanFocusController {
   readonly retired: Computed<boolean>;
   readonly binding: FocusBinding;
   request(focused: boolean): void;
+  /** One-shot cancellable retry of retained true intent; same lifecycle as FocusController.retryWhenReady. */
+  retryWhenReady(): () => void;
   /** Inspect this opaque target without exposing its generated name. */
   availability(): FocusAvailability | null;
   /** Session-owned status for this opaque target. */
@@ -92,6 +96,8 @@ export interface SelectionFocusController<T extends string | number> {
   readonly actual: Computed<T | null>;
   readonly retired: Computed<boolean>;
   request(value: T | null): void;
+  /** One-shot cancellable retry of retained non-null ID; same lifecycle as FocusController.retryWhenReady. */
+  retryWhenReady(): () => void;
   /** Inspect a declared non-null ID without exposing its generated name. */
   availability(value: T): FocusAvailability | null;
   /** Session-owned status for a declared non-null ID. */

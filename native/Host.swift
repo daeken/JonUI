@@ -861,6 +861,8 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var lastFocusWatchToken = 0
     private var focusWatchSequence = 0, focusWatchContext = 0, focusRequestGeneration = 0
     private var focusWatchName: String?
+    private weak var focusWatchResponder: NSResponder?
+    private var responderRevision = 0
     private weak var focusWatchWindow: NSWindow?
     private var focusResponderObservation: NSKeyValueObservation?
     private var focusWindowNotifications: [NSObjectProtocol] = []
@@ -1134,10 +1136,17 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
         focusResponderObservation?.invalidate(); focusResponderObservation = nil
         for observer in focusWindowNotifications { NotificationCenter.default.removeObserver(observer) }
         focusWindowNotifications.removeAll(); focusWatchWindow = nil; focusWatchName = nil
+        focusWatchResponder = nil
+    }
+    @discardableResult private func updateResponderRevision(in window: NSWindow) -> Bool {
+        let responder: NSResponder? = focusView(window.firstResponder) ?? window.firstResponder
+        guard focusWatchResponder !== responder else { return false }
+        focusWatchResponder = responder; responderRevision += 1; return true
     }
     private func watchFocusWindow(_ window: NSWindow) {
         focusResponderObservation?.invalidate()
         focusWatchWindow = window; focusWatchContext += 1
+        updateResponderRevision(in: window)
         focusResponderObservation = window.observe(\.firstResponder, options: [.new]) { [weak self] _, _ in
             self?.scheduleFocusWatch()
         }
@@ -1152,12 +1161,13 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
             guard !self.stopping, !self.disposed, let window = try? self.prepareFocusWindow() else { return }
             let changedWindow = self.focusWatchWindow !== window
             if changedWindow { self.watchFocusWindow(window) }
+            let changedResponder = self.updateResponderRevision(in: window)
             let name = self.currentFocusName(in: window)
             // Swift strings compare canonically; declared names use exact UTF-8.
-            guard changedWindow || name.map({ Data($0.utf8) }) != self.focusWatchName.map({ Data($0.utf8) }) else { return }
+            guard changedWindow || changedResponder || name.map({ Data($0.utf8) }) != self.focusWatchName.map({ Data($0.utf8) }) else { return }
             self.focusWatchName = name; self.focusWatchSequence += 1
             self.emit(["type": "focusChanged", "token": token, "sequence": self.focusWatchSequence,
-                "context": self.focusWatchContext, "generation": self.focusRequestGeneration, "name": name as Any? ?? NSNull()])
+                "context": self.focusWatchContext, "generation": self.focusRequestGeneration, "responderRevision": self.responderRevision, "name": name as Any? ?? NSNull()])
         }
     }
     private func pruneFocusTargets() {
@@ -1265,9 +1275,10 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
         defer { focusWatchSampling = false }
         let window = try prepareFocusWindow()
         if focusWatchWindow !== window { watchFocusWindow(window) }
+        updateResponderRevision(in: window)
         focusWatchName = currentFocusName(in: window); focusWatchSequence += 1
         return ["token": focusWatchToken!, "generation": focusRequestGeneration,
-            "sequence": focusWatchSequence, "context": focusWatchContext, "name": focusWatchName as Any? ?? NSNull()]
+            "sequence": focusWatchSequence, "context": focusWatchContext, "responderRevision": responderRevision, "name": focusWatchName as Any? ?? NSNull()]
     }
     func handle(_ message: [String: Any]) throws -> Any {
         precondition(Thread.isMainThread)
@@ -1388,7 +1399,7 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
             let token = try integer(message["token"]), window = try prepareFocusWindow()
             guard token > lastFocusWatchToken else { throw BridgeError("Focus observation token must increase") }
             lastFocusWatchToken = token
-            stopFocusWatch(); focusWatchToken = token; focusWatchSequence = 0; focusWatchContext = 0; focusRequestGeneration = 0
+            stopFocusWatch(); focusWatchToken = token; focusWatchSequence = 0; focusWatchContext = 0; focusRequestGeneration = 0; responderRevision = 0
             focusWatchSampling = true
             watchFocusWindow(window); focusWatchName = currentFocusName(in: window)
             focusWatchSampling = false
@@ -1399,7 +1410,7 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
                     self.scheduleFocusWatch()
                 })
             }
-            return ["sequence": focusWatchSequence, "context": focusWatchContext, "generation": focusRequestGeneration, "name": focusWatchName as Any? ?? NSNull()]
+            return ["sequence": focusWatchSequence, "context": focusWatchContext, "generation": focusRequestGeneration, "responderRevision": responderRevision, "name": focusWatchName as Any? ?? NSNull()]
         case "focus.unwatch":
             let token = try integer(message["token"])
             if token == focusWatchToken { stopFocusWatch() }
@@ -1565,7 +1576,8 @@ private final class Host: NSObject, NSApplicationDelegate, NSWindowDelegate {
             return ["value": (binding.wrappedValue.timeIntervalSince1970 * 1000).rounded()]
         case "debug.fields" where testing:
             return ["fields": textControls().enumerated().map { index, field in
-                ["index": index, "secure": field is NSSecureTextField, "enabled": field.isEnabled, "hasAction": field.action != nil] as [String: Any]
+                let owner = hostedControls.first { entry in entry.value.view.map { field.isDescendant(of: $0) } ?? false }?.key
+                return ["index": index, "owner": owner as Any? ?? NSNull(), "secure": field is NSSecureTextField, "enabled": field.isEnabled, "hasAction": field.action != nil] as [String: Any]
             }]
         case "debug.editors" where testing:
             return ["count": textEditors().count]

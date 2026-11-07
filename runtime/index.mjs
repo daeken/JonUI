@@ -475,6 +475,14 @@ function initializeComponent(mounted) {
       const desired = scope.state(initialName), actual = scope.state(null), retired = scope.state(false), revision = scope.state(0), activation = scope.state(0);
       let context, token, ready = false, first = true, resuming = false, baseline = null, lease = focusLeaseClock, requestTask = null, resumeTask = null, unsubscribe = () => {};
       let conditionalClear = null, pendingIntent = initialName !== null;
+      let retry = null, pendingRetry = null;
+      function cancelRetry(waiter = retry) {
+        if (!waiter?.active) return;
+        waiter.active = false;
+        if (retry === waiter) retry = null;
+        if (pendingRetry === waiter) { pendingIntent = false; conditionalClear = null; requestTask = null; }
+        const stop = waiter.stop; waiter.stop = () => {}; waiter.baseline = null; stop();
+      }
       const taskLeases = new WeakMap();
       const availabilitySubscriptions = new Set();
       function stopAvailabilitySubscriptions() {
@@ -490,20 +498,24 @@ function initializeComponent(mounted) {
       }
       function retire() {
         ready = false; requestTask = null; conditionalClear = null; pendingIntent = false; retired.value = true; actual.value = null;
+        cancelRetry(); pendingRetry = null;
         try { stopAvailabilitySubscriptions(); } finally { unsubscribe(); }
       }
-      function queueIntent(name, onlyClear = null) {
+      function queueIntent(name, onlyClear = null, source = null) {
+        if (source !== retry) cancelRetry();
+        pendingRetry = source;
         requestTask = taskStorage.getStore(); conditionalClear = onlyClear; pendingIntent = true;
         desired.value = name; revision.value = untracked(() => revision.value) + 1;
       }
-      scope.onDispose(() => { ready = false; requestTask = null; resumeTask = null; baseline = null; conditionalClear = null; pendingIntent = false; try { stopAvailabilitySubscriptions(); } finally { unsubscribe(); } });
+      scope.onDispose(() => { ready = false; requestTask = null; resumeTask = null; baseline = null; conditionalClear = null; pendingIntent = false; cancelRetry(); pendingRetry = null; try { stopAvailabilitySubscriptions(); } finally { unsubscribe(); } });
       scope.effect(() => {
         activation.value;
         const caller = resumeTask; resumeTask = null;
-        if (caller && !taskIsCurrent(caller)) { resuming = false; baseline = null; requestTask = null; conditionalClear = null; pendingIntent = false; retired.value = true; stopAvailabilitySubscriptions(); return; }
+        if (caller && !taskIsCurrent(caller)) { resuming = false; baseline = null; requestTask = null; conditionalClear = null; pendingIntent = false; retired.value = true; cancelRetry(); pendingRetry = null; stopAvailabilitySubscriptions(); return; }
         unsubscribe = subscribeFocus(sample => {
           if (!ready) return;
           if (sample.token !== token || sample.context !== context) { retire(); return; }
+          if (retry?.baseline && (sample.name !== retry.baseline.name || sample.responderRevision !== retry.baseline.responderRevision)) cancelRetry();
           actual.value = sample.name;
         }, true);
         try {
@@ -511,26 +523,34 @@ function initializeComponent(mounted) {
           if (!sample) throw new Error('Focus observation session expired');
           receiveFocusChange(sample);
           token = sample.token; context = sample.context; ready = true; resuming = false; retired.value = false; actual.value = sample.name;
+          if (retry && !retry.baseline) { retry.baseline = sample; if (sample.name === retry.name) cancelRetry(); }
         } catch (error) { unsubscribe(); throw error; }
         return () => { ready = false; unsubscribe(); };
       });
       scope.effect(() => {
         const name = desired.value, attempt = revision.value, ended = retired.value;
-        if (!ready || ended) { if (!resuming) { requestTask = null; conditionalClear = null; pendingIntent = false; } return; }
+        if (!ready || ended) { if (!resuming) { requestTask = null; conditionalClear = null; pendingIntent = false; cancelRetry(); pendingRetry = null; } return; }
         if (baseline) {
           const prior = baseline; baseline = null;
           if (name === prior.name && attempt === prior.attempt) return;
         }
         if (first) { first = false; if (name === null && attempt === 0) return; }
-        const caller = requestTask, onlyClear = conditionalClear; requestTask = null; conditionalClear = null; pendingIntent = false;
-        if (caller && (!allowed(caller) || !taskIsCurrent(caller))) return;
+        const caller = requestTask, onlyClear = conditionalClear, source = pendingRetry; requestTask = null; conditionalClear = null; pendingIntent = false; pendingRetry = null;
+        if (source && (!source.active || retry !== source || name !== source.name)) { cancelRetry(source); return; }
+        if (caller && (!allowed(caller) || !taskIsCurrent(caller))) { if (source) cancelRetry(source); return; }
         if (focusWatch?.token !== token) { retire(); return; }
+        if (source) {
+          const sample = contextSnapshot();
+          if (!sample || !source.active || sample.name !== source.baseline?.name || sample.responderRevision !== source.baseline?.responderRevision) { cancelRetry(source); return; }
+        }
         const op = onlyClear !== null ? 'focus.blurNamed' : name === null ? 'focus.move' : 'focus.named';
         const args = onlyClear !== null ? { name: onlyClear } : name === null ? { direction: 'clear' } : { name };
-        const result = requestFocus(op, args, context);
+        let result;
+        try { result = requestFocus(op, args, context); } finally { if (source) cancelRetry(source); }
         const sample = result.observation;
         if (!sample || result.focusAccepted === false || sample.context !== context || sample.token !== token) { retire(); return; }
         actual.value = sample.name;
+        if (retry && sample.name === retry.name) cancelRetry();
       });
       const selection = Object.freeze({
         get value() { return desired.value; },
@@ -538,6 +558,7 @@ function initializeComponent(mounted) {
           if (!canWrite('write desired focus')) return;
           if (name !== null) focusName(name);
           if (untracked(() => desired.value) === name) return;
+          cancelRetry(); pendingRetry = null;
           requestTask = taskStorage.getStore();
           conditionalClear = null; pendingIntent = true;
           desired.value = name;
@@ -545,6 +566,25 @@ function initializeComponent(mounted) {
         subscribe: listener => desired.subscribe(listener),
       });
       const observed = scope.computed(() => actual.value);
+      function contextSnapshot() {
+        const sample = request('focus.snapshot', { token }).observation;
+        if (sample) receiveFocusChange(sample);
+        if (!sample || sample.token !== token || sample.context !== context) { retire(); return null; }
+        return sample;
+      }
+      function subscribeOwnedAvailability(name, callback, onStop) {
+        if (!canWrite('subscribe to scoped availability') || !resuming && untracked(() => retired.value)) { onStop?.(); return () => {}; }
+        focusName(name);
+        if (typeof callback !== 'function') throw new TypeError('Expected an availability listener');
+        const subscriptionLease = lease; let stop, ended = false;
+        stop = subscribeAvailability(name, value => {
+          if (ended || subscriptionLease !== lease || !ready || !canWrite('deliver scoped availability')) { stop(); return; }
+          if (!contextSnapshot()) return;
+          return callback(value);
+        }, () => { ended = true; availabilitySubscriptions.delete(stop); onStop?.(); });
+        if (!ended) availabilitySubscriptions.add(stop);
+        return stop;
+      }
       const controller = Object.freeze({
         desired: selection, actual: observed, retired: scope.computed(() => retired.value),
         request(name) {
@@ -557,22 +597,34 @@ function initializeComponent(mounted) {
           return Focus.availabilityNamed(name);
         },
         subscribeAvailability(name, callback) {
-          if (!canWrite('subscribe to scoped availability') || !resuming && untracked(() => retired.value)) return () => {};
-          focusName(name);
-          if (typeof callback !== 'function') throw new TypeError('Expected an availability listener');
-          const subscriptionLease = lease; let stop, ended = false;
-          stop = subscribeAvailability(name, value => {
-            if (ended || subscriptionLease !== lease || !ready || !canWrite('deliver scoped availability')) { stop(); return; }
-            const sample = request('focus.snapshot', { token }).observation;
-            if (sample) receiveFocusChange(sample);
-            if (!sample || sample.token !== token || sample.context !== context) { retire(); return; }
-            return callback(value);
-          }, () => { ended = true; availabilitySubscriptions.delete(stop); });
-          if (!ended) availabilitySubscriptions.add(stop);
-          return stop;
+          return subscribeOwnedAvailability(name, callback);
+        },
+        retryWhenReady() {
+          if (!canWrite('arm focus retry') || !resuming && untracked(() => retired.value)) return () => {};
+          cancelRetry();
+          const name = untracked(() => desired.value);
+          if (name === null) return () => {};
+          const wasReady = ready, initial = wasReady ? contextSnapshot() : null;
+          if (wasReady && !initial || initial?.name === name) return () => {};
+          if (initial && !Number.isSafeInteger(initial.responderRevision)) throw new Error('Focus responder revision unavailable');
+          const waiter = { name, active: true, queued: false, baseline: initial, stop: () => {} }; retry = waiter;
+          try {
+            waiter.stop = subscribeOwnedAvailability(name, value => {
+              if (value !== 'ready' || !waiter.active || retry !== waiter) return;
+              if (untracked(() => desired.value) !== name || Focus.availabilityNamed(name) !== 'ready') return;
+              const sample = contextSnapshot();
+              if (!sample || !waiter.active) return;
+              waiter.baseline ??= sample;
+              if (sample.name === name || sample.name !== waiter.baseline.name || sample.responderRevision !== waiter.baseline.responderRevision) { cancelRetry(waiter); return; }
+              waiter.queued = true; queueIntent(name, null, waiter);
+              const stop = waiter.stop; waiter.stop = () => {}; stop();
+            }, () => { if (!waiter.queued) cancelRetry(waiter); });
+          } catch (error) { cancelRetry(waiter); throw error; }
+          return () => cancelRetry(waiter);
         },
         resume() {
           if (owned.disposed || !canMoveFocus('resume scoped focus')) return;
+          cancelRetry(); pendingRetry = null;
           stopAvailabilitySubscriptions();
           lease = ++focusLeaseClock;
           const task = taskStorage.getStore(); if (task) taskLeases.set(task, lease);
@@ -603,6 +655,7 @@ function initializeComponent(mounted) {
             if (typeof focused !== 'boolean') throw new TypeError('Desired focus must be boolean');
             untracked(() => {
               if (focused ? desired.value === name : desired.value !== name) return;
+              cancelRetry(); pendingRetry = null;
               requestTask = taskStorage.getStore(); conditionalClear = focused ? null : name; pendingIntent = true;
               desired.value = focused ? name : null;
             });
@@ -659,6 +712,7 @@ function initializeComponent(mounted) {
           return controller.subscribeAvailability(nameFor(value), callback);
         },
         resume: controller.resume,
+        retryWhenReady: controller.retryWhenReady,
         binding(value) {
           if (value === null) throw new TypeError('A focus selection binding requires a non-null ID');
           return controller.binding(nameFor(value));
@@ -683,6 +737,7 @@ function initializeComponent(mounted) {
         desired, actual: Object.freeze({ get value() { return projected.value; } }), retired: controller.retired,
         binding: projected, request(value) { projected.value = value; }, availability: () => controller.availability(name), resume: controller.resume,
         subscribeAvailability: callback => controller.subscribeAvailability(name, callback),
+        retryWhenReady: controller.retryWhenReady,
       });
     },
     onDispose(cleanup) {
@@ -960,9 +1015,11 @@ function receiveFocusChange(event) {
   if (!watch || event.token !== watch.token || !Number.isSafeInteger(event.sequence) || event.sequence <= watch.sequence ||
       !Number.isSafeInteger(event.context) || event.context < watch.context ||
       !Number.isSafeInteger(event.generation) || event.generation < watch.generation ||
+      event.responderRevision !== undefined && (!Number.isSafeInteger(event.responderRevision) || event.responderRevision < (watch.responderRevision ?? 0)) ||
       event.name !== null && (typeof event.name !== 'string' || !event.name.length || !event.name.isWellFormed())) return;
   watch.sequence = event.sequence; watch.context = event.context; watch.name = event.name;
   watch.generation = event.generation; watch.requestGeneration = Math.max(watch.requestGeneration, event.generation);
+  watch.responderRevision = event.responderRevision ?? watch.responderRevision;
   if (watch.deliveryScheduled) return;
   watch.deliveryScheduled = true;
   queueMicrotask(() => {
@@ -972,9 +1029,9 @@ function receiveFocusChange(event) {
     try {
       taskStorage.run(undefined, () => untracked(() => {
         for (const entry of [...focusListeners]) {
-          if (focusWatch !== watch || watch.sequence !== sequence || !focusListeners.has(entry) || entry.name === name && (!entry.metadata || entry.context === watch.context)) continue;
-          entry.name = name; entry.context = watch.context;
-          const value = entry.metadata ? { token: watch.token, context: watch.context, name } : name;
+          if (focusWatch !== watch || watch.sequence !== sequence || !focusListeners.has(entry) || entry.name === name && (!entry.metadata || entry.context === watch.context && entry.responderRevision === watch.responderRevision)) continue;
+          entry.name = name; entry.context = watch.context; entry.responderRevision = watch.responderRevision;
+          const value = entry.metadata ? { token: watch.token, context: watch.context, responderRevision: watch.responderRevision, name } : name;
           if (!entry.task) entry.callback(value);
           else if (taskIsCurrent(entry.task)) taskStorage.run(entry.task, () => entry.callback(value));
         }
@@ -1000,7 +1057,7 @@ function subscribeFocus(callback, metadata = false) {
     try { Object.assign(watch, request('focus.watch', { token: watch.token })); }
     catch (error) { focusListeners.delete(entry); focusWatch = null; throw error; }
   }
-  entry.name = focusWatch.name; entry.context = focusWatch.context;
+  entry.name = focusWatch.name; entry.context = focusWatch.context; entry.responderRevision = focusWatch.responderRevision;
   if (entry.task) entry.unregister = registerTaskCleanup(entry.task, unsubscribe);
   return unsubscribe;
 }

@@ -677,8 +677,8 @@ explicit cleanup or app shutdown.
 The final listener removes its native name watch; the final name removes the
 shared window notification observers and invalidates queued native sampling.
 No target views or component scopes are retained by the native name registry.
-For session-bound observation, use the owned helpers below. Automatic focus retry
-remains open. Try
+For session-bound observation, use the owned helpers below. Explicit one-shot
+retry is described separately below. Try
 `bin/jonui examples/focus-availability/app.ts` to show/disable a target, open a
 sheet and stop/restart observation without moving focus automatically.
 
@@ -730,9 +730,56 @@ Owned **snapshot queries** remain allowed on a current retired owner; owned
 **subscriptions** require a live/resuming session. Delivery can acknowledge actual
 focus through the existing observation channel, but it does not request focus,
 change desired intent, consume movement generations or resume a controller.
-Readiness values retain the global API's staleness/visibility limits. There is no
-automatic focus retry or extra native watcher protocol; exact names still share
+Readiness values retain the global API's staleness/visibility limits. Subscribing
+alone does not retry focus; exact names still share
 the global watch until the last listener stops.
+
+## One-shot focus retry
+
+All three owned controller variants expose `retryWhenReady(): () => void`.
+It takes no target argument: it uses the current non-null retained desired name,
+true boolean intent or selection ID. Call it from an action/task, outside a render
+body or Computed callback:
+
+```ts
+focus.request('notes');
+const cancel = focus.retryWhenReady();
+// Later, optionally cancel(); desired intent remains 'notes'.
+```
+
+For boolean controllers use `request(true)` first; for typed selection use a
+declared non-null ID. With no intent or the desired target already focused,
+arming is inert. A retired/canceled/stale/disposed caller is also inert. The helper
+does not change desired intent. Stopping it does not undo the explicit request
+above or clear the current responder.
+
+An availability subscription waits for ready, then rechecks current availability,
+context and responder before scheduling **one** normal after-commit attempt. The
+wait ends even if AppKit refuses focus. Already-ready targets schedule the attempt
+asynchronously. A pending normal request may satisfy intent first, ending the
+wait without another request. Call `retryWhenReady()` again for another attempt.
+
+The returned stop function is idempotent, including after readiness queued the
+attempt. A newer explicit request (even for the same target), changed desired
+value, applicable projected clear, rearming, resume, retirement, owner disposal or
+task/RPC cancellation ends the old retry. An equal desired assignment remains
+inert. Calling an old stop function cannot cancel a newer retry. Resume does not
+restart anything: explicitly rearm after resume, including in the same turn.
+
+Observed responder movement after arming also cancels the wait. An internal
+revision tracks physical responder owners, including unnamed fields sharing an
+AppKit field editor. Fresh snapshots guard against availability arriving before
+the focus event. Public name listeners still deliver name changes only. This is
+a coalesced focus guard: a brief move away and back between native samples can be
+missed; typing within the same field or changing DOM selection is not a general
+user-activity cancellation signal.
+
+Waiting uses no polling and requests no scrolling or lazy realization. A lazy
+target waits for application/user-driven realization. Ready means native eligible,
+not visible in the viewport or document-ready. Focusing an already-realized
+offscreen target can cause AppKit's normal focus scrolling. Triggerless native
+eligibility changes retain the availability subscription's limits. Try
+`bin/jonui examples/focus-retry/app.ts` for disable/enable, cancellation and sheets.
 
 ## Appearance and focus readiness
 
@@ -743,8 +790,8 @@ eligible target. Disappearance also does not guarantee that a cached target was
 detached. These events do not resume a controller, replay intent, scroll or
 automatically retry focus. Use scoped tasks for cancellable work and onDispose
 for guaranteed cleanup, since disappearance after logical retirement is discarded.
-Availability subscriptions are separate from appearance; automatic retry policy
-remains open.
+Availability subscriptions are separate from appearance; opt in to the one-shot
+retry helper when retained intent should wait for native eligibility.
 
 ## Command traversal cycles
 

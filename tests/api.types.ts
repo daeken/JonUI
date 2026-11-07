@@ -151,6 +151,9 @@ WebView({ url: "https://example.com" });
 
 const ScopedCounter = Component<{ label: string }>((scope, initial) => {
   const selectionFocus = scope.focusSelection([1, '1', 'editor'], 1);
+  const stopRetry: () => void = selectionFocus.retryWhenReady(); void stopRetry;
+  // @ts-expect-error Retry uses retained intent, not a new target.
+  selectionFocus.retryWhenReady('editor');
   const selectedAvailability: import('jonui').FocusAvailability | null = selectionFocus.availability(1); void selectedAvailability;
   const stopSelected = selectionFocus.subscribeAvailability(1, value => { const status: import('jonui').FocusAvailability = value; void status; }); void stopSelected;
   // @ts-expect-error Subscription IDs cannot widen the domain.
@@ -194,6 +197,7 @@ const ScopedCounter = Component<{ label: string }>((scope, initial) => {
   // @ts-expect-error Selection intent is not a scalar native binding.
   void selectionFocus.desired.binding;
   const booleanFocus = scope.focusBoolean();
+  booleanFocus.retryWhenReady()();
   const booleanAvailability: import('jonui').FocusAvailability | null = booleanFocus.availability(); void booleanAvailability;
   booleanFocus.subscribeAvailability(value => { const status: import('jonui').FocusAvailability = value; void status; });
   // @ts-expect-error Boolean subscriptions take no target argument.
@@ -220,6 +224,7 @@ const ScopedCounter = Component<{ label: string }>((scope, initial) => {
   // @ts-expect-error A boolean controller has one binding, not named projections.
   booleanFocus.binding('name');
   const focus = scope.focus(); focus.desired.value = 'name'; focus.request(null); focus.resume();
+  focus.retryWhenReady()();
   const namedAvailability: import('jonui').FocusAvailability | null = focus.availability('name'); void namedAvailability;
   focus.subscribeAvailability('name', () => {});
   // @ts-expect-error Named subscription targets are non-null strings.

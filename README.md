@@ -186,6 +186,11 @@ Controllers also provide `subscribeAvailability(...)` with the same target
 arguments plus a listener. These subscriptions end on retirement, resume or
 disposal; re-subscribe for the new session. See
 [session-owned subscriptions](docs/focus.md#session-owned-availability-subscriptions).
+`focus.retryWhenReady()` arms one cancellable attempt for the controller's current
+retained intent. It waits without polling or scrolling and cancels on newer intent,
+observed responder movement, session changes or caller/owner cancellation. See
+[one-shot focus retry](docs/focus.md#one-shot-focus-retry) and
+`bin/jonui examples/focus-retry/app.ts`.
 `Focus.capture()` remembers the current native responder as a weak opaque target;
 `Focus.request(target)` restores it while its identity remains available. Adding
 or removing view handles retires saved captures; value updates/keyed reorder keep

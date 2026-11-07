@@ -693,7 +693,7 @@ exact Unicode sharing, effect/task ownership, RPC document cancellation, status
 State updates, no focus/retry/generation/capture mutation, 20 owner lifetimes and
 final native observer removal, including app-owned shutdown. Diagnostic snapshot
 counts remain readable after disposal for cleanup verification. Session-owned
-helpers are described below; automatic retry remains separate work.
+helpers and explicit one-shot retry are described below.
 
 Owned subscribeAvailability helpers map named/boolean/typed targets to the same
 global watcher. Each controller holds stop functions for one lease. Retirement,
@@ -797,7 +797,7 @@ isolation and 20 focused owner retirements with baseline resources.
 
 `Focus.subscribe` shares a `focus.watch` session among Node listeners. A new
 monotonically increasing token starts native observation and acknowledges a
-baseline `{ name, sequence, context, generation }` without initial callback replay. A stale
+baseline `{ name, sequence, context, generation, responderRevision }` without initial callback replay. A stale
 watch token is rejected before replacing a session; a stale `focus.unwatch`
 cannot stop a newer one. Last-listener cleanup stops the matching session.
 
@@ -807,13 +807,18 @@ commits schedule a coalesced main-queue sample. The sample lays out the active
 window, rebinds KVO on a context switch, and resolves the actual live named
 responder. It never consumes the KVO payload's old responder. UTF-8 comparison
 detects canonically equivalent name changes. It emits `focusChanged` with token,
-increasing sequence, context counter, request generation and nullable name only when the name/context
-changes. Sampling guards prevent reentrant layout notifications from queuing a
+increasing sequence, context counter, request generation, responder revision and
+nullable name when the name/context/responder owner changes. A weak responder
+reference resolves shared field editors to their owning view; no capture or strong
+view retention is added. Snapshots and movement acknowledgements update that same
+revision. Sampling guards prevent reentrant layout notifications from queuing a
 feedback loop. Stop/disposal invalidate KVO and all notification registrations;
 queued samples also require their original session token.
 
-Node validates name/sequence/context/generation and ignores retired/out-of-order events.
-Context-only changes update the baseline without duplicate public name callbacks.
+Node validates name/sequence/context/generation and optional nondecreasing safe
+integer responder revisions, ignoring retired/out-of-order events. Internal
+controller listeners receive revision changes; context/responder-only changes
+update the baseline without duplicate public name callbacks.
 Listeners run untracked outside the delivering task context; task-owned listeners
 retain their own cancellation checks and cleanup. Components use effect cleanup.
 Callbacks may stop siblings or add listeners without changing the current delivery
@@ -922,6 +927,26 @@ delivery, task/RPC leases, explicit authorizers, cancellation before commit and
 document replacement. Native coverage keeps one controller/model through sheet
 and parent resumption, rejects an earlier task's writes, repeats 20 observer
 resumes and disposes 20 owners with queued resume/request work at baseline resources.
+
+`retryWhenReady()` uses one private waiter and the existing owned availability
+subscription, adding no cells/effects/native registry. It snapshots the current
+desired name, context and responder revision; same-turn resume defers the baseline
+until activation. A ready callback rechecks native availability/context/responder,
+queues the normal after-commit intent effect and releases its availability watch.
+The effect checks the baseline and caller again, then ends the waiter after one
+attempt even on native refusal. A source marker distinguishes canceled queued
+retry work from newer normal requests and conditional clears. Cancellation
+releases callback/baseline references without changing desired intent. New intent,
+rearming, responder changes, task/RPC/session retirement and disposal invalidate
+the waiter. An old stop closure cannot affect a later waiter. Shared field editor
+owners are distinguished without exposing responder identities to Node. Public
+name observation remains deduplicated by name; this revision is a coalesced
+responder guard, not a DOM selection/typing activity stream. No polling, explicit
+scrolling, lazy realization or automatic resume/rearm is introduced. Native tests
+cover disabled-to-ready attempts, private boolean/typed mapping, real unnamed
+field movement, lazy scrolling driven by the test, resume/sheet/task/RPC guards
+and 20 pending owner lifetimes. Unit tests also cover ready refusal and cancellation
+between queueing and the effect, including protection of newer conditional clears.
 
 `FocusController.binding(name)` creates a frozen boolean projection backed by
 the existing actual computation and deferred controller intent queue. A private
